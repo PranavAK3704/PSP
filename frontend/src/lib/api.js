@@ -35,6 +35,15 @@ async function apiPost(url, body) {
     body: JSON.stringify(body),
   })).then(J);
 }
+// Multipart POST (file upload). Carries the auth bearer token but does NOT set
+// Content-Type — the browser adds the multipart boundary automatically.
+async function apiPostForm(url, formData) {
+  return guard(await fetch(url, {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  })).then(J);
+}
 
 // ── Auth ──
 export async function login(email, password) {
@@ -104,6 +113,17 @@ export const saveAuditRubric = (dimensions) => apiPost("/api/audit/rubric", { di
 export const runAudit = (concern_id) => apiPost("/api/audit/run", { concern_id });
 export const runAuditBatch = (limit = 10) => apiPost("/api/audit/run_batch", { limit });
 export const getAuditScores = () => apiGet("/api/audit/scores");
+
+// ── Auditing Studio: dynamic, editable Governance Framework ──
+export const getFramework = () => apiGet("/api/framework");
+export const saveFramework = (framework) => apiPost("/api/framework", { framework });
+export const approveFramework = () => apiPost("/api/framework/approve");
+// Upload a framework doc → the machine structures it into a draft framework.
+export function uploadFramework(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  return apiPostForm("/api/framework/upload", fd);
+}
 
 export const getL3 = () => apiGet("/api/l3/inbox");
 export const resolveL3 = (concern_id, resolution_note) => apiPost("/api/l3/resolve", { concern_id, resolution_note });

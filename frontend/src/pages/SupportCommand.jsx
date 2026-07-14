@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { getInsights, getAudit, getKt, submitKt, reviewKt, compileSopStream, getLedger,
   approveSop, compileBlueprintStream, getBlueprints, saveBlueprint, approveBlueprint,
-  getConcernTrace, exportLedger, getAuditRubric, saveAuditRubric, runAudit, runAuditBatch, getAuditScores } from "../lib/api.js";
+  getConcernTrace, exportLedger, getAuditRubric, saveAuditRubric, runAudit, runAuditBatch, getAuditScores,
+  getFramework, saveFramework, uploadFramework, approveFramework } from "../lib/api.js";
 import PolicyCompileAnimation from "../components/PolicyCompileAnimation.jsx";
 import BlueprintCompileAnimation from "../components/BlueprintCompileAnimation.jsx";
 import { useAuth } from "../lib/auth.jsx";
@@ -966,6 +967,7 @@ function AuditingStudio() {
   const [sub, setSub] = useState("scores");
   const SUBS = [
     ["scores", "Scores & Rubric", "insights"],
+    ["framework", "Governance Framework", "account_tree"],
     ["trail", "Audit Trail & CPD", "policy"],
     ["learning", "Learning Queue", "school"],
   ];
@@ -982,6 +984,7 @@ function AuditingStudio() {
         ))}
       </div>
       {sub === "scores" && <AuditScores />}
+      {sub === "framework" && <GovernanceFramework />}
       {sub === "trail" && <Audit />}
       {sub === "learning" && <LearningQueue />}
     </div>
@@ -1192,6 +1195,353 @@ function AuditScores() {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   GOVERNANCE FRAMEWORK — a dynamic, fully editable governance model.
+   Upload a framework doc (the machine structures it into a draft) OR edit every
+   part by hand: objective, signal sources, weighted dimensions (+ sub-factors +
+   an optional ladder), combine rule + formula, bands, band-movement, metrics,
+   accountability, and the prioritised items catalogue. Save draft (author+) /
+   Approve & publish (approver-only). Reuses the Field/RowCard/AddRow/SectionHead
+   primitives + StatusPill + glass-card aesthetic.
+   ══════════════════════════════════════════════════════════════════════════ */
+const numOrStr = (v) => (v === "" || v == null ? "" : (isNaN(Number(v)) ? v : Number(v)));
+
+function GovernanceFramework() {
+  const { isApprover } = useAuth();          // only approvers can publish (make it live)
+  const [fw, setFw] = useState(null);        // the working (editable) framework
+  const [uploading, setUploading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [source, setSource] = useState("");  // uploaded doc name (after structuring)
+  const [toast, setToast] = useState(null);
+  const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 4200); };
+
+  const load = () => getFramework().then(setFw);
+  useEffect(() => { load(); }, []);
+
+  async function onUpload(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";                     // allow re-selecting the same file
+    if (!file || uploading) return;
+    setUploading(true); setSource("");
+    try {
+      const r = await uploadFramework(file);
+      if (r?.framework) {
+        setFw(r.framework); setSource(r.source_name || file.name);
+        flash("Structured into a draft — review every part, then Save / Approve.");
+      } else {
+        flash(r?.detail || "Could not structure that document.");
+      }
+    } catch (err) {
+      flash("Upload failed: " + (err?.message || "error"));
+    } finally { setUploading(false); }
+  }
+
+  async function onSave() {
+    if (!fw || busy) return;
+    setBusy(true);
+    try { const r = await saveFramework(fw); if (r?.framework) { setFw(r.framework); flash("Saved as draft."); } }
+    finally { setBusy(false); }
+  }
+  async function onApprove() {
+    if (!fw || busy) return;
+    setBusy(true);
+    try {
+      await saveFramework(fw);               // persist current edits, then publish
+      const r = await approveFramework();
+      if (r?.framework) { setFw(r.framework); flash(`Published — framework is now v${r.framework.version} (approved).`); }
+    } finally { setBusy(false); }
+  }
+
+  if (!fw) return <div className="glass-card p-lg rounded-xl text-on-surface-variant">Loading framework…</div>;
+
+  return (
+    <div className="flex flex-col gap-gutter">
+      {toast && (
+        <div className="glass-card rounded-lg px-md py-sm flex items-center gap-2 text-sm border border-tertiary/40 text-tertiary">
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>check_circle</span>{toast}
+        </div>
+      )}
+
+      {/* header: title + version/status */}
+      <div className="flex items-center justify-between flex-wrap gap-sm">
+        <div>
+          <div className="text-[15px] font-bold text-on-surface flex items-center gap-2">
+            <span className="material-symbols-outlined text-secondary-container" style={{ fontSize: 20 }}>account_tree</span>
+            Governance Framework</div>
+          <p className="text-xs text-on-surface-variant mt-0.5 max-w-[640px]">
+            A dynamic, fully editable governance model — signal sources, scoring dimensions, bands,
+            metrics, accountability and the prioritised problems catalogue. Everything here is data;
+            edit it (or upload a doc) with zero code change.</p>
+        </div>
+        <div className="flex items-center gap-sm">
+          <StatusPill status={fw.status} />
+          <span className="text-[11px] font-bold px-2.5 py-1 rounded bg-secondary-container/10 text-secondary-container" style={{ fontFamily: "JetBrains Mono" }}>v{fw.version}</span>
+        </div>
+      </div>
+
+      {/* placeholder note */}
+      {fw.note && (
+        <div className="flex items-start gap-2 text-xs bg-warn/10 border border-warn/40 rounded-lg px-md py-sm text-warn">
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>lightbulb</span>
+          <span className="flex-1 leading-relaxed">{fw.note}</span>
+        </div>
+      )}
+
+      {/* UPLOAD control */}
+      <div className="glass-card rounded-xl p-lg flex flex-col gap-sm">
+        <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-secondary-container">Upload a framework doc</div>
+        <p className="text-xs text-on-surface-variant">
+          Drop in a governance document (.pdf, .csv, .md, .txt). The machine structures it into the model
+          below — <b>review before approving</b>.</p>
+        <div className="flex items-center gap-md flex-wrap">
+          <label className={`self-start flex items-center gap-2 px-lg py-sm rounded-lg font-bold text-sm cursor-pointer transition-all ${
+            uploading ? "opacity-50 pointer-events-none" : ""} bg-secondary-container text-on-secondary hover:brightness-110`}>
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{uploading ? "hourglass_top" : "upload_file"}</span>
+            {uploading ? "Structuring…" : "Upload & structure"}
+            <input type="file" accept=".pdf,.csv,.md,.txt" onChange={onUpload} className="hidden" />
+          </label>
+          {uploading && (
+            <span className="flex items-center gap-1.5 text-[11px] text-on-surface-variant">
+              <span className="material-symbols-outlined animate-spin" style={{ fontSize: 15 }}>progress_activity</span>
+              The machine structures it; review before approving.</span>
+          )}
+          {source && !uploading && (
+            <span className="text-[11px] text-on-surface-variant flex items-center gap-1" style={{ fontFamily: "JetBrains Mono" }}>
+              <span className="material-symbols-outlined text-tertiary" style={{ fontSize: 14 }}>description</span>{source}</span>
+          )}
+        </div>
+      </div>
+
+      {/* EDITABLE view */}
+      <div className="glass-card rounded-xl p-lg">
+        <FrameworkEditor fw={fw} onChange={setFw} />
+      </div>
+
+      {/* ACTIONS */}
+      <div className="glass-card rounded-xl p-lg flex items-center gap-sm flex-wrap">
+        <button onClick={onSave} disabled={busy}
+          className="border border-secondary-container text-secondary-container px-lg py-sm rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-secondary-container/10 disabled:opacity-40 transition-all">
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>save</span>Save draft</button>
+        {isApprover ? (
+          <>
+            <button onClick={onApprove} disabled={busy}
+              className="bg-tertiary text-on-tertiary px-lg py-sm rounded-lg font-bold text-sm flex items-center gap-2 hover:brightness-110 disabled:opacity-40 transition-all">
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>rocket_launch</span>Approve &amp; publish</button>
+            <span className="text-[11px] text-on-surface-variant">Publishing bumps the version and marks it approved.</span>
+          </>
+        ) : (
+          <span className="flex items-center gap-1.5 text-[11px] text-on-surface-variant">
+            <span className="material-symbols-outlined text-warn" style={{ fontSize: 15 }}>lock</span>
+            Needs an approver to publish — your draft is saved for review.</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Editable Governance Framework ── */
+const SIGNAL_MODES = ["reactive", "proactive"];
+const METRIC_KINDS = ["behavioural", "functional", "impact"];
+const COMBINE_MODES = ["multiply", "weighted_sum"];
+
+function FrameworkEditor({ fw, onChange }) {
+  const set = (k, v) => onChange({ ...fw, [k]: v });
+  const setArr = (k, i, patch) => set(k, (fw[k] || []).map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const del = (k, i) => set(k, (fw[k] || []).filter((_, j) => j !== i));
+  const add = (k, row) => set(k, [...(fw[k] || []), row]);
+  const acc = fw.accountability || {};
+  const setAcc = (sub, v) => set("accountability", { ...acc, [sub]: v });
+
+  return (
+    <div className="flex flex-col">
+      {/* name + objective */}
+      <div className="flex flex-col gap-xs mb-sm">
+        <Field value={fw.name} onChange={(v) => set("name", v)} placeholder="Framework name" mono={false}
+          className="text-sm font-semibold" />
+        <Field value={fw.objective} onChange={(v) => set("objective", v)} placeholder="Objective — what this framework is for" mono={false} />
+      </div>
+
+      {/* signal sources */}
+      <SectionHead icon="sensors" title="Signal sources · where a problem shows up" />
+      <div className="flex flex-col gap-xs">
+        {(fw.signal_sources || []).map((s, i) => (
+          <RowCard key={i} onRemove={() => del("signal_sources", i)}>
+            <Field value={s.label} onChange={(v) => setArr("signal_sources", i, { label: v })} placeholder="label" mono={false} className="w-52" />
+            <Field value={(s.examples || []).join(", ")} onChange={(v) => setArr("signal_sources", i, { examples: v.split(",").map((x) => x.trim()).filter(Boolean) })} placeholder="examples (comma-sep)" mono={false} className="flex-1 min-w-[180px]" />
+            <select value={s.mode || ""} onChange={(e) => setArr("signal_sources", i, { mode: e.target.value })}
+              className="bg-surface-container-highest border border-on-primary-fixed-variant/20 rounded px-1 py-1 text-[11px]" style={{ fontFamily: "JetBrains Mono" }}>
+              {["", ...SIGNAL_MODES].map((o) => <option key={o} value={o}>{o || "mode?"}</option>)}
+            </select>
+          </RowCard>
+        ))}
+        <AddRow label="signal source" onClick={() => add("signal_sources", { label: "", examples: [], mode: "reactive" })} />
+      </div>
+
+      {/* dimensions */}
+      <SectionHead icon="straighten" title="Dimensions · weighted scoring axes" />
+      <div className="flex flex-col gap-sm">
+        {(fw.dimensions || []).map((d, i) => (
+          <DimensionCard key={i} dim={d}
+            onChange={(patch) => setArr("dimensions", i, patch)}
+            onRemove={() => del("dimensions", i)} />
+        ))}
+        <AddRow label="dimension" onClick={() => add("dimensions", { key: "", label: "", description: "", scale_min: 1, scale_max: 10, sub_factors: [], ladder: [] })} />
+      </div>
+
+      {/* combine + formula */}
+      <SectionHead icon="functions" title="Combine + formula" />
+      <div className="flex flex-wrap gap-xs items-center">
+        <span className="text-[10px] text-on-surface-variant">combine</span>
+        <select value={fw.combine || ""} onChange={(e) => set("combine", e.target.value)}
+          className="bg-surface-container-highest border border-on-primary-fixed-variant/20 rounded px-1 py-1 text-[11px]" style={{ fontFamily: "JetBrains Mono" }}>
+          {COMBINE_MODES.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+        <Field value={fw.formula} onChange={(v) => set("formula", v)} placeholder="formula (e.g. Priority Index = Scale × Severity × Recoverability)" mono={false} className="flex-1 min-w-[240px]" />
+      </div>
+
+      {/* bands */}
+      <SectionHead icon="stacked_bar_chart" title="Bands" />
+      <div className="flex flex-col gap-xs">
+        {(fw.bands || []).map((b, i) => (
+          <RowCard key={i} onRemove={() => del("bands", i)}>
+            <Field value={b.label} onChange={(v) => setArr("bands", i, { label: v })} placeholder="band" className="w-20" />
+            <Field value={b.meaning} onChange={(v) => setArr("bands", i, { meaning: v })} placeholder="meaning" mono={false} className="flex-1 min-w-[160px]" />
+            <Field value={b.action} onChange={(v) => setArr("bands", i, { action: v })} placeholder="action" mono={false} className="flex-1 min-w-[140px]" />
+          </RowCard>
+        ))}
+        <AddRow label="band" onClick={() => add("bands", { label: "", meaning: "", action: "" })} />
+      </div>
+
+      {/* band movement */}
+      <SectionHead icon="swap_horiz" title="Band movement" />
+      <div className="flex flex-col gap-xs">
+        {(fw.band_movement || []).map((m, i) => (
+          <RowCard key={i} onRemove={() => del("band_movement", i)}>
+            <Field value={m.from} onChange={(v) => setArr("band_movement", i, { from: v })} placeholder="from" className="w-20" />
+            <span className="text-on-surface-variant">→</span>
+            <Field value={m.to} onChange={(v) => setArr("band_movement", i, { to: v })} placeholder="to" className="w-20" />
+            <Field value={m.condition} onChange={(v) => setArr("band_movement", i, { condition: v })} placeholder="condition" mono={false} className="flex-1 min-w-[200px]" />
+          </RowCard>
+        ))}
+        <AddRow label="movement rule" onClick={() => add("band_movement", { from: "", to: "", condition: "" })} />
+      </div>
+
+      {/* metrics */}
+      <SectionHead icon="query_stats" title="Metrics" />
+      <div className="flex flex-col gap-xs">
+        {(fw.metrics || []).map((m, i) => (
+          <RowCard key={i} onRemove={() => del("metrics", i)}>
+            <Field value={m.name} onChange={(v) => setArr("metrics", i, { name: v })} placeholder="name" mono={false} className="w-52" />
+            <Field value={m.definition} onChange={(v) => setArr("metrics", i, { definition: v })} placeholder="definition" mono={false} className="flex-1 min-w-[180px]" />
+            <select value={m.kind || ""} onChange={(e) => setArr("metrics", i, { kind: e.target.value })}
+              className="bg-surface-container-highest border border-on-primary-fixed-variant/20 rounded px-1 py-1 text-[11px]" style={{ fontFamily: "JetBrains Mono" }}>
+              {["", ...METRIC_KINDS].map((o) => <option key={o} value={o}>{o || "kind?"}</option>)}
+            </select>
+          </RowCard>
+        ))}
+        <AddRow label="metric" onClick={() => add("metrics", { name: "", definition: "", kind: "behavioural" })} />
+      </div>
+
+      {/* accountability */}
+      <SectionHead icon="diversity_3" title="Accountability" />
+      <div className="flex flex-col gap-xs">
+        <div className="flex flex-wrap gap-xs items-center">
+          <span className="text-[10px] text-on-surface-variant">owners by</span>
+          <Field value={acc.owners_by} onChange={(v) => setAcc("owners_by", v)} placeholder="how owners are assigned" mono={false} className="flex-1 min-w-[220px]" />
+          <span className="text-[10px] text-on-surface-variant">SLA hrs</span>
+          <Field value={acc.sla_hours ?? ""} onChange={(v) => setAcc("sla_hours", v === "" ? "" : Number(v))} placeholder="hours" className="w-20" />
+        </div>
+        <Field value={acc.score_def} onChange={(v) => setAcc("score_def", v)} placeholder="governance score definition" mono={false} />
+      </div>
+
+      {/* items catalogue */}
+      <SectionHead icon="format_list_bulleted" title="Items · prioritised problems catalogue" />
+      <div className="flex flex-col gap-xs">
+        {(fw.items || []).map((it, i) => (
+          <RowCard key={i} onRemove={() => del("items", i)}>
+            <Field value={it.name} onChange={(v) => setArr("items", i, { name: v })} placeholder="problem / pain-point" mono={false} className="w-full mb-1" />
+            <Field value={it.journey_stage} onChange={(v) => setArr("items", i, { journey_stage: v })} placeholder="stage" mono={false} className="w-40" />
+            <Field value={it.priority} onChange={(v) => setArr("items", i, { priority: v })} placeholder="P?" className="w-14" />
+            <Field value={it.impact_type} onChange={(v) => setArr("items", i, { impact_type: v })} placeholder="impact" className="w-20" />
+            <span className="text-[10px] text-on-surface-variant">S</span>
+            <Field value={it.scale} onChange={(v) => setArr("items", i, { scale: numOrStr(v) })} placeholder="scale" className="w-14" />
+            <span className="text-[10px] text-on-surface-variant">×</span>
+            <Field value={it.severity} onChange={(v) => setArr("items", i, { severity: numOrStr(v) })} placeholder="sev" className="w-14" />
+            <span className="text-[10px] text-on-surface-variant">×</span>
+            <Field value={it.recoverability} onChange={(v) => setArr("items", i, { recoverability: v })} placeholder="recov" className="w-14" />
+            <span className="text-[10px] text-on-surface-variant">=</span>
+            <Field value={it.index} onChange={(v) => setArr("items", i, { index: numOrStr(v) })} placeholder="index" className="w-16" />
+            <Field value={it.owner} onChange={(v) => setArr("items", i, { owner: v })} placeholder="owner" mono={false} className="flex-1 min-w-[120px]" />
+          </RowCard>
+        ))}
+        <AddRow label="item" onClick={() => add("items", { name: "", journey_stage: "", priority: "", impact_type: "", scale: "", severity: "", recoverability: "", index: "", metrics: {}, root_cause: "", policy_proposed: "", owner: "", timeline: "", nps_impact: "", recovery_path: "" })} />
+      </div>
+    </div>
+  );
+}
+
+/* One dimension card: label/key/description/scale range + sub-factor rows + optional ladder. */
+function DimensionCard({ dim, onChange, onRemove }) {
+  const sub = dim.sub_factors || [];
+  const ladder = dim.ladder || [];
+  const setSub = (i, patch) => onChange({ sub_factors: sub.map((s, j) => (j === i ? { ...s, ...patch } : s)) });
+  const delSub = (i) => onChange({ sub_factors: sub.filter((_, j) => j !== i) });
+  const addSub = () => onChange({ sub_factors: [...sub, { label: "", scale_min: 1, scale_max: 5, normalization: "", note: "" }] });
+  const setLad = (i, patch) => onChange({ ladder: ladder.map((l, j) => (j === i ? { ...l, ...patch } : l)) });
+  const delLad = (i) => onChange({ ladder: ladder.filter((_, j) => j !== i) });
+  const addLad = () => onChange({ ladder: [...ladder, { level: ladder.length + 1, label: "" }] });
+
+  return (
+    <div className="bg-surface-container-lowest border border-on-primary-fixed-variant/15 rounded-lg p-md">
+      <div className="flex items-start gap-sm">
+        <div className="flex-1 flex flex-col gap-xs min-w-0">
+          <div className="flex items-center gap-xs flex-wrap">
+            <Field value={dim.label} onChange={(v) => onChange({ label: v })} placeholder="dimension label" mono={false} className="w-44 font-semibold" />
+            <Field value={dim.key} onChange={(v) => onChange({ key: v })} placeholder="key" className="w-28" />
+            <span className="text-[10px] text-on-surface-variant">range</span>
+            <Field value={dim.scale_min ?? ""} onChange={(v) => onChange({ scale_min: numOrStr(v) })} placeholder="min" className="w-12" />
+            <span className="text-on-surface-variant">–</span>
+            <Field value={dim.scale_max ?? ""} onChange={(v) => onChange({ scale_max: numOrStr(v) })} placeholder="max" className="w-12" />
+          </div>
+          <Field value={dim.description} onChange={(v) => onChange({ description: v })} placeholder="what this dimension measures" mono={false} />
+        </div>
+        <button onClick={onRemove} className="flex-none w-6 h-6 grid place-items-center rounded text-on-surface-variant hover:text-error">
+          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
+        </button>
+      </div>
+
+      {/* sub-factors */}
+      <div className="mt-sm pl-md border-l border-on-primary-fixed-variant/15 flex flex-col gap-xs">
+        <div className="text-[9px] uppercase tracking-wide text-on-surface-variant">sub-factors</div>
+        {sub.map((s, i) => (
+          <RowCard key={i} onRemove={() => delSub(i)}>
+            <Field value={s.label} onChange={(v) => setSub(i, { label: v })} placeholder="sub-factor" mono={false} className="w-44" />
+            <Field value={s.scale_min ?? ""} onChange={(v) => setSub(i, { scale_min: numOrStr(v) })} placeholder="min" className="w-12" />
+            <span className="text-on-surface-variant">–</span>
+            <Field value={s.scale_max ?? ""} onChange={(v) => setSub(i, { scale_max: numOrStr(v) })} placeholder="max" className="w-12" />
+            <Field value={s.normalization} onChange={(v) => setSub(i, { normalization: v })} placeholder="normalization" className="w-32" />
+            <Field value={s.note} onChange={(v) => setSub(i, { note: v })} placeholder="note" mono={false} className="flex-1 min-w-[120px]" />
+          </RowCard>
+        ))}
+        <AddRow label="sub-factor" onClick={addSub} />
+      </div>
+
+      {/* optional ladder */}
+      <div className="mt-sm pl-md border-l border-on-primary-fixed-variant/15 flex flex-col gap-xs">
+        <div className="text-[9px] uppercase tracking-wide text-on-surface-variant">ladder (optional ordinal)</div>
+        {ladder.map((l, i) => (
+          <RowCard key={i} onRemove={() => delLad(i)}>
+            <span className="text-[10px] text-on-surface-variant">level</span>
+            <Field value={l.level ?? ""} onChange={(v) => setLad(i, { level: numOrStr(v) })} placeholder="n" className="w-12" />
+            <Field value={l.label} onChange={(v) => setLad(i, { label: v })} placeholder="label" mono={false} className="flex-1 min-w-[160px]" />
+          </RowCard>
+        ))}
+        <AddRow label="ladder level" onClick={addLad} />
       </div>
     </div>
   );

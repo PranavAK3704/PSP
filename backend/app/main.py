@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -33,7 +33,7 @@ from .auth import tokens as auth_tokens                # noqa: E402
 from .auth.deps import current_user, require_role      # noqa: E402
 from .channels import whatsapp                          # noqa: E402
 from .engine import conversation, dispositions          # noqa: E402
-from .knowledge import blueprints, policies, sop_compiler, store  # noqa: E402
+from .knowledge import blueprints, governance, policies, sop_compiler, store  # noqa: E402
 from .kt import engine as kt_engine                     # noqa: E402
 from .l3 import platform as l3                          # noqa: E402
 from .llm import registry as llm_registry               # noqa: E402
@@ -133,6 +133,10 @@ class L3ResolveIn(BaseModel):
 
 class AuditRubricIn(BaseModel):
     dimensions: list[dict]
+
+
+class FrameworkSaveIn(BaseModel):
+    framework: dict
 
 
 class AuditRunIn(BaseModel):
@@ -478,6 +482,60 @@ def audit_run_batch(body: AuditBatchIn):
 def audit_scores():
     """Audit history + aggregates (avg composite, per-dimension avg, trend, by disposition)."""
     return audit_runner.scores()
+
+
+# ── Auditing Studio: dynamic, editable Governance Framework ──────────────────
+def _extract_text(raw: bytes, content_type: str, filename: str) -> str:
+    """Best-effort text extraction from an uploaded framework doc: pypdf for PDFs,
+    utf-8 decode (lenient) for text/csv/markdown/plain. Raises 400 on empty text."""
+    ctype = (content_type or "").lower()
+    name = (filename or "").lower()
+    is_pdf = "application/pdf" in ctype or name.endswith(".pdf")
+    if is_pdf:
+        import io as _io
+        from pypdf import PdfReader
+        try:
+            reader = PdfReader(_io.BytesIO(raw))
+            text = "\n".join((page.extract_text() or "") for page in reader.pages)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=f"could not read PDF: {e}")
+    else:
+        text = raw.decode("utf-8", errors="replace")
+    text = (text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="no extractable text in the uploaded file")
+    return text
+
+
+@app.get("/api/framework", dependencies=[_authed])
+def framework_get():
+    """The current (versioned) Governance Framework — the seeded PLACEHOLDER on first run."""
+    return governance.get()
+
+
+@app.post("/api/framework", dependencies=[_author])
+def framework_save(body: FrameworkSaveIn):
+    """Save an edited framework as a draft (author-or-approver). Returns {ok, framework}."""
+    fw = governance.save(body.framework)
+    return {"ok": True, "framework": fw}
+
+
+@app.post("/api/framework/upload", dependencies=[_author])
+async def framework_upload(file: UploadFile = File(...)):
+    """Upload a framework document → extract text (pypdf for PDF; utf-8 for text/csv/md/plain)
+    → structure it into the Framework model with the LLM → return {framework(draft), source_name}.
+    The machine structures it; a human reviews before approving (author-or-approver)."""
+    raw = await file.read()
+    text = _extract_text(raw, file.content_type, file.filename)
+    fw = governance.structure_framework_from_text(text)
+    return {"framework": fw, "source_name": file.filename}
+
+
+@app.post("/api/framework/approve", dependencies=[_approver])
+def framework_approve():
+    """Publish the current framework → status=approved + bump version (approver only)."""
+    fw = governance.approve()
+    return {"ok": True, "framework": fw}
 
 
 @app.get("/api/insights", dependencies=[_authed])

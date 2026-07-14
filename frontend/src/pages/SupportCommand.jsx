@@ -7,36 +7,9 @@ import PolicyCompileAnimation from "../components/PolicyCompileAnimation.jsx";
 import BlueprintCompileAnimation from "../components/BlueprintCompileAnimation.jsx";
 import { useAuth } from "../lib/auth.jsx";
 
-const TABS = [
-  ["command", "Command", "space_dashboard"],
-  ["knowledge", "Authoring Studio", "neurology"],
-  ["auditing", "Auditing Studio", "fact_check"],
-  ["ledger", "Concern Log", "receipt_long"],
-];
-
-export default function SupportCommand() {
-  const [tab, setTab] = useState("command");
-  return (
-    <div className="h-full flex flex-col gap-gutter">
-      <div className="flex gap-sm flex-wrap">
-        {TABS.map(([k, label, icon]) => (
-          <button key={k} onClick={() => setTab(k)}
-            className={`flex items-center gap-2 px-md py-sm rounded-lg text-sm font-semibold transition-all border ${
-              tab === k ? "bg-secondary-container text-on-secondary border-secondary-container"
-                        : "glass-card text-on-surface-variant hover:text-secondary-container border-transparent"}`}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{icon}</span>{label}
-          </button>
-        ))}
-      </div>
-      <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
-        {tab === "command" && <Command />}
-        {tab === "knowledge" && <AuthoringStudio />}
-        {tab === "auditing" && <AuditingStudio />}
-        {tab === "ledger" && <Ledger />}
-      </div>
-    </div>
-  );
-}
+// Nav now lives in the app's left sidebar (App.jsx) — these views are exported as
+// standalone top-level views and routed there. Command / AuthoringStudio /
+// AuditingStudio / GovernanceFramework / Ledger each fetch their own data on mount.
 
 /* ── Command / metrics ── */
 function Stat({ label, value, sub, tone = "text-on-surface" }) {
@@ -50,7 +23,7 @@ function Stat({ label, value, sub, tone = "text-on-surface" }) {
     </div>
   );
 }
-function Command() {
+export function Command() {
   const [d, setD] = useState(null);
   useEffect(() => { getInsights().then(setD); }, []);
   if (!d) return <div className="glass-card p-lg rounded-xl text-on-surface-variant">Loading…</div>;
@@ -299,7 +272,7 @@ function SopEditor({ policy, gaps, onChange }) {
   );
 }
 
-function AuthoringStudio() {
+export function AuthoringStudio() {
   const { isApprover } = useAuth();             // only approvers can make content go live
   const [mode, setMode] = useState("brain");    // "sop" | "brain"
   const [raw, setRaw] = useState("");
@@ -825,7 +798,7 @@ const BADGE = {
   proactive_nudge:          { label: "nudge sent", cls: "bg-secondary-container/10 text-secondary-container" },
   escalated:                { label: "escalated", cls: "bg-warn/10 text-warn" },
 };
-function Ledger() {
+export function Ledger() {
   const [d, setD] = useState({ concerns: [], stats: {} });
   const [open, setOpen] = useState(null);    // expanded concern id
   useEffect(() => { getLedger().then(setD); }, []);
@@ -963,11 +936,12 @@ function TraceData({ data }) {
      Scores & Rubric (the LLM-judge rubric + dashboard) · Audit Trail & CPD ·
      Learning Queue (KT approval + corpus-wide SOP required-data gaps).
    ══════════════════════════════════════════════════════════════════════════ */
-function AuditingStudio() {
+export function AuditingStudio() {
   const [sub, setSub] = useState("scores");
+  // Governance is now a standalone top-level view (App.jsx sidebar) — Auditing keeps
+  // scores / trail / learning only.
   const SUBS = [
     ["scores", "Scores & Rubric", "insights"],
-    ["framework", "Governance Framework", "account_tree"],
     ["trail", "Audit Trail & CPD", "policy"],
     ["learning", "Learning Queue", "school"],
   ];
@@ -984,7 +958,6 @@ function AuditingStudio() {
         ))}
       </div>
       {sub === "scores" && <AuditScores />}
-      {sub === "framework" && <GovernanceFramework />}
       {sub === "trail" && <Audit />}
       {sub === "learning" && <LearningQueue />}
     </div>
@@ -1211,7 +1184,7 @@ function AuditScores() {
    ══════════════════════════════════════════════════════════════════════════ */
 const numOrStr = (v) => (v === "" || v == null ? "" : (isNaN(Number(v)) ? v : Number(v)));
 
-function GovernanceFramework() {
+export function GovernanceFramework() {
   const { isApprover } = useAuth();          // only approvers can publish (make it live)
   const [fw, setFw] = useState(null);        // the working (editable) framework
   const [uploading, setUploading] = useState(false);

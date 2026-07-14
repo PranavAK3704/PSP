@@ -26,23 +26,23 @@ function guard(res) {
 const J = (r) => r.json();
 
 async function apiGet(url) {
-  return guard(await fetch(url, { headers: authHeaders() })).then(J);
+  return J(guard(await fetch(url, { headers: authHeaders() })));
 }
 async function apiPost(url, body) {
-  return guard(await fetch(url, {
+  return J(guard(await fetch(url, {
     method: "POST",
     headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
-  })).then(J);
+  })));
 }
 // Multipart POST (file upload). Carries the auth bearer token but does NOT set
 // Content-Type — the browser adds the multipart boundary automatically.
 async function apiPostForm(url, formData) {
-  return guard(await fetch(url, {
+  return J(guard(await fetch(url, {
     method: "POST",
     headers: authHeaders(),
     body: formData,
-  })).then(J);
+  })));
 }
 
 // ── Auth ──

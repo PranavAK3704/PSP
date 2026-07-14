@@ -1,21 +1,41 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import CaptainPanel from "./pages/CaptainPanel.jsx";
+import ResolutionTrace from "./pages/ResolutionTrace.jsx";
 import Monitor from "./pages/Monitor.jsx";
 import L3Workspace from "./pages/L3Workspace.jsx";
-import SupportCommand from "./pages/SupportCommand.jsx";
+import { Command, AuthoringStudio, AuditingStudio, GovernanceFramework, Ledger } from "./pages/SupportCommand.jsx";
 import Shader from "./components/Shader.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import { ChatStoreProvider } from "./lib/chatStore.jsx";
 import { getHealth, listUsers, createUser } from "./lib/api.js";
 import { AuthProvider, useAuth } from "./lib/auth.jsx";
 
-const STATES = {
-  captain: { label: "Captain Advocate", icon: "forum", comp: CaptainPanel },
-  monitor: { label: "Proactive Monitoring", icon: "radar", comp: Monitor },
-  l3: { label: "L3 Console", icon: "inbox", comp: L3Workspace },
-  support: { label: "Support Command", icon: "space_dashboard", comp: SupportCommand },
+/* ── Views: every nav item maps to a standalone component. `title`/`sub` drive the
+   slim topbar. Grouped into the two sidebar sections below. ── */
+const VIEWS = {
+  captain:    { label: "Captain Advocate",    icon: "forum",           comp: CaptainPanel,
+                title: "Captain Advocate",    sub: "Live partner-support advocacy — resolve concerns in-conversation." },
+  trace:      { label: "Resolution Trace",    icon: "account_tree",    comp: ResolutionTrace,
+                title: "Resolution Trace",    sub: "The latest resolution's decision core + trust-spine pipeline." },
+  monitor:    { label: "Proactive Monitoring", icon: "radar",          comp: Monitor,
+                title: "Proactive Monitoring", sub: "Always-on, shadow-first risk detection on the event stream." },
+  l3:         { label: "L3 Console",          icon: "inbox",           comp: L3Workspace,
+                title: "L3 Console",          sub: "Escalated cases worked by the L3 desk." },
+  command:    { label: "Command Deck",        icon: "space_dashboard", comp: Command,
+                title: "Command Deck",        sub: "Operational metrics across the resolution engine." },
+  authoring:  { label: "Authoring Studio",    icon: "edit_note",       comp: AuthoringStudio,
+                title: "Authoring Studio",    sub: "Author the engine's brain in plain language." },
+  auditing:   { label: "Auditing Studio",     icon: "fact_check",      comp: AuditingStudio,
+                title: "Auditing Studio",     sub: "LLM-judge scoring, the audit trail, and the learning queue." },
+  governance: { label: "Governance",          icon: "gavel",           comp: GovernanceFramework,
+                title: "Governance",          sub: "The dynamic, fully editable governance model." },
+  concernlog: { label: "Concern Log",         icon: "receipt_long",    comp: Ledger,
+                title: "Concern Log",         sub: "Append-only log of every concern + its resolution trace." },
 };
+const GROUP_1 = ["captain", "trace", "monitor", "l3"];
+const GROUP_2 = ["command", "authoring", "auditing", "governance", "concernlog"];
 
+// Nav context — some pages (e.g. Monitor) call useNav() to jump views. Exposes setView.
 const NavCtx = createContext(() => {});
 export const useNav = () => useContext(NavCtx);
 
@@ -195,86 +215,109 @@ function TeamAdmin({ onClose }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   SHELL — the authenticated app (was App). Header carries user · role · logout.
+   SHELL — the authenticated app. FLAT LEFT SIDEBAR (Stitch "Command Center"):
+   .app grid = .sidebar (brand · two nav groups · foot) + .main (.topbar + .content).
+   Shader + faint-grid sit behind everything (z-index below the shell).
    ══════════════════════════════════════════════════════════════════════════ */
 function Shell() {
   const { user, isApprover, logout } = useAuth();
-  const [state, setState] = useState("captain");
+  const [view, setView] = useState("captain");
   const [health, setHealth] = useState(null);
   const [teamOpen, setTeamOpen] = useState(false);
   useEffect(() => { getHealth().then(setHealth).catch(() => setHealth({ down: true })); }, []);
-  const Comp = STATES[state].comp;
+  const cur = VIEWS[view];
+  const Comp = cur.comp;
+
+  const NavItem = ({ k }) => {
+    const v = VIEWS[k];
+    return (
+      <div className={`nav-item ${view === k ? "active" : ""}`} data-view={k} role="button" tabIndex={0}
+        onClick={() => setView(k)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setView(k); } }}>
+        <span className="material-symbols-outlined" style={{ fontSize: 20 }}>{v.icon}</span>
+        <span>{v.label}</span>
+      </div>
+    );
+  };
+
+  const footBtn = { width: 30, height: 30, borderRadius: 8, border: "1px solid var(--line)",
+    background: "var(--surface-2)", display: "grid", placeItems: "center", cursor: "pointer", flex: "none" };
 
   return (
-    <NavCtx.Provider value={setState}>
+    <NavCtx.Provider value={setView}>
       <ChatStoreProvider>
-      <Shader opacity={0.16} />
-      <div className="fixed inset-0 z-[1] pointer-events-none"
-        style={{ backgroundImage: "linear-gradient(rgba(65,71,83,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(65,71,83,0.05) 1px,transparent 1px)", backgroundSize: "46px 46px" }} />
+        {/* background: animated field + faint grid, behind the shell (z 0 / 1; .app is z 2) */}
+        <Shader opacity={0.16} />
+        <div className="fixed inset-0 z-[1] pointer-events-none"
+          style={{ backgroundImage: "linear-gradient(rgba(65,71,83,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(65,71,83,0.05) 1px,transparent 1px)", backgroundSize: "46px 46px" }} />
 
-      {/* Top bar: brand · glass state switcheroo · status + user */}
-      <header className="fixed top-0 inset-x-0 z-50 h-16 px-lg flex items-center justify-between bg-surface/40 backdrop-blur-xl border-b border-on-primary-fixed-variant/20">
-        <div className="flex items-center gap-2 w-56">
-          <span className="material-symbols-outlined text-secondary-container" style={{ fontSize: 22 }}>security</span>
-          <div className="hidden md:block">
-            <div className="text-secondary-container font-bold leading-none">Valmo Advocate</div>
-            <div className="text-[9px] text-on-surface-variant uppercase tracking-[0.2em] mt-0.5 opacity-60">Partner-support platform</div>
+        <div className="app">
+          {/* ── SIDEBAR ── */}
+          <aside className="sidebar">
+            <div className="brand">
+              <span className="logo">Valmo<em> Advocate</em></span>
+              <span className="tag">command center</span>
+            </div>
+
+            {GROUP_1.map((k) => <NavItem key={k} k={k} />)}
+            <div className="nav-sep">Support Command</div>
+            {GROUP_2.map((k) => <NavItem key={k} k={k} />)}
+
+            {/* ── FOOT: signed-in user · role · logout · (approver) team · health ── */}
+            <div className="sidebar-foot">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color: "var(--text-mute)", fontSize: 11.5, fontWeight: 600,
+                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 128 }}
+                    title={user.name || user.email}>{user.name || user.email}</div>
+                  <span className={`inline-block mt-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${ROLE_TONE[user.role] || ROLE_TONE.viewer}`}>
+                    {user.role}</span>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {isApprover && (
+                    <button onClick={() => setTeamOpen(true)} title="Team access" style={footBtn}
+                      className="text-secondary-container hover:brightness-125">
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>group</span>
+                    </button>
+                  )}
+                  <button onClick={logout} title="Sign out" style={footBtn}
+                    className="text-on-surface-variant hover:text-error">
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>logout</span>
+                  </button>
+                </div>
+              </div>
+              <div className="pill-provider"
+                style={health?.down ? { background: "var(--bad-soft)", color: "var(--bad)", borderColor: "rgba(255,180,171,0.25)" } : undefined}>
+                <span className="dot" />
+                {health?.down ? "engine offline" : `${health?.provider || "connecting…"} · tiered`}
+              </div>
+            </div>
+          </aside>
+
+          {/* ── MAIN ── */}
+          <div className="main">
+            <div className="topbar">
+              <div>
+                <h1>{cur.title}</h1>
+                {cur.sub && <div className="sub">{cur.sub}</div>}
+              </div>
+              <div className="hidden xl:flex items-center gap-1.5 text-[10px]" style={{ fontFamily: "JetBrains Mono", paddingBottom: 6 }}>
+                <span className={`w-1.5 h-1.5 rounded-full ${health?.down ? "bg-error" : "bg-tertiary"}`}
+                  style={{ boxShadow: health?.down ? "0 0 8px #ffb4ab" : "0 0 8px #4edea3" }} />
+                <span className="text-on-surface-variant">{health?.down ? "offline" : `${health?.provider || "…"} · tiered`}</span>
+              </div>
+            </div>
+
+            <div className="content">
+              {/* keyed per view → navigating to another view resets a crashed one; the shell stays alive */}
+              <ErrorBoundary key={view}>
+                <Comp />
+              </ErrorBoundary>
+            </div>
           </div>
         </div>
 
-        {/* Glass switcheroo */}
-        <div className="glass-card rounded-full p-1 flex items-center gap-1 shadow-lg">
-          {Object.entries(STATES).map(([k, v]) => {
-            const active = state === k;
-            return (
-              <button key={k} onClick={() => setState(k)}
-                className={`relative flex items-center gap-2 px-3 lg:px-4 py-2 rounded-full text-sm font-semibold transition-all duration-300 ${
-                  active ? "bg-secondary-container text-on-secondary shadow-[0_0_20px_-4px_#4d8eff]"
-                         : "text-on-surface-variant hover:text-secondary-container hover:bg-surface-variant/30"}`}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{v.icon}</span>
-                <span className="hidden lg:block">{v.label}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center gap-sm justify-end">
-          <div className="hidden xl:flex items-center gap-1.5 text-[10px] px-3 py-1 rounded-full" style={{ fontFamily: "JetBrains Mono" }}>
-            <span className={`w-1.5 h-1.5 rounded-full ${health?.down ? "bg-error" : "bg-tertiary"}`}
-              style={{ boxShadow: health?.down ? "0 0 8px #ffb4ab" : "0 0 8px #4edea3" }} />
-            <span className="text-on-surface-variant">{health?.down ? "offline" : `${health?.provider || "…"} · tiered`}</span>
-          </div>
-
-          {/* user · role pill */}
-          <div className="hidden sm:flex flex-col items-end leading-none">
-            <span className="text-[12px] font-semibold text-on-surface max-w-[140px] truncate">{user.name || user.email}</span>
-            <span className={`mt-0.5 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${ROLE_TONE[user.role] || ROLE_TONE.viewer}`}>{user.role}</span>
-          </div>
-
-          {/* team admin (approver only) */}
-          {isApprover && (
-            <button onClick={() => setTeamOpen(true)} title="Team access"
-              className="w-9 h-9 rounded-full bg-secondary-container/10 border border-secondary-container/30 grid place-items-center text-secondary-container hover:bg-secondary-container/20 transition-all">
-              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>group</span>
-            </button>
-          )}
-
-          {/* logout */}
-          <button onClick={logout} title="Sign out"
-            className="w-9 h-9 rounded-full bg-surface-variant/30 border border-on-primary-fixed-variant/20 grid place-items-center text-on-surface-variant hover:text-error hover:border-error/40 transition-all">
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>logout</span>
-          </button>
-        </div>
-      </header>
-
-      <main className="mt-16 h-[calc(100vh-4rem)] overflow-y-auto custom-scrollbar p-gutter relative z-10">
-        {/* keyed per state → navigating to another panel resets a crashed one; the top bar stays alive */}
-        <ErrorBoundary key={state}>
-          <Comp />
-        </ErrorBoundary>
-      </main>
-
-      {teamOpen && <TeamAdmin onClose={() => setTeamOpen(false)} />}
+        {teamOpen && <TeamAdmin onClose={() => setTeamOpen(false)} />}
       </ChatStoreProvider>
     </NavCtx.Provider>
   );

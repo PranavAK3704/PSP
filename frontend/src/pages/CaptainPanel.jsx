@@ -12,6 +12,7 @@ import Pipeline from "../components/Pipeline.jsx";
 import DecisionCore from "../components/DecisionCore.jsx";
 import { stream, getCaptains, sendSatisfaction, getCaptainCases } from "../lib/api.js";
 import { useChatStore } from "../lib/chatStore.jsx";
+import { setLastTrace } from "../lib/traceStore.js";
 
 // tiny, safe markdown → HTML for bot replies (bold, bullets, links, breaks).
 function mdToHtml(s) {
@@ -84,6 +85,9 @@ export default function CaptainPanel() {
 
   useEffect(() => { getCaptains().then((d) => setCaptains(d.captains || [])); }, []);
   useEffect(() => { scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight); }, [messages]);
+  // Additive: mirror the live trace into a shared store so the standalone Resolution
+  // Trace view can render the latest resolution. Does not touch this panel's own rail.
+  useEffect(() => { setLastTrace(events, phase); }, [events, phase]);
 
   // Poll "My Cases" so an L3 resolution appears live (without a refresh). Reset baseline per captain.
   useEffect(() => {

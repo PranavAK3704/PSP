@@ -541,6 +541,15 @@ def framework_approve():
 @app.get("/api/insights", dependencies=[_authed])
 def insights():
     """One aggregate for the ops control tower."""
+    # Additive ops metrics — each guarded so a hiccup here can never blank the panel.
+    try:
+        active_breaches = sum(1 for it in l3.inbox() if it.get("breached"))
+    except Exception:  # noqa: BLE001
+        active_breaches = 0
+    try:
+        avg_resolution_time = concern_log.resolution_time_stats()
+    except Exception:  # noqa: BLE001
+        avg_resolution_time = {"display": "—", "hours": None, "sample": 0, "basis": "n/a"}
     return {
         "provider": llm_registry.active_provider_name(),
         "knowledge": store.corpus_stats(),
@@ -549,6 +558,8 @@ def insights():
         "l3_teams": l3.team_metrics(),
         "cpd_open": len(cpd.cpd_items()),
         "dispositions": len(dispositions.catalogue()),
+        "active_breaches": active_breaches,
+        "avg_resolution_time": avg_resolution_time,
     }
 
 

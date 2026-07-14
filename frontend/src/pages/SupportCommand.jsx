@@ -12,13 +12,22 @@ import { useAuth } from "../lib/auth.jsx";
 // AuditingStudio / GovernanceFramework / Ledger each fetch their own data on mount.
 
 /* ── Command / metrics ── */
-function Stat({ label, value, sub, tone = "text-on-surface" }) {
+// KPI tile (Stitch "Command Center"): label-caps header + corner icon, a large
+// tabular-nums digit, and a small trend/sub label. `danger` red-accents the tile
+// (used by Active Breaches when > 0).
+function Kpi({ icon, label, value, sub, tone = "text-on-surface", danger = false }) {
   return (
-    <div className="glass-card p-md rounded-xl scan-line flex flex-col justify-between">
-      <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-on-surface-variant">{label}</span>
-      <div className="flex items-baseline gap-sm mt-xs">
-        <span className={`text-[38px] font-bold leading-none ${tone}`}>{value}</span>
-        {sub && <span className="text-on-surface-variant text-xs" style={{ fontFamily: "JetBrains Mono" }}>{sub}</span>}
+    <div className={`glass-card p-md rounded-xl scan-line relative flex flex-col justify-between min-h-[116px] ${danger ? "border-error/40" : ""}`}
+      style={danger ? { background: "rgba(255,180,171,0.06)" } : undefined}>
+      <div className="flex items-start justify-between gap-sm">
+        <span className={`text-[10px] font-bold uppercase tracking-[0.12em] ${danger ? "text-error" : "text-on-surface-variant"}`}
+          style={{ fontFamily: "JetBrains Mono" }}>{label}</span>
+        <span className={`material-symbols-outlined ${danger ? "text-error" : "text-secondary-container/70"}`} style={{ fontSize: 18 }}>{icon}</span>
+      </div>
+      <div className="mt-sm">
+        <div className={`text-[34px] font-bold leading-none ${danger ? "text-error" : tone}`} style={{ fontVariantNumeric: "tabular-nums" }}>
+          {value == null || value === "" ? "—" : value}</div>
+        {sub && <div className="text-[11px] text-on-surface-variant mt-1.5" style={{ fontFamily: "JetBrains Mono" }}>{sub}</div>}
       </div>
     </div>
   );
@@ -31,27 +40,57 @@ export function Command() {
   // ledger/satisfaction/knowledge object must not crash the panel (it would blank it to the
   // error fallback). Default each to {} so the reads below degrade to "—"/0 gracefully.
   const L = d.ledger || {}, S = d.satisfaction || {}, K = d.knowledge || {};
+  const total = L.total || 0;
+  const automation = total ? Math.round((L.resolved_in_conversation || 0) / total * 1000) / 10 : null;
+  const breaches = d.active_breaches || 0;
+  // avg_resolution_time is a structured ops metric ({display, sample, via_l3, …}); tolerate
+  // an older string/absent payload without crashing.
+  const art = (d.avg_resolution_time && typeof d.avg_resolution_time === "object") ? d.avg_resolution_time : {};
+  const artDisplay = art.display || (typeof d.avg_resolution_time === "string" ? d.avg_resolution_time : "—");
+  const artSub = art.sample ? `${art.sample} resolved · ${art.via_l3 || 0} via L3` : "ops metric";
+  const dispEntries = Object.entries(L.by_disposition || {});
+  const dispMax = dispEntries.reduce((m, [, v]) => Math.max(m, v || 0), 0) || 1;
+
   return (
     <div className="space-y-gutter">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-gutter">
-        <Stat label="Concerns Logged" value={L.total} sub="total" tone="text-secondary-container" />
-        <Stat label="Resolved in Convo" value={L.resolved_in_conversation} sub={`of ${L.total}`} tone="text-tertiary" />
-        <Stat label="Recovered for Partners" value={`₹${(L.money_recovered_for_partners_inr || 0).toLocaleString("en-IN")}`} sub="tier-1" tone="text-tertiary" />
-        <Stat label="CSAT" value={S.csat_pct == null ? "—" : `${S.csat_pct}%`} sub={`${S.responses} rated`} tone="text-secondary-container" />
+        <Kpi icon="receipt_long" label="Concerns Logged" value={total} sub="total logged" tone="text-secondary-container" />
+        <Kpi icon="bolt" label="Resolved in Convo" value={L.resolved_in_conversation}
+          sub={`of ${total}${automation != null ? ` · ${automation}% automation` : ""}`} tone="text-tertiary" />
+        <Kpi icon="savings" label="Recovered for Partners"
+          value={`₹${(L.money_recovered_for_partners_inr || 0).toLocaleString("en-IN")}`} sub="tier-1 partners" tone="text-tertiary" />
+        <Kpi icon="sentiment_satisfied" label="CSAT" value={S.csat_pct == null ? "—" : `${S.csat_pct}%`}
+          sub={`${S.responses || 0} rated · target 85%+`} tone="text-secondary-container" />
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-gutter">
-        <Stat label="Escalated" value={L.escalated} sub="to L3" tone="text-warn" />
-        <Stat label="Open CPD" value={d.cpd_open} sub="signals" tone="text-error" />
-        <Stat label="Dispositions" value={d.dispositions} sub="with policy" />
-        <Stat label="Knowledge Chunks" value={K.total} sub={`${K.by_kind?.sop || 0} SOP`} />
+        <Kpi icon="north_east" label="Escalated" value={L.escalated} sub="to L3 desk" tone="text-warn" />
+        {/* NEW — Active Breaches (red-accented when > 0) */}
+        <Kpi icon="gpp_maybe" label="Active Breaches" value={breaches}
+          sub={breaches > 0 ? "past SLA now" : "all within SLA"} tone="text-tertiary" danger={breaches > 0} />
+        {/* NEW — Avg Resolution Time (best-effort ops metric) */}
+        <Kpi icon="timer" label="Avg Resolution Time" value={artDisplay} sub={artSub} tone="text-secondary-container" />
+        <Kpi icon="radar" label="Open CPD" value={d.cpd_open} sub="risk signals" tone="text-error" />
       </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-gutter">
+        <Kpi icon="category" label="Dispositions" value={d.dispositions} sub="with policy" />
+        <Kpi icon="database" label="Knowledge Chunks" value={K.total} sub={`${K.by_kind?.sop || 0} SOP indexed`} />
+      </div>
+
+      {/* By-disposition breakdown — dense rows with a proportional bar + tabular-nums count */}
       <div>
-        <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-secondary-container border-l-2 border-secondary-container pl-md mb-md">By disposition</div>
+        <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-secondary-container border-l-2 border-secondary-container pl-md mb-md"
+          style={{ fontFamily: "JetBrains Mono" }}>By disposition</div>
         <div className="glass-card rounded-xl overflow-hidden">
-          {Object.entries(L.by_disposition || {}).map(([k, v]) => (
-            <div key={k} className="flex justify-between items-center px-lg py-md border-b border-on-primary-fixed-variant/10 last:border-0">
-              <span className="text-sm">{k}</span>
-              <span className="text-tertiary text-sm font-bold" style={{ fontFamily: "JetBrains Mono" }}>{v}</span>
+          {dispEntries.length === 0 && <div className="px-lg py-md text-sm text-on-surface-variant">No concerns logged yet.</div>}
+          {dispEntries.map(([k, v]) => (
+            <div key={k} className="grid grid-cols-[1fr_auto] gap-md items-center px-lg h-[44px] border-b border-on-primary-fixed-variant/10 last:border-0 hover:bg-surface-variant/20 transition-colors">
+              <div className="flex items-center gap-md min-w-0">
+                <span className="text-sm truncate w-40">{k}</span>
+                <div className="flex-1 h-1.5 rounded-full bg-surface-variant/40 overflow-hidden min-w-[60px]">
+                  <div className="h-full bg-secondary-container/70" style={{ width: `${Math.round(100 * (v || 0) / dispMax)}%` }} />
+                </div>
+              </div>
+              <span className="text-tertiary text-sm font-bold" style={{ fontFamily: "JetBrains Mono", fontVariantNumeric: "tabular-nums" }}>{v}</span>
             </div>
           ))}
         </div>
@@ -792,11 +831,12 @@ function Audit() {
 }
 
 /* ── Concern Log ── */
+// Outcome pills (Stitch language): RESOLVED = green border + 10% fill; escalated = amber; nudge = blue.
 const BADGE = {
-  resolved_in_conversation: { label: "resolved", cls: "bg-tertiary/10 text-tertiary" },
-  l3_resolved:              { label: "resolved by L3", cls: "bg-tertiary/10 text-tertiary" },
-  proactive_nudge:          { label: "nudge sent", cls: "bg-secondary-container/10 text-secondary-container" },
-  escalated:                { label: "escalated", cls: "bg-warn/10 text-warn" },
+  resolved_in_conversation: { label: "resolved", cls: "bg-tertiary/10 text-tertiary border border-tertiary/40" },
+  l3_resolved:              { label: "resolved by L3", cls: "bg-tertiary/10 text-tertiary border border-tertiary/40" },
+  proactive_nudge:          { label: "nudge sent", cls: "bg-secondary-container/10 text-secondary-container border border-secondary-container/40" },
+  escalated:                { label: "escalated", cls: "bg-warn/10 text-warn border border-warn/40" },
 };
 export function Ledger() {
   const [d, setD] = useState({ concerns: [], stats: {} });
@@ -804,11 +844,12 @@ export function Ledger() {
   useEffect(() => { getLedger().then(setD); }, []);
   return (
     <div className="glass-card rounded-xl overflow-hidden">
-      <div className="px-lg py-md border-b border-on-primary-fixed-variant/20 flex items-center justify-between gap-md flex-wrap">
-        <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-secondary-container">
-          Append-only Concern Log · {d.concerns?.length || 0} events</span>
+      <div className="px-lg h-[46px] border-b border-on-primary-fixed-variant/20 flex items-center justify-between gap-md flex-wrap">
+        <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-secondary-container flex items-center gap-sm" style={{ fontFamily: "JetBrains Mono" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>receipt_long</span>
+          Append-only Concern Log · <span style={{ fontVariantNumeric: "tabular-nums" }}>{d.concerns?.length || 0}</span> events</span>
         <div className="flex items-center gap-sm">
-          <span className="text-[10px] text-on-surface-variant uppercase tracking-wide">Export</span>
+          <span className="text-[10px] text-on-surface-variant uppercase tracking-wide" style={{ fontFamily: "JetBrains Mono" }}>Export</span>
           <button onClick={() => exportLedger("csv")}
             className="flex items-center gap-1.5 text-[11px] font-bold px-md py-1.5 rounded-lg border border-secondary-container/40 text-secondary-container hover:bg-secondary-container/10 transition-all">
             <span className="material-symbols-outlined" style={{ fontSize: 15 }}>table_view</span>CSV</button>
@@ -821,15 +862,15 @@ export function Ledger() {
         {(d.concerns || []).map((c) => (
           <div key={c.id + c.seq} className="border-b border-on-primary-fixed-variant/10 last:border-0">
             <button onClick={() => setOpen(open === c.id ? null : c.id)}
-              className="w-full text-left grid grid-cols-[auto_auto_1fr_auto] gap-md items-center px-lg py-md hover:bg-surface-variant/20 transition-all">
+              className={`w-full text-left grid grid-cols-[auto_auto_1fr_auto] gap-md items-center px-lg min-h-[52px] py-sm border-l-2 transition-all ${open === c.id ? "border-l-secondary-container bg-secondary-container/[0.06]" : "border-l-transparent hover:bg-surface-variant/20"}`}>
               <span className="material-symbols-outlined text-on-surface-variant transition-transform" style={{ fontSize: 18, transform: open === c.id ? "rotate(90deg)" : "none" }}>chevron_right</span>
-              <span className="text-[11px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{c.id}</span>
+              <span className="text-[11px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono", fontVariantNumeric: "tabular-nums" }}>{c.id}</span>
               <div className="min-w-0">
                 <div className="text-sm truncate">{c.intent}</div>
-                <div className="text-[10px] text-on-surface-variant mt-0.5" style={{ fontFamily: "JetBrains Mono" }}>
+                <div className="text-[10px] text-on-surface-variant mt-0.5" style={{ fontFamily: "JetBrains Mono", fontVariantNumeric: "tabular-nums" }}>
                   {c.captain_id} · {c.disposition}{c.policy_version ? ` · ${c.policy_version}` : ""}{c.amount_inr ? ` · ₹${c.amount_inr}` : ""}{c.confidence != null ? ` · ${Math.round(c.confidence * 100)}%` : ""}</div>
               </div>
-              <span className={`text-[10px] font-bold px-2 py-1 rounded ${BADGE[c.outcome]?.cls || "bg-warn/10 text-warn"}`}>
+              <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap ${BADGE[c.outcome]?.cls || "bg-warn/10 text-warn border border-warn/40"}`}>
                 {BADGE[c.outcome]?.label || c.action_taken || "escalated"}</span>
             </button>
             {open === c.id && <TraceTimeline concernId={c.id} concern={c} />}
@@ -857,8 +898,9 @@ function TraceTimeline({ concernId, concern }) {
   return (
     <div className="bg-surface-container-lowest/60 border-t border-on-primary-fixed-variant/10 px-lg py-md">
       <div className="flex items-center justify-between mb-sm pl-[38px]">
-        <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-secondary-container">
-          Resolution trace · {events.length} stage{events.length === 1 ? "" : "s"}</span>
+        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-secondary-container flex items-center gap-1.5" style={{ fontFamily: "JetBrains Mono" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 13 }}>timeline</span>
+          Resolution trace · <span style={{ fontVariantNumeric: "tabular-nums" }}>{events.length}</span> stage{events.length === 1 ? "" : "s"}</span>
         <button onClick={() => setRaw(!raw)}
           className="text-[10px] text-on-surface-variant hover:text-secondary-container flex items-center gap-1">
           <span className="material-symbols-outlined" style={{ fontSize: 13 }}>{raw ? "view_timeline" : "code"}</span>
@@ -1069,19 +1111,30 @@ function AuditScores() {
 
         {/* ── SCORE DASHBOARD ── */}
         <div className="glass-card rounded-xl p-lg flex flex-col">
-          <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-secondary-container mb-md">Score dashboard</div>
-          <div className="flex items-end gap-lg mb-lg">
-            <div>
-              <div className="text-[10px] uppercase tracking-wide text-on-surface-variant">Avg composite</div>
-              <div className="text-[52px] font-bold leading-none text-tertiary">{scores?.avg_composite ?? "—"}
-                <span className="text-lg text-on-surface-variant">/100</span></div>
-            </div>
-            <div className="text-[11px] text-on-surface-variant pb-2" style={{ fontFamily: "JetBrains Mono" }}>
-              {scores?.count || 0} audit{scores?.count === 1 ? "" : "s"}</div>
-          </div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-secondary-container mb-md" style={{ fontFamily: "JetBrains Mono" }}>Score dashboard</div>
+
+          {/* composite — big KPI tile, tone by score band */}
+          {(() => {
+            const comp = scores?.avg_composite;
+            const compColor = comp == null ? "text-on-surface-variant" : comp >= 80 ? "text-tertiary" : comp >= 55 ? "text-secondary-container" : "text-error";
+            return (
+              <div className="rounded-xl border border-on-primary-fixed-variant/15 bg-surface-container-lowest/60 scan-line p-md mb-lg">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>Avg composite</span>
+                  <span className="material-symbols-outlined text-secondary-container/70" style={{ fontSize: 18 }}>speed</span>
+                </div>
+                <div className="flex items-baseline gap-2 mt-sm">
+                  <span className={`text-[52px] font-bold leading-none ${compColor}`} style={{ fontVariantNumeric: "tabular-nums" }}>{comp ?? "—"}</span>
+                  <span className="text-lg text-on-surface-variant">/100</span>
+                </div>
+                <div className="text-[11px] text-on-surface-variant mt-1.5" style={{ fontFamily: "JetBrains Mono", fontVariantNumeric: "tabular-nums" }}>
+                  {scores?.count || 0} audit{scores?.count === 1 ? "" : "s"} scored{rubric ? ` · rubric v${rubric.version}` : ""}</div>
+              </div>
+            );
+          })()}
 
           {/* per-dimension bars */}
-          <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-sm">Per-dimension average</div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-on-surface-variant mb-sm" style={{ fontFamily: "JetBrains Mono" }}>Per-dimension average</div>
           <div className="space-y-sm mb-lg">
             {Object.keys(perDimAvg).length === 0 && <div className="text-[11px] text-on-surface-variant">No audits yet — run a batch below.</div>}
             {Object.entries(perDimAvg).map(([k, v]) => {
@@ -1091,7 +1144,7 @@ function AuditScores() {
                   <div className="flex justify-between text-[11px] mb-0.5">
                     <span className={prom ? "text-tertiary font-bold flex items-center gap-1" : "text-on-surface-variant"}>
                       {prom && <span className="material-symbols-outlined" style={{ fontSize: 13 }}>favorite</span>}{dimLabel(k)}</span>
-                    <span style={{ fontFamily: "JetBrains Mono" }}>{Math.round(v * 100)}</span>
+                    <span style={{ fontFamily: "JetBrains Mono", fontVariantNumeric: "tabular-nums" }}>{Math.round(v * 100)}</span>
                   </div>
                   <div className="h-2 rounded-full bg-surface-variant/40 overflow-hidden">
                     <div className={`h-full ${prom ? "bg-tertiary" : "bg-secondary-container"}`} style={{ width: `${Math.round(v * 100)}%` }} />
@@ -1111,7 +1164,7 @@ function AuditScores() {
               <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-sm">By disposition</div>
               <div className="flex flex-wrap gap-xs">
                 {Object.entries(scores.by_disposition).map(([disp, s]) => (
-                  <span key={disp} className="text-[10px] px-2 py-0.5 rounded bg-surface-variant text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>
+                  <span key={disp} className="text-[10px] px-2.5 py-0.5 rounded-full bg-surface-variant text-on-surface-variant border border-on-primary-fixed-variant/20" style={{ fontFamily: "JetBrains Mono", fontVariantNumeric: "tabular-nums" }}>
                     {disp}: {s.avg_composite} ({s.count})</span>
                 ))}
               </div>
@@ -1148,8 +1201,8 @@ function AuditScores() {
                   <div className="text-[12px] font-semibold" style={{ fontFamily: "JetBrains Mono" }}>{a.concern_id}</div>
                   <div className="text-[10px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{a.disposition || "—"} · {a.action_taken || "—"} · rubric v{a.rubric_version}</div>
                 </div>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${compTone(a.composite)}`}>{a.composite}</span>
-                <span className="text-[9px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{(a.audited_at || "").slice(0, 10)}</span>
+                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${compTone(a.composite)}`} style={{ fontVariantNumeric: "tabular-nums" }}>{a.composite}</span>
+                <span className="text-[9px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono", fontVariantNumeric: "tabular-nums" }}>{(a.audited_at || "").slice(0, 10)}</span>
               </button>
               {openAudit === a.concern_id + i && (
                 <div className="px-md pb-md border-t border-on-primary-fixed-variant/10 pt-sm">
@@ -1265,6 +1318,9 @@ export function GovernanceFramework() {
         </div>
       )}
 
+      {/* AT-A-GLANCE OVERVIEW — highlighted formula, band pills, dimension cards (live from the model below) */}
+      <GovernanceOverview fw={fw} />
+
       {/* UPLOAD control */}
       <div className="glass-card rounded-xl p-lg flex flex-col gap-sm">
         <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-secondary-container">Upload a framework doc</div>
@@ -1313,6 +1369,82 @@ export function GovernanceFramework() {
             Needs an approver to publish — your draft is saved for review.</span>
         )}
       </div>
+    </div>
+  );
+}
+
+/* Band pill tone — P0/critical red → high amber → mid blue → low/watch neutral. */
+function bandTone(label) {
+  const l = (label || "").toUpperCase();
+  if (/\bP0\b|CRIT|SEV0|SEV 0|BLOCK/.test(l)) return "bg-error/15 text-error border border-error/50";
+  if (/\bP1\b|HIGH|SEV1/.test(l)) return "bg-warn/15 text-warn border border-warn/50";
+  if (/\bP2\b|MED/.test(l)) return "bg-secondary-container/15 text-secondary-container border border-secondary-container/50";
+  return "bg-surface-variant text-on-surface-variant border border-on-primary-fixed-variant/30";  // low / watch / monitor / default
+}
+
+/* Read-oriented Stitch overview of the framework: a highlighted formula card, priority
+   bands as pills, and each scoring dimension as a card. Purely presentational — reflects
+   the editable model live. */
+function GovernanceOverview({ fw }) {
+  const mono = { fontFamily: "JetBrains Mono" };
+  const bands = fw.bands || [];
+  const dims = fw.dimensions || [];
+  return (
+    <div className="flex flex-col gap-gutter">
+      {/* formula — highlighted card */}
+      <div className="glass-card rounded-xl p-lg scan-line">
+        <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-secondary-container mb-sm" style={mono}>Scoring formula</div>
+        <div className="rounded-lg border border-secondary-container/40 bg-secondary-container/[0.08] px-lg py-md flex items-center gap-md flex-wrap">
+          <span className="material-symbols-outlined text-secondary-container" style={{ fontSize: 22 }}>functions</span>
+          <span className="text-[17px] font-bold text-on-surface" style={{ ...mono, fontVariantNumeric: "tabular-nums" }}>{fw.formula || "—"}</span>
+          {fw.combine && <span className="ml-auto text-[10px] px-2.5 py-0.5 rounded-full bg-surface-variant text-on-surface-variant border border-on-primary-fixed-variant/25" style={mono}>combine · {fw.combine}</span>}
+        </div>
+      </div>
+
+      {/* bands — pills */}
+      {bands.length > 0 && (
+        <div className="glass-card rounded-xl p-lg">
+          <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-secondary-container mb-md" style={mono}>Priority bands</div>
+          <div className="flex flex-wrap gap-sm">
+            {bands.map((b, i) => (
+              <div key={i} className="flex items-center gap-sm bg-surface-container-lowest/50 border border-on-primary-fixed-variant/15 rounded-lg pl-sm pr-md py-sm">
+                <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold whitespace-nowrap ${bandTone(b.label)}`}>{b.label || "—"}</span>
+                <div className="min-w-0">
+                  {b.meaning && <div className="text-[12px] text-on-surface leading-tight">{b.meaning}</div>}
+                  {b.action && <div className="text-[10px] text-on-surface-variant leading-tight mt-0.5" style={mono}>{b.action}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* dimensions — cards */}
+      {dims.length > 0 && (
+        <div className="glass-card rounded-xl p-lg">
+          <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-secondary-container mb-md" style={mono}>Scoring dimensions</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-md">
+            {dims.map((d, i) => (
+              <div key={i} className="rounded-lg border border-on-primary-fixed-variant/15 bg-surface-container-lowest/50 p-md flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-sm">
+                  <span className="text-[13px] font-semibold text-on-surface truncate">{d.label || d.key || `dimension ${i + 1}`}</span>
+                  {(d.scale_min != null || d.scale_max != null) && (
+                    <span className="text-[10px] text-on-surface-variant flex-none" style={{ ...mono, fontVariantNumeric: "tabular-nums" }}>{d.scale_min ?? "?"}–{d.scale_max ?? "?"}</span>
+                  )}
+                </div>
+                {d.description && <p className="text-[11px] text-on-surface-variant leading-relaxed line-clamp-3">{d.description}</p>}
+                {(d.sub_factors || []).length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-0.5">
+                    {d.sub_factors.map((s, j) => (
+                      <span key={j} className="text-[9px] px-2 py-0.5 rounded-full bg-surface-variant text-on-surface-variant border border-on-primary-fixed-variant/20">{s.label || `sub ${j + 1}`}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1521,10 +1653,10 @@ function DimensionCard({ dim, onChange, onRemove }) {
 }
 
 function compTone(c) {
-  if (c == null) return "bg-warn/10 text-warn";
-  if (c >= 80) return "bg-tertiary/10 text-tertiary";
-  if (c >= 55) return "bg-secondary-container/10 text-secondary-container";
-  return "bg-error/10 text-error";
+  if (c == null) return "bg-warn/10 text-warn border border-warn/40";
+  if (c >= 80) return "bg-tertiary/10 text-tertiary border border-tertiary/40";
+  if (c >= 55) return "bg-secondary-container/10 text-secondary-container border border-secondary-container/40";
+  return "bg-error/10 text-error border border-error/40";
 }
 
 /* Tiny inline SVG sparkline for the composite trend (self-contained, no deps). */

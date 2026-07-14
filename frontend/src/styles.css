@@ -110,7 +110,7 @@ body {
 .topbar .sub { color: var(--text-mute); font-size: 13px; margin-top: 6px; max-width: 680px; line-height: 1.5; }
 .content { flex: 1; overflow: auto; padding: 24px 32px 44px; }
 
-.split { display: grid; grid-template-columns: 1fr 1.12fr; gap: 20px; height: 100%; }
+.split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; height: 100%; }
 @media (max-width: 1180px) { .split { grid-template-columns: 1fr; } }
 
 /* ── Glass cards ── */
@@ -124,7 +124,7 @@ body {
 .card-head { padding: 15px 18px; border-bottom: 1px solid var(--line-soft);
   display: flex; align-items: center; justify-content: space-between; }
 .card-head h3 { font-size: 12px; font-weight: 700; letter-spacing: 0.12em; display: flex; gap: 9px; align-items: center;
-  text-transform: uppercase; font-family: var(--mono); color: var(--signal); }
+  text-transform: uppercase; font-family: var(--mono); color: var(--signal); white-space: nowrap; }
 .card-head h3 svg { color: var(--signal); }
 .muted { color: var(--text-mute); }
 .faint { color: var(--text-faint); }
@@ -148,7 +148,7 @@ body {
   font-size: 10px; color: var(--good); }
 
 .composer { border-top: 1px solid var(--line-soft); padding: 13px; display: flex; gap: 9px; align-items: flex-end; }
-.composer textarea { flex: 1; background: var(--surface-0); border: 1px solid var(--line); border-radius: 8px;
+.composer textarea { flex: 1; min-width: 0; background: var(--surface-0); border: 1px solid var(--line); border-radius: 8px;
   padding: 11px 14px; color: var(--text); font-family: var(--sans); font-size: 13.5px; line-height: 1.5;
   outline: none; resize: none; max-height: 140px; overflow-y: auto; transition: border-color 0.15s, box-shadow 0.15s; }
 .composer textarea:focus { border-color: var(--signal-line); box-shadow: 0 0 0 3px var(--signal-soft); }

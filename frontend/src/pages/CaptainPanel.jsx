@@ -204,11 +204,12 @@ export default function CaptainPanel() {
             <h3>
               <button className="icon-btn" onClick={() => setRailOpen((v) => !v)} title="Conversations"
                 style={{ width: 26, height: 26, marginRight: 2 }}><MessageSquare size={13} /></button>
-              <Radio size={15} /> Captain Panel · Advocate
+              <Radio size={15} /> Captain Panel
             </h3>
             <select value={captainId} onChange={(e) => setCaptainId(e.target.value)}
-              className="mono" style={{ background: "var(--ink-0)", color: "var(--text-mute)",
-                border: "1px solid var(--line)", borderRadius: 8, padding: "5px 8px", fontSize: 11 }}>
+              className="mono" style={{ background: "var(--surface-0)", color: "var(--text-mute)",
+                border: "1px solid var(--line)", borderRadius: 8, padding: "5px 8px", fontSize: 11,
+                maxWidth: 210, minWidth: 0, flexShrink: 1 }}>
               {captains.map((c) => <option key={c.captain_id} value={c.captain_id}>{c.name} · {c.hub_name}</option>)}
             </select>
           </div>
@@ -226,7 +227,7 @@ export default function CaptainPanel() {
                 {openCases > 0 && <span style={{ color: "var(--warn)" }}>· {openCases} open</span>}
               </div>
               {casesOpen && (
-                <div style={{ padding: "0 12px 10px", display: "flex", flexDirection: "column", gap: 7, maxHeight: 190, overflow: "auto" }}>
+                <div style={{ padding: "0 12px 10px", display: "flex", flexDirection: "column", gap: 7, maxHeight: 150, overflow: "auto" }}>
                   {cases.map((c) => {
                     const resolved = c.status === "resolved";
                     return (

@@ -11,9 +11,9 @@ import React, { useEffect, useRef } from "react";
 // boundary, unmounts the whole app to a black screen. Context creation + render are also guarded
 // so GPU/context exhaustion degrades silently instead of crashing.
 const CFG = {
-  idle:     { color: 0x00f2ff, emissive: 0.5, base: 1.0 },
-  thinking: { color: 0x00f2ff, emissive: 1.0, base: 2.8 },
-  resolved: { color: 0x00e475, emissive: 0.8, base: 1.4 },
+  idle:     { color: 0x4d8eff, emissive: 0.5, base: 1.0 },
+  thinking: { color: 0x4d8eff, emissive: 1.0, base: 2.8 },
+  resolved: { color: 0x4edea3, emissive: 0.8, base: 1.4 },
 };
 
 export default function DecisionCore({ size = 220, state = "idle" }) {

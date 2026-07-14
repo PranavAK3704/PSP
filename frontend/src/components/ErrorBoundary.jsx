@@ -39,7 +39,7 @@ export default class ErrorBoundary extends React.Component {
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
             <button onClick={() => this.setState({ error: null, info: null })}
-              style={{ background: "var(--signal, #00f1fe)", color: "#001b1c", border: "none",
+              style={{ background: "var(--signal, #4d8eff)", color: "#001b1c", border: "none",
                 borderRadius: 8, padding: "8px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
               Try again
             </button>

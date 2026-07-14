@@ -3,7 +3,7 @@ import React, { useEffect, useRef } from "react";
 // PulseNet — a living node-link "signal field": nodes drift, nearby nodes link,
 // and bright pulses travel along the links. Reacts to hover + page scroll (speeds up).
 // Pure canvas 2D, no deps. Cyan control-room palette.
-export default function PulseNet({ height = 150, nodes = 34, color = "0,241,254" }) {
+export default function PulseNet({ height = 150, nodes = 34, color = "77,142,255" }) {
   const ref = useRef(null);
   const boost = useRef(1);
   const hover = useRef(false);

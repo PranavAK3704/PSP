@@ -15,17 +15,19 @@
         darkMode: "class",
         theme: { extend: {
           colors: {
-            "surface-variant": "#353435", "on-primary-container": "#747987",
-            "on-primary-fixed-variant": "#414753", "on-surface-variant": "#c6c6cc",
-            "secondary": "#ddfcff", "surface": "#131314", "surface-container-high": "#2a2a2b",
-            "surface-container": "#201f20", "secondary-container": "#00f1fe",
-            "on-background": "#e5e2e2", "surface-container-low": "#1c1b1c",
-            "background": "#131314", "surface-bright": "#39393a", "outline-variant": "#45474b",
-            "secondary-fixed": "#74f5ff", "primary": "#c1c6d5", "error": "#ffb4ab",
-            "surface-container-lowest": "#0e0e0f", "on-surface": "#e5e2e2",
-            "surface-container-highest": "#353435", "surface-dim": "#131314",
-            "tertiary": "#00e475", "on-tertiary": "#003918", "on-secondary": "#00363a",
-            "outline": "#909096", "warn": "#ffbf00",
+            /* Palette: Stitch "Valmo Advocate Command Center" — Trust Blue accent, Partner Green,
+               charcoal-navy surfaces. Token NAMES unchanged so every component reskins in place. */
+            "surface-variant": "#2d3449", "on-primary-container": "#8c909f",
+            "on-primary-fixed-variant": "#424754", "on-surface-variant": "#c2c6d6",
+            "secondary": "#adc6ff", "surface": "#0b1326", "surface-container-high": "#222a3d",
+            "surface-container": "#171f33", "secondary-container": "#4d8eff",
+            "on-background": "#dae2fd", "surface-container-low": "#131b2e",
+            "background": "#0b1326", "surface-bright": "#31394d", "outline-variant": "#424754",
+            "secondary-fixed": "#d8e2ff", "primary": "#adc6ff", "error": "#ffb4ab",
+            "surface-container-lowest": "#060e20", "on-surface": "#dae2fd",
+            "surface-container-highest": "#2d3449", "surface-dim": "#0b1326",
+            "tertiary": "#4edea3", "on-tertiary": "#002113", "on-secondary": "#002e6a",
+            "outline": "#8c909f", "warn": "#ffb95f",
           },
           fontFamily: {
             "body-base": ["Inter"], "headline-md": ["Inter"], "display-lg": ["Inter"],
@@ -38,12 +40,12 @@
     </script>
     <style>
       .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; font-size: 20px; }
-      .glass-card { background: rgba(32,31,32,0.4); backdrop-filter: blur(12px); border: 1px solid rgba(65,71,83,0.2); }
-      .active-glass { background: rgba(53,52,53,0.6); backdrop-filter: blur(20px); border: 1px solid rgba(0,241,254,0.2); }
+      .glass-card { background: rgba(23,31,51,0.55); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); }
+      .active-glass { background: rgba(34,42,61,0.7); backdrop-filter: blur(20px); border: 1px solid rgba(77,142,255,0.3); }
       @keyframes scanning { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
       .scan-line { position: relative; overflow: hidden; }
       .scan-line::after { content:""; position:absolute; bottom:0; left:0; width:100%; height:1px;
-        background: linear-gradient(90deg, transparent, #00f1fe, transparent); animation: scanning 3s linear infinite; }
+        background: linear-gradient(90deg, transparent, #4d8eff, transparent); animation: scanning 3s linear infinite; }
       @keyframes pulsing { 0%,100% { opacity:1; border-color: rgba(255,180,171,0.8);} 50% { opacity:0.4; border-color: rgba(255,180,171,0.2);} }
       .pulse-border { animation: pulsing 2s cubic-bezier(0.4,0,0.6,1) infinite; }
       .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }

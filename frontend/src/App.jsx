@@ -62,7 +62,7 @@ function Login() {
     <div className="fixed inset-0 grid place-items-center bg-background overflow-hidden">
       {/* ambient field + faint grid, matching the app shell */}
       <div className="absolute inset-0 pointer-events-none"
-        style={{ background: "radial-gradient(900px 600px at 82% -8%, rgba(0,241,254,0.10), transparent 60%), radial-gradient(800px 600px at 10% 110%, rgba(0,228,117,0.07), transparent 60%)" }} />
+        style={{ background: "radial-gradient(900px 600px at 82% -8%, rgba(77,142,255,0.10), transparent 60%), radial-gradient(800px 600px at 10% 110%, rgba(78,222,163,0.07), transparent 60%)" }} />
       <div className="absolute inset-0 pointer-events-none"
         style={{ backgroundImage: "linear-gradient(rgba(65,71,83,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(65,71,83,0.05) 1px,transparent 1px)", backgroundSize: "46px 46px" }} />
 
@@ -229,7 +229,7 @@ function Shell() {
             return (
               <button key={k} onClick={() => setState(k)}
                 className={`relative flex items-center gap-2 px-3 lg:px-4 py-2 rounded-full text-sm font-semibold transition-all duration-300 ${
-                  active ? "bg-secondary-container text-on-secondary shadow-[0_0_20px_-4px_#00f1fe]"
+                  active ? "bg-secondary-container text-on-secondary shadow-[0_0_20px_-4px_#4d8eff]"
                          : "text-on-surface-variant hover:text-secondary-container hover:bg-surface-variant/30"}`}>
                 <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{v.icon}</span>
                 <span className="hidden lg:block">{v.label}</span>
@@ -241,7 +241,7 @@ function Shell() {
         <div className="flex items-center gap-sm justify-end">
           <div className="hidden xl:flex items-center gap-1.5 text-[10px] px-3 py-1 rounded-full" style={{ fontFamily: "JetBrains Mono" }}>
             <span className={`w-1.5 h-1.5 rounded-full ${health?.down ? "bg-error" : "bg-tertiary"}`}
-              style={{ boxShadow: health?.down ? "0 0 8px #ffb4ab" : "0 0 8px #00e475" }} />
+              style={{ boxShadow: health?.down ? "0 0 8px #ffb4ab" : "0 0 8px #4edea3" }} />
             <span className="text-on-surface-variant">{health?.down ? "offline" : `${health?.provider || "…"} · tiered`}</span>
           </div>
 

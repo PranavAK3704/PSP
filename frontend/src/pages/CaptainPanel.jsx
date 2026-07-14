@@ -228,14 +228,14 @@ export default function CaptainPanel() {
                     return (
                       <div key={c.id} style={{ padding: "9px 11px", borderRadius: 9, fontSize: 12,
                         border: "1px solid " + (flash[c.id] ? "var(--good)" : "var(--line)"),
-                        background: flash[c.id] ? "rgba(0,228,117,0.10)" : "var(--surface-2)",
+                        background: flash[c.id] ? "rgba(78,222,163,0.10)" : "var(--surface-2)",
                         transition: "background .5s, border-color .5s" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                           <span className="mono" style={{ fontSize: 10.5, color: "var(--text-mute)" }}>{c.id}</span>
                           <span className="mono" style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 7px", borderRadius: 20,
                             display: "inline-flex", alignItems: "center", gap: 4,
                             color: resolved ? "var(--good)" : "var(--warn)",
-                            background: resolved ? "rgba(0,228,117,0.12)" : "rgba(255,191,0,0.12)" }}>
+                            background: resolved ? "rgba(78,222,163,0.12)" : "rgba(255,191,0,0.12)" }}>
                             {resolved ? <><CheckCircle2 size={11} /> RESOLVED</> : <><Clock size={11} /> OPEN · ~{c.eta_hours}h</>}
                           </span>
                         </div>

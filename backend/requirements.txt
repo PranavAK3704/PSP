@@ -1,0 +1,8 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+requests==2.32.3
+pyyaml==6.0.2
+python-dotenv==1.0.1
+sse-starlette==2.1.3
+# anthropic — install only if switching provider to 'claude'
+certifi==2024.8.30        # TLS CA bundle for the Turso HTTPS data source

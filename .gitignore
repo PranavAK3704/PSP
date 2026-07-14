@@ -1,0 +1,29 @@
+# ── Secrets — MUST never be committed (Render provides these via env) ────────
+backend/data/*.txt
+backend/.env
+.env
+**/.env
+!backend/.env.example
+
+# ── Large / external data (loss data lives in Turso in prod) ─────────────────
+backend/data/*.db
+backend/data/*.csv
+
+# ── Build + vendor artifacts ─────────────────────────────────────────────────
+**/node_modules
+**/.venv
+**/__pycache__
+*.pyc
+**/dist
+frontend/dist
+
+# ── OS / editor cruft ────────────────────────────────────────────────────────
+**/.DS_Store
+*.log
+
+# ── Runtime state (seeded on first run; on Render lives on the persistent disk) ──
+backend/data/*.json
+!backend/data/knowledge/*.json
+!backend/data/knowledge_sources/*.json
+.claude/settings.local.json
+.agent-memory/

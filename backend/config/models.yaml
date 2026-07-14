@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Model strategy — the SINGLE place that decides which model runs each node.
+#
+# ACTIVE: provider is OpenAI (via the gateway), running gpt-5.5 on EVERY tier —
+# i.e. fast == deep today. The fast/deep split exists so a tiered provider can be
+# swapped in without any pipeline change; right now both tiers resolve to gpt-5.5.
+#
+# Claude and Gemini are swappable ALTERNATIVES: flip the `provider:` key below and
+# the registry routes each node's tier to that provider's model ids — no pipeline
+# code changes (see app/llm/registry.py). The Claude/Gemini tier ids are listed
+# under `tiers:` as ready-to-use alternatives.
+# ─────────────────────────────────────────────────────────────────────────────
+
+provider: openai            # ACTIVE. openai | gemini | claude  <-- flip to switch provider
+
+# Per-node model tier. Each pipeline node asks the registry for its tier.
+# (With provider: openai both tiers map to gpt-5.5, so the split is a no-op today.)
+nodes:
+  intent:              fast   # extract intent + entities (high volume)
+  classify:            fast   # locate disposition
+  policy_reasoning:    deep   # money-touching judgement
+  adversarial_verify:  deep   # independent skeptic before any money move
+  explain:             fast   # warm, grounded reply
+  monitor_compose:     fast   # compose a proactive nudge
+  sop_compile:         deep   # plain SOP -> Executable Policy (authoring)
+
+# Tier -> concrete model id, per provider.
+tiers:
+  openai:                            # <-- ACTIVE provider
+    fast: gpt-5.5    # gpt-5.5 on EVERY tier — same model for fast and deep today
+    deep: gpt-5.5    # money judgement + adversarial verify + SOP compile
+  gemini:                            # alternative — flip `provider: gemini` above
+    fast: gemini-2.5-flash
+    deep: gemini-2.5-pro
+  claude:                            # alternative — flip `provider: claude` above
+    fast: claude-haiku-4-5-20251001   # high-volume conversational path
+    deep: claude-opus-4-8             # money judgement + adversarial verify (strongest)
+
+temperature: 0.1

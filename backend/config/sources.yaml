@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Knowledge source repos — THE REPO-SWAP SEAM.
+#
+# Today these point at the three existing repos in this system. When the
+# production knowledge base / SOP authoring tool ships, change the paths here
+# and re-run:  python backend/scripts/ingest_knowledge.py
+# Nothing else in the platform needs to change.
+# ─────────────────────────────────────────────────────────────────────────────
+
+home: "~"   # base; each path below is resolved relative to home unless absolute
+
+# ── CANONICAL sources (source of truth — preferred over repo snapshots) ──────
+# The live SOP Redressal Tracker (published Google Sheet) + the Collated SOPs
+# doc are authoritative. Ingest pulls the sheet live (falling back to a snapshot)
+# and reads the doc snapshot. In production the doc is pulled via the Google Docs
+# API (service account); the sheet is the same published CSV URL.
+canonical:
+  sop_tracker_csv_url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4dtMY2llai0bbhupKQaU0nuVssXlsvWPqZ7Gq4ZF2jPTRInv_LE6PjrmSVnTHdL0CR1OmPOg6Dvnv/pub?output=csv"
+  sop_tracker_snapshot: "PSP/backend/data/knowledge_sources/sop_tracker_snapshot.csv"   # offline fallback
+  collated_sops_doc:    "PSP/backend/data/knowledge_sources/collated_sops.md"            # Collated SOPs (Drive)
+  supplemental:         "PSP/backend/data/knowledge_sources/supplemental_sops.json"      # hand-authored gaps
+
+sources:
+  # input-bot — captain-facing SOP + KT corpus (richest structured knowledge)
+  sop_knowledge:   "input-bot/input-bot/data/sop_knowledge.json"      # 91 SOP chunks
+  kt_knowledge:    "input-bot/input-bot/data/kt_knowledge.json"       # 83 KT entries
+  # agent_sops:    DEPRECATED — stale snapshot of the tracker. Replaced by the LIVE
+  #                canonical.sop_tracker_csv_url above.
+  portal_faq:      "input-bot/input-bot/data/portal_faq.json"         # 47 FAQ issues
+  kt_ingest_ops:   "input-bot/input-bot/data/kt_ingest_lm_ops.json"   # 44 ops KT entries
+  losses_sla:      "input-bot/input-bot/data/losses_sla.csv"          # SLA / hardstop matrix
+
+  # valmo-l1-agent — structured scenario decision trees + domain taxonomy + KT
+  sop_structured:  "valmo-l1-agent/valmo-L1/data/sop_knowledge/sop_structured.json"  # 52 scenarios
+  stage0_domain:   "valmo-l1-agent/valmo-L1/data/sop_knowledge/stage0_domain.json"   # 5-queue taxonomy
+  valmo_kt_md:     "valmo-l1-agent/valmo-L1/data/sop_knowledge/valmo_kt.md"           # core domain KT
+
+  # valmo-platform — authored SOPs (broadest coverage: payments, consumables, orders, tech)
+  seed_sops_js:    "valmo-platform/valmo-platform/src/data/seedSops.js"               # 11 authored SOPs

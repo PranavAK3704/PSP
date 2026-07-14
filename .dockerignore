@@ -1,0 +1,19 @@
+# Keep the build context small and never bake host-built artifacts or secrets.
+**/node_modules
+**/.venv
+**/dist
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+*.log
+.git
+
+# Loss data comes from Turso in prod — don't bake the multi-hundred-MB SQLite files.
+backend/data/*.db
+
+# Secrets are provided via env on Render — never copy the baked key/token files.
+backend/data/*.txt
+
+# Local env files must never enter the image.
+**/.env
+!backend/.env.example

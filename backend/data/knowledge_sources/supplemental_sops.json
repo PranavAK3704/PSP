@@ -1,0 +1,41 @@
+{
+  "_about": "Manually-authored SOPs that the gap analysis found missing from the corpus. Sourced verbatim-in-substance from the Collated SOPs doc.",
+  "entries": [
+    {
+      "id": "pay_4_3_10_utr_not_reflected",
+      "kind": "sop",
+      "theme": "payments",
+      "queue": "Payments",
+      "title": "Payments: UTR generated & payment processed but not reflected in FE's account",
+      "text": "Scenario (Payments 4.3.10): FE says 'UTR generated, payment processed, but I did not get it'. Required inputs from the partner: Partner ID, FE phone number, payment Cycle, Transaction ID. L1 process: check the Razorpay Reversal Sheet for the Transaction ID. If the transaction ID IS present (reversed) -> explain the reversal to the FE and the expected reprocess date. If the transaction ID is ABSENT -> Razorpay holds no reversed amount, so this is a BANK-SIDE issue: clearly tell the FE that and exactly what to ask their bank (a UTR trace). Do not promise a Valmo-side credit when the money already left our system. TAT 72h.",
+      "tags": ["utr", "razorpay", "payment not reflected", "reversal sheet", "bank side", "fe payment", "transaction id", "payments"]
+    },
+    {
+      "id": "cash_cod_shortfall_pilot",
+      "kind": "sop",
+      "theme": "cash_handover",
+      "queue": "Cash Handover",
+      "title": "Cash Handover: COD shortfall mistakenly marked on the Pilot",
+      "text": "Scenario (Cash Handover): FE/Pilot says 'a COD shortfall was marked on me by mistake'. Required inputs: FE Partner ID, FE phone number, date of shortfall. L1 process: check the LM Pilot Payout Raw query for the debit. If the FE was debited ABOVE Rs.1,500 -> share the COD-shortfall correction form to be filled by the DC Captain -> then TRACK the reversal through and confirm the amount is credited back to the FE before closing (do NOT close at form submission). Also ensure the FE IDs get REACTIVATED after the COD adjustment.",
+      "tags": ["cod shortfall", "pilot", "fe debit", "1500", "correction form", "pilot payout", "fe reactivation", "cash handover"]
+    },
+    {
+      "id": "loss_hs_12_damaged_scan",
+      "kind": "sop",
+      "theme": "hardstop_loss",
+      "queue": "Losses & Debits",
+      "title": "Losses: Wrong loss marked — shipment damaged / scan issues (Hardstop S12)",
+      "text": "Scenario (Hardstop S12): Captain claims a wrong loss was marked because the shipment was DAMAGED or had SCAN ISSUES. This is NOT auto-reversed by L1. L1 process: inform the partner they must fill the damaged-shipment form to mark the shipment as damaged. The ticket is then escalated directly to L3, who reviews the form + the evidence and reverses any loss marked. Damaged-shipment form: https://docs.google.com/forms/d/e/1FAIpQLSes4awhzpR7mTe8Ti5ZrlG7lzrwrMyJlF13XCn2zaIwH-8c7Q/viewform",
+      "tags": ["damaged", "damaged shipment", "tampered", "scan issue", "scan issues", "wrong loss", "form", "hardstop", "s12", "l3 review"]
+    },
+    {
+      "id": "others_fe_id_reactivation",
+      "kind": "sop",
+      "theme": "fe_id_reactivation",
+      "queue": "Others",
+      "title": "Others: FE ID deactivated → reactivation (decision tree)",
+      "text": "Scenario: a captain/FE says their FE ID is deactivated and wants it reactivated. Required inputs: FE ID, FE phone number. This is a DECISION TREE — walk it, do not jump to a form. Step 1: check the FE's status in Log10 — it is either 'Blacklisted' or 'Temporarily Inactive'. Step 2: if BLACKLISTED -> escalate to L2 (no form). Step 3: if TEMPORARILY INACTIVE -> check the Autopay Whitelist L2 query, which shows 'Not Whitelisted' or 'Whitelisted'. Step 4: if NOT WHITELISTED -> ask the FE to be onboarded on Valmo1. If WHITELISTED -> check the LM Pilot Payout query for any COD debit marked. Step 5: ONLY IF a COD debit greater than Rs.1500 has been marked -> send the FE this correction form to fill: https://forms.gle/BiPJ5uRYRaQLXrAu8. IMPORTANT: that form applies ONLY to the COD-debit-over-1500 case; never send it for the blacklisted or not-whitelisted branches.",
+      "tags": ["fe id", "fe id deactivated", "reactivate", "reactivation", "blacklisted", "temporarily inactive", "autopay whitelist", "valmo1", "cod debit", "1500", "log10 status", "others"]
+    }
+  ]
+}

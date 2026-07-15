@@ -1,9 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import CaptainPanel from "./pages/CaptainPanel.jsx";
-import ResolutionTrace from "./pages/ResolutionTrace.jsx";
 import Monitor from "./pages/Monitor.jsx";
 import L3Workspace from "./pages/L3Workspace.jsx";
-import { Command, AuthoringStudio, AuditingStudio, GovernanceFramework, Ledger } from "./pages/SupportCommand.jsx";
+import SupportCommand from "./pages/SupportCommand.jsx";
 import Shader from "./components/Shader.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import { ChatStoreProvider } from "./lib/chatStore.jsx";
@@ -13,27 +12,16 @@ import { AuthProvider, useAuth } from "./lib/auth.jsx";
 /* ── Views: every nav item maps to a standalone component. `title`/`sub` drive the
    slim topbar. Grouped into the two sidebar sections below. ── */
 const VIEWS = {
-  captain:    { label: "Captain Advocate",    icon: "forum",           comp: CaptainPanel,
-                title: "Captain Advocate",    sub: "Live partner-support advocacy — resolve concerns in-conversation." },
-  trace:      { label: "Resolution Trace",    icon: "account_tree",    comp: ResolutionTrace,
-                title: "Resolution Trace",    sub: "The latest resolution's decision core + trust-spine pipeline." },
-  monitor:    { label: "Proactive Monitoring", icon: "radar",          comp: Monitor,
-                title: "Proactive Monitoring", sub: "Always-on, shadow-first risk detection on the event stream." },
-  l3:         { label: "L3 Console",          icon: "inbox",           comp: L3Workspace,
-                title: "L3 Console",          sub: "Escalated cases worked by the L3 desk." },
-  command:    { label: "Command Deck",        icon: "space_dashboard", comp: Command,
-                title: "Command Deck",        sub: "Operational metrics across the resolution engine." },
-  authoring:  { label: "Authoring Studio",    icon: "edit_note",       comp: AuthoringStudio,
-                title: "Authoring Studio",    sub: "Author the engine's brain in plain language." },
-  auditing:   { label: "Auditing Studio",     icon: "fact_check",      comp: AuditingStudio,
-                title: "Auditing Studio",     sub: "LLM-judge scoring, the audit trail, and the learning queue." },
-  governance: { label: "Governance",          icon: "gavel",           comp: GovernanceFramework,
-                title: "Governance",          sub: "The dynamic, fully editable governance model." },
-  concernlog: { label: "Concern Log",         icon: "receipt_long",    comp: Ledger,
-                title: "Concern Log",         sub: "Append-only log of every concern + its resolution trace." },
+  captain: { label: "Captain Advocate",     icon: "forum",           comp: CaptainPanel,
+             title: "Captain Advocate",     sub: "Live partner-support advocacy — resolve concerns in-conversation." },
+  monitor: { label: "Proactive Monitoring", icon: "radar",           comp: Monitor,
+             title: "Proactive Monitoring", sub: "Always-on, shadow-first risk detection on the event stream." },
+  l3:      { label: "L3 Console",           icon: "inbox",           comp: L3Workspace,
+             title: "L3 Console",           sub: "Escalated cases worked by the L3 desk." },
+  support: { label: "Support Command",      icon: "space_dashboard", comp: SupportCommand,
+             title: "Support Command",      sub: "Command deck, authoring, auditing, governance & the concern log." },
 };
-const GROUP_1 = ["captain", "trace", "monitor", "l3"];
-const GROUP_2 = ["command", "authoring", "auditing", "governance", "concernlog"];
+const NAV = ["captain", "monitor", "l3", "support"];
 
 // Nav context — some pages (e.g. Monitor) call useNav() to jump views. Exposes setView.
 const NavCtx = createContext(() => {});
@@ -259,9 +247,7 @@ function Shell() {
               <span className="tag">command center</span>
             </div>
 
-            {GROUP_1.map((k) => <NavItem key={k} k={k} />)}
-            <div className="nav-sep">Support Command</div>
-            {GROUP_2.map((k) => <NavItem key={k} k={k} />)}
+            {NAV.map((k) => <NavItem key={k} k={k} />)}
 
             {/* ── FOOT: signed-in user · role · logout · (approver) team · health ── */}
             <div className="sidebar-foot">

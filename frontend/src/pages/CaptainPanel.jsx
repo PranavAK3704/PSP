@@ -100,7 +100,7 @@ export default function CaptainPanel() {
       const nowResolved = new Set(list.filter((c) => c.status === "resolved").map((c) => c.id));
       const fresh = {};
       nowResolved.forEach((id) => { if (!prevResolved.current.has(id)) fresh[id] = true; });
-      if (Object.keys(fresh).length) { setFlash((f) => ({ ...f, ...fresh })); setCasesOpen(true);
+      if (Object.keys(fresh).length) { setFlash((f) => ({ ...f, ...fresh }));
         setTimeout(() => setFlash((f) => { const n = { ...f }; Object.keys(fresh).forEach((k) => delete n[k]); return n; }), 6000); }
       prevResolved.current = nowResolved;
       setCases(list);
@@ -176,7 +176,7 @@ export default function CaptainPanel() {
           <div style={{ padding: 10 }}>
             <button className="icon-btn" onClick={() => store.newConversation(captainId)}
               title="New chat" style={{ width: "100%", height: 34, gap: 6, fontSize: 11, justifyContent: "center" }}>
-              <Plus size={14} /> New chat
+              New chat
             </button>
           </div>
           <div style={{ overflow: "auto", flex: 1, padding: "0 8px 8px" }}>
@@ -214,50 +214,19 @@ export default function CaptainPanel() {
             </select>
           </div>
 
-          {/* My Cases widget — persistent, live-polled, expandable */}
+          {/* My cases — slim bar; opens a roomy drawer (no inline cramming / overlap) */}
           {cases.length > 0 && (
-            <div style={{ borderBottom: "1px solid var(--line-soft)", background: "var(--surface-0)" }}>
-              <div onClick={() => setCasesOpen((v) => !v)}
-                style={{ padding: "9px 14px", display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
-                  fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-mute)" }}>
-                {casesOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                <FolderOpen size={13} style={{ color: "var(--signal)" }} />
-                <span style={{ color: "var(--text)" }}>My cases</span>
-                <span>· {cases.length}</span>
-                {openCases > 0 && <span style={{ color: "var(--warn)" }}>· {openCases} open</span>}
-              </div>
-              {casesOpen && (
-                <div style={{ padding: "0 12px 10px", display: "flex", flexDirection: "column", gap: 7, maxHeight: 150, overflow: "auto" }}>
-                  {cases.map((c) => {
-                    const resolved = c.status === "resolved";
-                    return (
-                      <div key={c.id} style={{ padding: "9px 11px", borderRadius: 9, fontSize: 12,
-                        border: "1px solid " + (flash[c.id] ? "var(--good)" : "var(--line)"),
-                        background: flash[c.id] ? "rgba(78,222,163,0.10)" : "var(--surface-2)",
-                        transition: "background .5s, border-color .5s" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                          <span className="mono" style={{ fontSize: 10.5, color: "var(--text-mute)" }}>{c.id}</span>
-                          <span className="mono" style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 7px", borderRadius: 20,
-                            display: "inline-flex", alignItems: "center", gap: 4,
-                            color: resolved ? "var(--good)" : "var(--warn)",
-                            background: resolved ? "rgba(78,222,163,0.12)" : "rgba(255,191,0,0.12)" }}>
-                            {resolved ? <><CheckCircle2 size={11} /> RESOLVED</> : <><Clock size={11} /> OPEN · ~{c.eta_hours}h</>}
-                          </span>
-                        </div>
-                        <div style={{ marginTop: 5, color: "var(--text)" }}>{c.intent}</div>
-                        <div className="mono" style={{ marginTop: 3, fontSize: 9.5, color: "var(--text-faint)" }}>
-                          {c.team}{c.entities?.awb ? " · AWB " + c.entities.awb : ""}{c.attachments?.length ? ` · 📎 ${c.attachments.length}` : ""}
-                        </div>
-                        {resolved && c.resolution_note && (
-                          <div style={{ marginTop: 7, paddingTop: 7, borderTop: "1px dashed var(--line)",
-                            color: "var(--good)", fontSize: 11.5 }}>✓ {c.resolution_note}</div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <button onClick={() => setCasesOpen(true)}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
+                padding: "10px 16px", border: "none", borderBottom: "1px solid var(--line-soft)",
+                background: "var(--surface-0)", cursor: "pointer", fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-mute)" }}>
+              <FolderOpen size={13} style={{ color: "var(--signal)" }} />
+              <span style={{ color: "var(--text)" }}>My cases</span>
+              <span>· {cases.length}</span>
+              {openCases > 0 && <span style={{ color: "var(--warn)" }}>· {openCases} open</span>}
+              {Object.keys(flash).length > 0 && <span style={{ color: "var(--good)" }}>· update</span>}
+              <ChevronRight size={13} style={{ marginLeft: "auto" }} />
+            </button>
           )}
 
           <div className="chat-scroll" ref={scrollRef}>
@@ -340,7 +309,7 @@ export default function CaptainPanel() {
             <textarea ref={taRef} value={input} rows={1}
               onChange={(e) => { setInput(e.target.value); autoGrow(e.target); }}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-              placeholder="Type in Hinglish, Hindi or English…  (Shift+Enter for a new line)" disabled={busy} />
+              placeholder="Type in Hinglish, Hindi or English…" disabled={busy} />
             <button className="icon-btn send" onClick={() => send()} disabled={busy}><Send size={17} /></button>
           </div>
         </div>
@@ -360,6 +329,44 @@ export default function CaptainPanel() {
           <Pipeline events={events} />
         </div>
       </div>
+
+      {/* My Cases — roomy modular drawer (no cramped inline scroll, no overlap) */}
+      {casesOpen && cases.length > 0 && (
+        <div onClick={() => setCasesOpen(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,0.55)", display: "grid", placeItems: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card"
+            style={{ width: "min(560px, 94vw)", maxHeight: "84vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div className="card-head">
+              <h3><FolderOpen size={14} /> My cases · {cases.length}{openCases ? " · " + openCases + " open" : ""}</h3>
+              <button className="icon-btn" onClick={() => setCasesOpen(false)} style={{ width: 30, height: 30 }}><X size={15} /></button>
+            </div>
+            <div style={{ overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+              {cases.map((c) => {
+                const resolved = c.status === "resolved";
+                return (
+                  <div key={c.id} style={{ padding: "12px 14px", borderRadius: 10, fontSize: 12.5,
+                    border: "1px solid " + (flash[c.id] ? "var(--good)" : "var(--line)"),
+                    background: flash[c.id] ? "rgba(78,222,163,0.10)" : "var(--surface-2)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      <span className="mono" style={{ fontSize: 11, color: "var(--text-mute)" }}>{c.id}</span>
+                      <span className="mono" style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        color: resolved ? "var(--good)" : "var(--warn)",
+                        background: resolved ? "rgba(78,222,163,0.12)" : "rgba(255,185,95,0.12)" }}>
+                        {resolved ? <><CheckCircle2 size={11} /> RESOLVED</> : <><Clock size={11} /> OPEN · ~{c.eta_hours}h</>}</span>
+                    </div>
+                    <div style={{ marginTop: 6, color: "var(--text)" }}>{c.intent}</div>
+                    <div className="mono" style={{ marginTop: 4, fontSize: 10, color: "var(--text-faint)" }}>
+                      {c.team}{c.entities?.awb ? " · AWB " + c.entities.awb : ""}</div>
+                    {resolved && c.resolution_note && (
+                      <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--line)", color: "var(--good)", fontSize: 12 }}>✓ {c.resolution_note}</div>)}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

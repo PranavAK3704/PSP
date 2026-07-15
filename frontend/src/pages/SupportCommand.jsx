@@ -1685,3 +1685,32 @@ function TrendSparkline({ series }) {
     </div>
   );
 }
+
+/* ── Support Command — ONE state, tabs inside (Command · Authoring · Auditing · Governance · Concern Log) ── */
+const SC_TABS = [
+  ["command", "Command Deck", "space_dashboard"],
+  ["authoring", "Authoring Studio", "edit_note"],
+  ["auditing", "Auditing Studio", "fact_check"],
+  ["governance", "Governance", "gavel"],
+  ["concernlog", "Concern Log", "receipt_long"],
+];
+const SC_COMP = { command: Command, authoring: AuthoringStudio, auditing: AuditingStudio, governance: GovernanceFramework, concernlog: Ledger };
+export default function SupportCommand() {
+  const [tab, setTab] = useState("command");
+  const C = SC_COMP[tab];
+  return (
+    <div className="h-full flex flex-col gap-gutter">
+      <div className="flex gap-sm flex-wrap">
+        {SC_TABS.map(([k, label, icon]) => (
+          <button key={k} onClick={() => setTab(k)}
+            className={`flex items-center gap-2 px-md py-sm rounded-lg text-sm font-semibold transition-all border ${
+              tab === k ? "bg-secondary-container text-on-secondary border-secondary-container"
+                        : "glass-card text-on-surface-variant hover:text-secondary-container border-transparent"}`}>
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{icon}</span>{label}
+          </button>
+        ))}
+      </div>
+      <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0"><C /></div>
+    </div>
+  );
+}

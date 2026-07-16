@@ -68,7 +68,8 @@ export default function CaptainPanel() {
   const [attachments, setAttachments] = useState([]);
   const [railOpen, setRailOpen] = useState(true);
   const [cases, setCases] = useState([]);
-  const [casesOpen, setCasesOpen] = useState(false);   // slim summary by default; expand on demand
+  const [casesOpen, setCasesOpen] = useState(false);
+  const [caseQ, setCaseQ] = useState("");   // slim summary by default; expand on demand
   const [flash, setFlash] = useState({});          // CN → true when it just resolved
   const scrollRef = useRef(null);
   const recRef = useRef(null);
@@ -164,6 +165,8 @@ export default function CaptainPanel() {
   }
 
   const openCases = cases.filter((c) => c.status === "open").length;
+  const _cq = caseQ.trim().toLowerCase();
+  const shownCases = _cq ? cases.filter((c) => ((c.id||"")+" "+(c.intent||"")+" "+(c.team||"")+" "+(c.disposition||"")+" "+(c.entities?.awb||"")+" "+(c.amount_inr||"")).toLowerCase().includes(_cq)) : cases;
 
   return (
     <div className="split">
@@ -340,8 +343,19 @@ export default function CaptainPanel() {
               <h3><FolderOpen size={14} /> My cases · {cases.length}{openCases ? " · " + openCases + " open" : ""}</h3>
               <button className="icon-btn" onClick={() => setCasesOpen(false)} style={{ width: 30, height: 30 }}><X size={15} /></button>
             </div>
+            <div style={{ padding: "12px 16px 0" }}>
+              <input value={caseQ} onChange={(e) => setCaseQ(e.target.value)} autoFocus
+                placeholder="Apna case dhoondein — issue, amount ya CN number…"
+                style={{ width: "100%", background: "var(--surface-0)", border: "1px solid var(--line)",
+                  borderRadius: 8, padding: "10px 12px", color: "var(--text)", fontSize: 13, outline: "none" }} />
+            </div>
             <div style={{ overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-              {cases.map((c) => {
+              {shownCases.length === 0 && (
+                <div className="mono" style={{ padding: "22px 4px", color: "var(--text-faint)", fontSize: 12, textAlign: "center" }}>
+                  Koi case nahi mila "{caseQ}" ke liye.
+                </div>
+              )}
+              {shownCases.map((c) => {
                 const resolved = c.status === "resolved";
                 return (
                   <div key={c.id} style={{ padding: "12px 14px", borderRadius: 10, fontSize: 12.5,

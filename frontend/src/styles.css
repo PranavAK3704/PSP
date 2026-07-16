@@ -1,3 +1,12 @@
+/* Tailwind is compiled at build time (config in tailwind.config.js). These three directives
+   inject base(preflight)/components/utilities into the bundled CSS — replacing the old runtime
+   Play CDN so there is no cold-start flash and no dependency on cdn.tailwindcss.com. The custom
+   CSS below (design tokens + shell/component classes) intentionally follows the directives so it
+   layers on top of Tailwind's reset, exactly as it did under the CDN. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   /* ── Stitch "Ops Control Room" palette ── */
   --bg: #0b1326;

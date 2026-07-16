@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getInsights, getAudit, getKt, submitKt, reviewKt, compileSopStream, getLedger,
-  approveSop, compileBlueprintStream, getBlueprints, saveBlueprint, approveBlueprint,
+  approveSop, extractSop, compileBlueprintStream, getBlueprints, saveBlueprint, approveBlueprint,
   getConcernTrace, exportLedger, getAuditRubric, saveAuditRubric, runAudit, runAuditBatch, getAuditScores,
   getFramework, saveFramework, uploadFramework, approveFramework } from "../lib/api.js";
 import PolicyCompileAnimation from "../components/PolicyCompileAnimation.jsx";
@@ -325,6 +325,9 @@ export function AuthoringStudio() {
   const [similarSops, setSimilarSops] = useState([]);        // dedup: compiled SOPs this one resembles
   const [helpOpen, setHelpOpen] = useState(false);           // "How this works" modal
   const [toast, setToast] = useState(null);
+  const [srcFile, setSrcFile] = useState(null);              // filename the text was extracted from
+  const [uploading, setUploading] = useState(false);
+  const fileRef = React.useRef(null);
 
   const [blueprints, setBlueprints] = useState([]);
   const [kt, setKt] = useState({ all: [] });
@@ -361,6 +364,33 @@ export function AuthoringStudio() {
     }
   }
 
+  // Clear the whole editor back to a blank slate (used after go-live so the studio is ready
+  // for the next SOP — the just-approved one now lives in the Authored library below).
+  function resetEditor() {
+    setRaw(""); setResult(null); setGaps([]); setStageData({}); setCurrent(null);
+    setSimilarSops([]); setExistingBrain(null); setSrcFile(null);
+  }
+
+  // Upload a real ops artifact → extract its content → prefill the editor. The author then
+  // reviews/edits the text and Compiles it through the normal pipeline.
+  async function onUpload(e) {
+    const file = e.target.files?.[0];
+    if (fileRef.current) fileRef.current.value = "";   // allow re-uploading the same file
+    if (!file) return;
+    setUploading(true);
+    try {
+      const r = await extractSop(file);
+      setRaw(r.text || "");
+      setSrcFile(r.source_name || file.name);
+      setResult(null); setGaps([]); setStageData({}); setCurrent(null);
+      flash(`Loaded "${r.source_name || file.name}" — review the text, then Compile.`);
+    } catch (err) {
+      flash(`Couldn't read that file: ${err?.message || "unsupported or empty"}`);
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function queueChanges() {
     if (!result) return;
     if (mode === "brain") {
@@ -376,11 +406,12 @@ export function AuthoringStudio() {
     if (mode === "brain") {
       await saveBlueprint(result, "domain-owner");
       const r = await approveBlueprint(result.domain);
-      if (r.ok) flash(`Live. The resolution engine now follows the ${result.label || result.domain} brain.`);
+      if (r.ok) flash(`Live. The resolution engine now follows the ${result.label || result.domain} brain — it's in the library below.`);
     } else {
       const r = await approveSop(result);
-      if (r.ok) flash("Live. This SOP is in the retrieval corpus — the engine follows it now.");
+      if (r.ok) flash("Live. This SOP is in the retrieval corpus and the library below — the engine follows it now.");
     }
+    resetEditor();      // editor goes blank; the approved item now shows in the Authored library
     loadLibrary();
   }
 
@@ -445,12 +476,30 @@ export function AuthoringStudio() {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-gutter items-start">
         {/* LEFT: raw text + domain + compile */}
         <div className="glass-card rounded-xl p-lg flex flex-col">
-          <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-secondary-container mb-1">
-            {mode === "brain" ? "Domain walkthrough" : "Plain-language SOP"}</div>
+          <div className="flex items-center justify-between gap-sm mb-1">
+            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-secondary-container">
+              {mode === "brain" ? "Domain walkthrough" : "Plain-language SOP"}</div>
+            <input ref={fileRef} type="file" className="hidden"
+              accept=".xlsx,.xlsm,.docx,.pdf,.csv,.txt,.md,text/csv,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              onChange={onUpload} />
+            <button onClick={() => fileRef.current?.click()} disabled={uploading}
+              title="Upload an Excel / Word / PDF / CSV file — the content is extracted into the box below"
+              className="flex items-center gap-1.5 px-md py-1.5 rounded-lg text-[12px] font-semibold text-on-surface-variant hover:text-secondary-container border border-on-primary-fixed-variant/20 hover:border-secondary-container/40 disabled:opacity-50 transition-all">
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{uploading ? "hourglass_top" : "upload_file"}</span>
+              {uploading ? "Reading…" : "Upload file"}</button>
+          </div>
           <p className="text-xs text-on-surface-variant mb-md">
             {mode === "brain"
-              ? "Describe how you work this domain — what clues you read, how they resolve to one identifier, what you look up, how you decide, and what you'd ask the captain."
-              : "Paste a plain-language SOP — when it applies, evidence required, the checks, the resolution + cap, and the escalation owner."}</p>
+              ? "Describe how you work this domain — what clues you read, how they resolve to one identifier, what you look up, how you decide, and what you'd ask the captain. Or upload a walkthrough doc."
+              : "Paste a plain-language SOP — when it applies, evidence required, the checks, the resolution + cap, and the escalation owner. Or upload an Excel / Word / PDF and it'll be extracted here."}</p>
+          {srcFile && (
+            <div className="flex items-center gap-1.5 mb-sm text-[11px] text-tertiary bg-tertiary/10 border border-tertiary/30 rounded px-2 py-1 self-start">
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>description</span>
+              Extracted from <b>{srcFile}</b> — review below, then Compile.
+              <button onClick={() => setSrcFile(null)} className="ml-1 opacity-70 hover:opacity-100">
+                <span className="material-symbols-outlined" style={{ fontSize: 13 }}>close</span></button>
+            </div>
+          )}
           {mode === "brain" && (
             <div className="flex items-center gap-sm mb-sm flex-wrap">
               <span className="text-[11px] text-on-surface-variant">Domain</span>

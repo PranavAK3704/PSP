@@ -80,6 +80,12 @@ export const compileSopStream = (sop_text, onStage, onEnd) =>
   stream({ url: "/api/sop/compile", method: "POST", body: { sop_text } }, onStage, onEnd);
 export const approveSop = (policy, contributor = "sop-author") =>
   apiPost("/api/sop/approve", { policy, contributor });
+// Upload a real ops artifact (Excel / Word / PDF / CSV / text) → extracted text to prefill the editor.
+export function extractSop(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  return apiPostForm("/api/sop/extract", fd);
+}
 
 // ── Authoring Studio: Domain Blueprints (a domain's stage-0 "brain") ──
 export const compileBlueprintStream = (raw_text, domain, onStage, onEnd) =>

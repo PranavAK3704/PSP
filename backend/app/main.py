@@ -260,6 +260,17 @@ def compile_sop(body: CompileIn):
     return EventSourceResponse(_sse(sop_compiler.compile_sop_streamed(body.sop_text)))
 
 
+@app.post("/api/sop/extract", dependencies=[_author])
+async def sop_extract(file: UploadFile = File(...)):
+    """Upload a real ops artifact (Excel / Word / PDF / CSV / text) → extract its content as
+    readable text (tables flattened) → return {text, source_name}. The author reviews/edits the
+    text, then Compiles it through the normal SOP pipeline. The machine structures; a human
+    approves. Extraction only — no LLM, no state write."""
+    raw = await file.read()
+    text = _extract_text(raw, file.content_type, file.filename)
+    return {"text": text, "source_name": file.filename}
+
+
 @app.post("/api/sop/approve", dependencies=[_approver])
 def approve_sop(body: SopApproveIn):
     """A reviewed structured SOP enters the retrieval corpus (with reload) so the engine
@@ -486,24 +497,60 @@ def audit_scores():
 
 # ── Auditing Studio: dynamic, editable Governance Framework ──────────────────
 def _extract_text(raw: bytes, content_type: str, filename: str) -> str:
-    """Best-effort text extraction from an uploaded framework doc: pypdf for PDFs,
-    utf-8 decode (lenient) for text/csv/markdown/plain. Raises 400 on empty text."""
+    """Best-effort text extraction from an uploaded doc, so an author can drop a real
+    operations artifact (SOP sheet, KT doc, framework) straight in and let the machine
+    structure it. Handles: PDF (pypdf), Excel .xlsx (openpyxl), Word .docx (python-docx),
+    and utf-8 text/csv/markdown/plain. Tables are flattened to readable rows so the LLM
+    keeps the structure. Raises 400 on empty/unreadable content."""
+    import io as _io
     ctype = (content_type or "").lower()
     name = (filename or "").lower()
-    is_pdf = "application/pdf" in ctype or name.endswith(".pdf")
-    if is_pdf:
-        import io as _io
+
+    def _fail(msg):
+        raise HTTPException(status_code=400, detail=msg)
+
+    if "application/pdf" in ctype or name.endswith(".pdf"):
         from pypdf import PdfReader
         try:
             reader = PdfReader(_io.BytesIO(raw))
             text = "\n".join((page.extract_text() or "") for page in reader.pages)
         except Exception as e:  # noqa: BLE001
-            raise HTTPException(status_code=400, detail=f"could not read PDF: {e}")
+            _fail(f"could not read PDF: {e}")
+    elif name.endswith((".xlsx", ".xlsm")) or "spreadsheetml" in ctype:
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(_io.BytesIO(raw), read_only=True, data_only=True)
+            parts = []
+            for ws in wb.worksheets:
+                parts.append(f"## Sheet: {ws.title}")
+                for row in ws.iter_rows(values_only=True):
+                    cells = [str(c).strip() for c in row if c is not None and str(c).strip()]
+                    if cells:
+                        parts.append(" | ".join(cells))
+            text = "\n".join(parts)
+        except Exception as e:  # noqa: BLE001
+            _fail(f"could not read Excel file: {e}")
+    elif name.endswith((".docx",)) or "wordprocessingml" in ctype:
+        try:
+            import docx  # python-docx
+            doc = docx.Document(_io.BytesIO(raw))
+            parts = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
+            for tbl in doc.tables:
+                for row in tbl.rows:
+                    cells = [c.text.strip() for c in row.cells if c.text and c.text.strip()]
+                    if cells:
+                        parts.append(" | ".join(cells))
+            text = "\n".join(parts)
+        except Exception as e:  # noqa: BLE001
+            _fail(f"could not read Word file: {e}")
+    elif name.endswith((".xls", ".doc")):
+        _fail("legacy .xls/.doc isn't supported — please re-save as .xlsx / .docx (or paste the text).")
     else:
         text = raw.decode("utf-8", errors="replace")
+
     text = (text or "").strip()
     if not text:
-        raise HTTPException(status_code=400, detail="no extractable text in the uploaded file")
+        _fail("no extractable text in the uploaded file")
     return text
 
 

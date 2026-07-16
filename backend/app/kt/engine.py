@@ -53,11 +53,90 @@ def _load() -> list[dict]:
             return json.loads(_STORE.read_text())
         except Exception:  # noqa: BLE001
             return []
-    return []
+    # First run (or a free-tier ephemeral-state reset): seed the baseline compiled SOPs so the
+    # library is never empty and the engine has real SOPs to retrieve. Baked in code — like the
+    # Losses Domain Brain seed — so it survives redeploys/restarts. Once anyone authors, the
+    # store is non-empty and this never re-adds (no duplicates).
+    seed = _seed_entries()
+    try:
+        _save(seed)
+    except Exception:  # noqa: BLE001
+        pass
+    return seed
 
 
 def _save(items: list[dict]) -> None:
     _STORE.write_text(json.dumps(items, indent=1))
+
+
+# ── First-run seed: SOPs already handed to us by the domain owners ────────────
+# COD Shortfall (Syed's end-to-end SOP): a compiled ExecutablePolicy, hand-structured
+# from the owner's step-by-step doc. Stored as an APPROVED, compiled SOP so it appears
+# in the Authored library and the retrieval corpus on first boot.
+_COD_SHORTFALL_POLICY = {
+    "id": "SOP-COD-SHORTFALL",
+    "disposition": "COD Shortfall — Captain Recovery & Rider Reactivation",
+    "trigger": {
+        "keywords": ["cod shortfall", "short cod", "cod short", "shortfall", "wrongly updated",
+                     "paid to cms", "rider deactivated", "rider id deactivated", "fe id blocked"],
+        "preconditions": [
+            "A short COD amount was recorded against the captain's pilot/rider for a given date",
+            "The Rider/FE ID may have been deactivated because of the shortfall",
+        ],
+    },
+    "required_evidence": ["Shortfall amount", "Partner details", "FE / Rider details",
+                          "Captain ID", "Date of incident"],
+    "checks": [
+        {"description": "Validate the shortfall amount entered in the Central Tracker",
+         "source": "cost_ops_tracker"},
+        {"description": "Verify partner and FE/Rider details against the tracker entry",
+         "source": "cost_ops_tracker"},
+        {"description": "Confirm the shortfall case is genuine and not already recovered",
+         "source": "cost_ops"},
+    ],
+    "resolution": {
+        "action": ("Pay the validated shortfall via ADHOC Adjustment in Auto Pay, reactivate the "
+                   "deactivated Rider/FE ID, and record recovery from the captain"),
+        "cap_inr": None,   # amount = the validated shortfall; no fixed system cap
+        "params": {"pay_channel": "ADHOC Adjustment / Auto Pay",
+                   "reactivation_owner": "Teja (DAP POC)",
+                   "recovery_owner": "Cost Ops (Gopal)"},
+    },
+    "escalation": {
+        "team": "Cost Ops",
+        "handover": ("Syed pulls the shortfall list + comms + tracker entry → Cost Ops validates "
+                     "(2d) → Cost Ops processes payment (1d) via ADHOC/Auto Pay → Teja/DAP "
+                     "reactivates the Rider/FE ID → Cost Ops (Gopal) records recovery from the captain"),
+    },
+    "partner_rights": [
+        "A genuine COD shortfall wrongly attributed to the captain is paid back via ADHOC "
+        "adjustment in the upcoming payment cycle",
+        "A Rider/FE ID deactivated due to the shortfall is reactivated once payment is processed",
+    ],
+}
+
+
+def _seed_entries() -> list[dict]:
+    ts = datetime.now(timezone.utc).isoformat()
+    p = _COD_SHORTFALL_POLICY
+    trig = p["trigger"]
+    knowledge = "\n".join([
+        "Required from the captain: " + ", ".join(p["required_evidence"]) + ".",
+        *[f"Check: {c['description']}" for c in p["checks"]],
+        f"Resolution: {p['resolution']['action']}.",
+        f"Escalate to {p['escalation']['team']} — {p['escalation']['handover']}.",
+    ])
+    return [{
+        "id": p["id"],
+        "contributor": "domain-owner:cost_ops (Syed)",
+        "raw_text": json.dumps(p),
+        "structured": {"title": p["disposition"], "type": "policy", "queue": "cod_cash",
+                       "triggers": trig["keywords"] + [p["disposition"]],
+                       "knowledge": knowledge, "tags": ["sop", "compiled", "cod", "shortfall"]},
+        "type": "policy", "status": "approved", "compiled_sop": True, "seeded": True,
+        "policy": p, "submitted_at": ts, "reviewed_by": "domain-owner:cost_ops (Syed)",
+        "reviewed_at": ts,
+    }]
 
 
 def submit(text: str, contributor: str, attachments: list[str] | None = None) -> dict:

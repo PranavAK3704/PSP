@@ -197,12 +197,8 @@ def compile_sop_streamed(sop_text: str):
            "similar_sops": similar}
 
 
-def approve_sop(policy: dict, contributor: str = "sop-author") -> dict:
-    """A reviewed structured SOP goes to the retrieval corpus with a reload — via the SAME
-    mechanism approved KT uses (store._corpus() merges approved KT entries). We persist the
-    compiled ExecutablePolicy as an APPROVED KT entry so it is retrievable immediately, no
-    re-ingest and no separate corpus writer. Returns the stored entry."""
-    p = policy or {}
+def _sop_entry(p: dict, contributor: str, status: str) -> dict:
+    """Build the KT entry for a compiled SOP (draft or approved)."""
     trig = p.get("trigger", {}) or {}
     res = p.get("resolution", {}) or {}
     esc = p.get("escalation", {}) or {}
@@ -219,6 +215,7 @@ def approve_sop(policy: dict, contributor: str = "sop-author") -> dict:
     if esc.get("team"):
         lines.append(f"Escalate to {esc['team']}" + (f" — {esc['handover']}" if esc.get("handover") else "") + ".")
     knowledge = "\n".join(lines) or (p.get("disposition") or "SOP")
+    now = datetime.now(timezone.utc).isoformat()
     entry = {
         "id": "SOP-" + uuid.uuid4().hex[:8].upper(),
         "contributor": contributor, "raw_text": json.dumps(p),
@@ -227,14 +224,46 @@ def approve_sop(policy: dict, contributor: str = "sop-author") -> dict:
                        "triggers": (trig.get("keywords") or []) + [p.get("disposition", "")],
                        "knowledge": knowledge,
                        "tags": ["sop", "compiled"] + (trig.get("keywords") or [])},
-        "type": "policy", "status": "approved", "compiled_sop": True,
-        "policy": p, "submitted_at": datetime.now(timezone.utc).isoformat(),
-        "reviewed_by": contributor, "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "type": "policy", "status": status, "compiled_sop": True,
+        "policy": p, "submitted_at": now,
     }
+    if status == "approved":
+        entry["reviewed_by"] = contributor
+        entry["reviewed_at"] = now
+    return entry
+
+
+def _persist_sop(policy: dict, contributor: str, status: str) -> dict:
+    """Persist a compiled SOP as a KT entry (status 'draft' or 'approved'). Drops any earlier
+    DRAFT of the same disposition first, so repeated saves don't pile up and a queued draft
+    becomes its approved form cleanly. Approved SOPs reload the retrieval corpus so the engine
+    follows them immediately (parity with kt.review)."""
+    p = policy or {}
+    # Ensure the first-run seed is planted before we touch the store, so writing an SOP can
+    # never pre-empt the seed (which would otherwise be skipped once the file is non-empty).
+    from ..kt import engine as _kt
+    _kt.ensure_seeded()
+    entry = _sop_entry(p, contributor, status)
     items = json.loads(_KT_STORE.read_text()) if _KT_STORE.exists() else []
+    disp = str(p.get("disposition") or "").strip().lower()
+    if disp:
+        items = [e for e in items if not (e.get("compiled_sop") and e.get("status") == "draft"
+                 and str((e.get("policy") or {}).get("disposition", "")).strip().lower() == disp)]
     items.append(entry)
     _KT_STORE.write_text(json.dumps(items, indent=1))
-    # approved knowledge enters the retrieval corpus immediately (parity with kt.review).
-    from . import store
-    store.reload()
+    if status == "approved":
+        from . import store
+        store.reload()
     return entry
+
+
+def approve_sop(policy: dict, contributor: str = "sop-author") -> dict:
+    """A reviewed structured SOP enters the retrieval corpus (with reload) so the engine
+    follows it — persisted as an APPROVED, compiled KT entry. Returns the stored entry."""
+    return _persist_sop(policy, contributor, "approved")
+
+
+def save_sop_draft(policy: dict, contributor: str = "sop-author") -> dict:
+    """Save a compiled SOP as a DRAFT so it is never lost — it shows in the Authored library
+    (as 'draft') and can be approved later. Does NOT enter the retrieval corpus until approved."""
+    return _persist_sop(policy, contributor, "draft")

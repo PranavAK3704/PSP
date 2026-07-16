@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getInsights, getAudit, getKt, submitKt, reviewKt, compileSopStream, getLedger,
-  approveSop, extractSop, compileBlueprintStream, getBlueprints, saveBlueprint, approveBlueprint,
+  approveSop, saveSopDraft, extractSop, compileBlueprintStream, getBlueprints, saveBlueprint, approveBlueprint,
   getConcernTrace, exportLedger, getAuditRubric, saveAuditRubric, runAudit, runAuditBatch, getAuditScores,
   getFramework, saveFramework, uploadFramework, approveFramework } from "../lib/api.js";
 import PolicyCompileAnimation from "../components/PolicyCompileAnimation.jsx";
@@ -397,7 +397,8 @@ export function AuthoringStudio() {
       const r = await saveBlueprint(result, "domain-owner");
       setGaps(r.gaps || []); flash("Queued as draft. Approve to make the engine follow it.");
     } else {
-      flash("SOP kept as a reviewed draft in the editor — Approve & go live to enter the corpus.");
+      const r = await saveSopDraft(result);
+      if (r?.ok) flash("Saved as a draft — it's in the Authored library below. Approve & go live when ready.");
     }
     loadLibrary();
   }

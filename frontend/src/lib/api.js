@@ -80,6 +80,9 @@ export const compileSopStream = (sop_text, onStage, onEnd) =>
   stream({ url: "/api/sop/compile", method: "POST", body: { sop_text } }, onStage, onEnd);
 export const approveSop = (policy, contributor = "sop-author") =>
   apiPost("/api/sop/approve", { policy, contributor });
+// Save a compiled SOP as a draft so it's never lost (shows in the library, approve later).
+export const saveSopDraft = (policy, contributor = "sop-author") =>
+  apiPost("/api/sop/save", { policy, contributor });
 // Upload a real ops artifact (Excel / Word / PDF / CSV / text) → extracted text to prefill the editor.
 export function extractSop(file) {
   const fd = new FormData();

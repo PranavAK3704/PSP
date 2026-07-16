@@ -54,8 +54,15 @@ _approver = Depends(require_role("approver"))  # approvals / go-live (approver o
 
 @app.on_event("startup")
 def _seed_users():
-    """First-run: seed the initial approver (env-configured, else documented default)."""
+    """First-run: seed the initial approver + baseline authored content (domain brains, the
+    COD Shortfall SOP) so the library is populated on boot regardless of request order."""
     auth_store.seed_initial()
+    try:
+        from .kt import engine as kt_engine
+        kt_engine.ensure_seeded()
+        blueprints.load()   # seeds the Losses brain if the store is empty
+    except Exception:  # noqa: BLE001 — never let seeding block startup
+        pass
 
 
 class ChatIn(BaseModel):
@@ -269,6 +276,14 @@ async def sop_extract(file: UploadFile = File(...)):
     raw = await file.read()
     text = _extract_text(raw, file.content_type, file.filename)
     return {"text": text, "source_name": file.filename}
+
+
+@app.post("/api/sop/save", dependencies=[_author])
+def save_sop(body: SopApproveIn):
+    """Save a compiled SOP as a DRAFT (author-or-approver) so it is never lost — it shows in
+    the Authored library and can be approved later. Returns {ok, id, gaps}."""
+    entry = sop_compiler.save_sop_draft(body.policy, body.contributor)
+    return {"ok": True, "id": entry["id"], "gaps": sop_compiler.detect_policy_gaps(body.policy)}
 
 
 @app.post("/api/sop/approve", dependencies=[_approver])

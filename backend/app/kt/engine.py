@@ -230,6 +230,13 @@ def all_kt() -> list[dict]:
     return list(reversed(_load()))
 
 
+def ensure_seeded() -> None:
+    """Plant the first-run seed (COD Shortfall SOP) if the store is empty. Safe to call any
+    number of times. Called on startup and before any SOP write, so the seed is authoritative
+    regardless of which module touches kt_queue.json first."""
+    _load()
+
+
 def review(kt_id: str, approve: bool, reviewer: str) -> dict | None:
     items = _load()
     for k in items:

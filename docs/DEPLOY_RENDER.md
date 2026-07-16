@@ -14,20 +14,18 @@ redeploys. Secrets are set in the Render dashboard — never committed.
 - `.dockerignore` — excludes `node_modules`, `.venv`, `dist`, `backend/data/*.db`
   (loss data comes from Turso), `backend/data/*.txt` (secrets come from env).
 
-## 0. Put the project in Git (prerequisite — it is NOT a repo yet)
-Render deploys from a Git repo, so this must be done first.
+## 0. Push to GitHub (the repo is ALREADY initialised + committed)
+The project is already a clean Git repo (committed, secrets gitignored, and the
+Docker image is verified to build + run). Just push it so Render can deploy from it:
 ```bash
 cd /Users/pranav.akella/PSP
-git init
-git add -A
-git commit -m "Valmo PSP — auth, RBAC, durable state, Render-ready"
-# create an EMPTY GitHub repo (no README), then:
 git branch -M main
+# create an EMPTY GitHub repo (no README/license), then:
 git remote add origin git@github.com:<your-org>/valmo-psp.git
 git push -u origin main
 ```
-The `.dockerignore` and `.gitignore` keep `backend/data/*.txt` secrets out of the
-image; make sure real secrets are never committed.
+`.gitignore` already keeps `backend/data/*.txt` (LLM/Turso keys), `.env`, and the
+loss `.db` out of Git — the working tree has no secrets staged.
 
 ## 1. Create the service from the Blueprint
 1. Render Dashboard → **New** → **Blueprint**.
@@ -69,7 +67,7 @@ documented default `admin@valmo.local` / `valmo-admin` and logs a WARNING — ch
 it immediately by adding a new approver and retiring the default.
 
 ## 6. Add your team (Team admin — approver only)
-Header → the **group** icon (visible to approvers) → **Add a member**: email, name,
+In the **sidebar** (bottom-left) → the **group** icon (visible to approvers) → **Add a member**: email, name,
 a temp password, and a role:
 - **viewer** — read-only.
 - **author** — can draft/compile/queue knowledge (blueprints, SOPs, KT, nuances).

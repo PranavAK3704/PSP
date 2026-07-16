@@ -25,9 +25,10 @@ from pathlib import Path
 from ..llm import registry as llm_registry
 from ..llm.gemini_provider import _parse_json
 from ..state_paths import state_path
+from ..durable_state import durable_path
 
 # MUTABLE authored content → durable state dir (survives redeploys); default backend/data.
-_STORE = Path(state_path("blueprints.json"))
+_STORE = durable_path("blueprints.json")
 _lock = threading.Lock()
 
 # Stable domain keys — aligned with escalate_case's domain enum (engine/tools.py) so an

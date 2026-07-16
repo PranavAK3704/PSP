@@ -1,23 +1,24 @@
 # Render Blueprint — one Docker web service for the Valmo Partner Support Platform.
-# The persistent disk at /data is PSP_STATE_DIR, so authored config (users, blueprints,
-# KT queue, rubric/audits, ledger, traces, CPD) survives redeploys. Secrets are set in
-# the Render dashboard (sync: false → never stored in git).
+# DURABILITY: the free tier has NO persistent disk, so authored state (users, blueprints,
+# KT queue/SOPs, framework, rubric/audits, ledger, traces, CPD) is mirrored to Turso (the
+# same DB the loss data uses) via app/durable_state.py — it survives redeploys/restarts as
+# long as TURSO_DATABASE_URL + TURSO_AUTH_TOKEN are set below. Secrets are set in the Render
+# dashboard (sync: false → never stored in git).
 services:
   - type: web
     name: valmo-psp
     env: docker
     plan: free                 # free tier — no card required
-    # NOTE (free tier): instance sleeps after ~15 min idle (slow first request), and there
-    # is NO persistent disk, so authored state resets on redeploy — the losses brain, audit
-    # rubric and INITIAL_ADMIN re-seed on boot. Upgrade to a paid plan + disk (or externalize
-    # state to Turso) when the team authors for real.
+    # NOTE (free tier): instance sleeps after ~15 min idle (slow first request). The local
+    # /data dir resets on redeploy, but durable_state restores authored content from Turso on
+    # boot, so nothing is lost. (Seeds — losses brain, COD SOP, INITIAL_ADMIN — also re-seed.)
     dockerfilePath: ./Dockerfile
     # $PORT is injected by Render automatically (the Dockerfile CMD reads it).
     healthCheckPath: /api/health
     envVars:
-      # Durable state lives on the mounted disk (survives redeploys).
+      # Local cache dir; durable truth is Turso (see durable_state.py). Ephemeral on free tier.
       - key: PSP_STATE_DIR
-        value: /data          # ephemeral on free tier (no disk)
+        value: /data
       # ── Dashboard-set secrets (never committed) ──
       - key: OPENAI_API_KEY
         sync: false

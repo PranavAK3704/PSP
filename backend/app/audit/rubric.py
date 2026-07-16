@@ -16,9 +16,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..state_paths import state_path
+from ..durable_state import durable_path
 
 # MUTABLE authored content → durable state dir (survives redeploys); default backend/data.
-_STORE = Path(state_path("audit_rubric.json"))
+_STORE = durable_path("audit_rubric.json")
 _lock = threading.Lock()
 
 

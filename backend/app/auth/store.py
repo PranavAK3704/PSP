@@ -15,6 +15,7 @@ import sys
 import threading
 
 from ..state_paths import state_path
+from ..durable_state import read_json, write_json
 
 ROLES = {"author", "approver", "viewer"}
 _ITERATIONS = 200_000
@@ -49,20 +50,14 @@ def _public(u: dict) -> dict:
 
 
 def _load() -> list[dict]:
-    p = _path()
-    if os.path.exists(p):
-        try:
-            with open(p, encoding="utf-8") as f:
-                data = json.load(f)
-            return data if isinstance(data, list) else []
-        except Exception:  # noqa: BLE001
-            return []
-    return []
+    # Durable: reads Turso first (falls back to the local users.json when Turso is off).
+    data = read_json("users.json", [])
+    return data if isinstance(data, list) else []
 
 
 def _save(users: list[dict]) -> None:
-    with open(_path(), "w", encoding="utf-8") as f:
-        json.dump(users, f, indent=1)
+    # Durable: mirrors to Turso so accounts survive a free-tier restart.
+    write_json("users.json", users)
 
 
 def get_user(email: str) -> dict | None:

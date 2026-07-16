@@ -14,6 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from ..state_paths import state_path
+from ..durable_state import durable_path
 
 _DATA = Path(__file__).resolve().parents[2] / "data" / "knowledge"
 
@@ -61,7 +62,7 @@ def _corpus() -> list[dict]:
     # (no re-ingest). Approved KT is already structured (title/triggers/knowledge/type).
     # Read the durable-state kt_queue (same store the KT engine + SOP compiler write) so an
     # approval reliably enters the corpus. Locally $PSP_STATE_DIR is unset → backend/data.
-    kt_path = Path(state_path("kt_queue.json"))
+    kt_path = durable_path("kt_queue.json")
     if kt_path.exists():
         try:
             for k in json.loads(kt_path.read_text()):

@@ -14,9 +14,10 @@ from pathlib import Path
 
 from ..ledger import concern_log
 from ..state_paths import state_path
+from ..durable_state import durable_path
 
 # MUTABLE store → durable state dir (survives redeploys); default backend/data.
-_STORE = Path(state_path("cpd_log.json"))
+_STORE = durable_path("cpd_log.json")
 
 
 def _load() -> list[dict]:

@@ -24,10 +24,11 @@ from ..llm import registry as llm_registry
 from ..llm.gemini_provider import _parse_json
 from ..ledger import concern_log, trace_log
 from ..state_paths import state_path
+from ..durable_state import durable_path
 from . import rubric as rubric_mod
 
 # MUTABLE store → durable state dir (survives redeploys); default backend/data.
-_STORE = Path(state_path("audits.json"))
+_STORE = durable_path("audits.json")
 _lock = threading.Lock()
 
 

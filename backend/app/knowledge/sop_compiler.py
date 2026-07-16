@@ -16,11 +16,12 @@ from pathlib import Path
 from ..llm import registry as llm_registry
 from ..llm.gemini_provider import _parse_json
 from ..state_paths import state_path
+from ..durable_state import durable_path
 
 # Compiled SOPs live as APPROVED KT (tagged compiled_sop) in the durable-state kt_queue —
 # the SAME store the KT engine and retrieval corpus use (state_paths lists kt_queue as durable
 # state). Locally $PSP_STATE_DIR is unset so this resolves to backend/data, unchanged.
-_KT_STORE = Path(state_path("kt_queue.json"))
+_KT_STORE = durable_path("kt_queue.json")
 
 _SYSTEM = """You are the SOP Compiler for Valmo's partner-support resolution engine.
 You convert a plain-language Standard Operating Procedure into a strict, executable

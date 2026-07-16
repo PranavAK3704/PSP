@@ -13,9 +13,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..state_paths import state_path
+from ..durable_state import durable_path
 
 # MUTABLE ledger → durable state dir (survives redeploys); default backend/data.
-_STORE = Path(state_path("concern_log.json"))
+_STORE = durable_path("concern_log.json")
 _lock = threading.Lock()
 
 

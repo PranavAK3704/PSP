@@ -273,21 +273,29 @@ function SopEditor({ policy, gaps, onChange }) {
   const g = (...p) => gapsFor(gaps, ...p);
   return (
     <div className="flex flex-col">
+      <div className="flex items-center gap-sm flex-wrap mb-1">
+        <Field value={policy.title || ""} onChange={(v) => set("title", v)}
+          placeholder="scenario title — what this SOP is about" mono={false} className="flex-1 min-w-[240px]" />
+        <span className="text-[10px] px-2 py-0.5 rounded bg-secondary-container/15 text-secondary-container" style={{ fontFamily: "JetBrains Mono" }}>{policy.id || "pol_…"}</span>
+      </div>
       <div className="flex items-center gap-sm flex-wrap mb-sm">
-        <Field value={policy.disposition} onChange={(v) => set("disposition", v)} placeholder="disposition" className="w-48" />
+        <span className="text-[10px] text-on-surface-variant">domain</span>
         <select value={policy.domain || ""} onChange={(e) => set("domain", e.target.value)}
-          title="Which domain this SOP belongs to (groups it in the Knowledge Base)"
+          title="Which domain this SOP belongs to"
           className="bg-surface-container-lowest border border-on-primary-fixed-variant/20 rounded px-sm py-1 text-[12px]" style={{ fontFamily: "JetBrains Mono" }}>
           <option value="">domain…</option>
           {BP_DOMAINS.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
+        <span className="text-[10px] text-on-surface-variant ml-1">disposition</span>
+        <Field value={policy.disposition || ""} onChange={(v) => set("disposition", v)}
+          placeholder="concern category, e.g. hardstop_loss" className="w-52" />
+        <span className="text-[10px] text-on-surface-variant ml-1">priority</span>
         <select value={policy.priority || ""} onChange={(e) => set("priority", e.target.value)}
           title="Priority (from the Collated SOPs doc)"
           className="bg-surface-container-lowest border border-on-primary-fixed-variant/20 rounded px-sm py-1 text-[12px]" style={{ fontFamily: "JetBrains Mono" }}>
           <option value="">priority…</option>
           {["P0", "P1", "P2"].map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
-        <span className="text-[10px] px-2 py-0.5 rounded bg-secondary-container/15 text-secondary-container" style={{ fontFamily: "JetBrains Mono" }}>{policy.id || "pol_…"}</span>
       </div>
 
       <SectionHead icon="bolt" title="Trigger keywords" gaps={g("trigger")} />
@@ -1798,6 +1806,16 @@ function sopDomain(k) {
   if (/order/.test(raw)) return "orders";
   return "other";
 }
+// The concern CATEGORY an SOP serves (many SOPs → one disposition). Falls back to structured or "uncategorized".
+function sopDisposition(k) {
+  return (k.policy || {}).disposition || k.structured?.disposition || "uncategorized";
+}
+// Group a domain's SOPs by disposition, largest group first.
+function groupByDisposition(sops) {
+  const m = {};
+  for (const k of sops) { const d = sopDisposition(k); (m[d] = m[d] || []).push(k); }
+  return Object.entries(m).sort((a, b) => b[1].length - a[1].length);
+}
 
 export function KnowledgeBase() {
   const { isApprover } = useAuth();
@@ -1902,24 +1920,30 @@ export function KnowledgeBase() {
               </div>
             )}
 
-            {/* SOPs */}
+            {/* SOPs, grouped by disposition (the concern category) */}
             <div className="flex flex-col gap-xs">
               {r.sops.length === 0 && <div className="text-[11px] text-on-surface-variant/60 pl-1 py-1">No SOPs in this domain yet.</div>}
-              {r.sops.map((k) => (
-                <div key={k.id} className="flex items-center gap-2 bg-surface-container-lowest border border-on-primary-fixed-variant/15 rounded-lg px-md py-sm hover:border-secondary-container/40 transition-all">
-                  <span className="material-symbols-outlined text-on-surface-variant/60" style={{ fontSize: 15 }}>description</span>
-                  <button onClick={() => openSop(k)} className="min-w-0 flex-1 text-left">
-                    <div className="text-[12.5px] font-semibold truncate">{k.structured?.title || k.policy?.disposition || k.id}</div>
-                    <div className="text-[10px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{k.id} · {(k.policy?.checks || []).length} checks</div>
-                  </button>
-                  <PriorityBadge p={k.policy?.priority} />
-                  <StatusPill status={k.status} />
-                  <button onClick={() => openSop(k)} title="Edit" className="w-7 h-7 grid place-items-center rounded text-on-surface-variant hover:text-secondary-container hover:bg-secondary-container/10">
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span></button>
-                  {isApprover && (
-                    <button onClick={() => removeSop(k)} title="Delete" className="w-7 h-7 grid place-items-center rounded text-on-surface-variant hover:text-error hover:bg-error/10">
-                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span></button>
-                  )}
+              {groupByDisposition(r.sops).map(([disp, list]) => (
+                <div key={disp} className="flex flex-col gap-xs">
+                  <div className="text-[9px] font-bold uppercase tracking-[0.08em] text-secondary-container/70 mt-1.5 flex items-center gap-1">
+                    <span className="material-symbols-outlined" style={{ fontSize: 12 }}>label</span>{disp} · {list.length}</div>
+                  {list.map((k) => (
+                    <div key={k.id} className="flex items-center gap-2 bg-surface-container-lowest border border-on-primary-fixed-variant/15 rounded-lg px-md py-sm hover:border-secondary-container/40 transition-all">
+                      <span className="material-symbols-outlined text-on-surface-variant/60" style={{ fontSize: 15 }}>description</span>
+                      <button onClick={() => openSop(k)} className="min-w-0 flex-1 text-left">
+                        <div className="text-[12.5px] font-semibold truncate">{k.structured?.title || k.policy?.title || k.policy?.disposition || k.id}</div>
+                        <div className="text-[10px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{k.id} · {(k.policy?.checks || []).length} checks</div>
+                      </button>
+                      <PriorityBadge p={k.policy?.priority} />
+                      <StatusPill status={k.status} />
+                      <button onClick={() => openSop(k)} title="Edit" className="w-7 h-7 grid place-items-center rounded text-on-surface-variant hover:text-secondary-container hover:bg-secondary-container/10">
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span></button>
+                      {isApprover && (
+                        <button onClick={() => removeSop(k)} title="Delete" className="w-7 h-7 grid place-items-center rounded text-on-surface-variant hover:text-error hover:bg-error/10">
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span></button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>

@@ -34,7 +34,9 @@ _PROMPT = """Compile the following plain-language SOP into an ExecutablePolicy.
 Return ONLY JSON with EXACTLY this shape:
 {{
   "id": "pol_<short_slug>",
-  "disposition": "<snake_case theme>",
+  "title": "<short human-readable scenario name — what THIS SOP is about, e.g. 'Shortage loss — evidence mails not sent'>",
+  "domain": "<one of: losses | payments | fe_id | cod_cash | consumables | orders | other>",
+  "disposition": "<the concern CATEGORY as a snake_case key (NOT the scenario name — that's the title). REUSE an existing key from KNOWN DISPOSITIONS below if one fits; only invent a new snake_case key if none fit>",
   "version": "v1.0",
   "trigger": {{"keywords": ["..."], "preconditions": ["..."]}},
   "required_evidence": ["<source_row_name>", "..."],
@@ -52,6 +54,9 @@ The Partner Constitution principles you may cite in partner_rights:
 presumption of good faith, true-cause attribution, radical transparency,
 guaranteed SLAs, auto error-correction, proportionality + downside caps,
 right to appeal + a human, consistency, no silent policy changes.
+
+KNOWN DISPOSITIONS (reuse one of these category keys if it fits; only propose a new snake_case key if none fit):
+{known_dispositions}
 
 PLAIN-LANGUAGE SOP:
 ---
@@ -145,11 +150,28 @@ def find_similar_sops(title: str, text: str = "", k: int = 3) -> list[dict]:
     return out[:k]
 
 
+def known_dispositions() -> list[str]:
+    """Distinct disposition category keys currently in use (seeds + authored), for reuse when
+    compiling a new SOP so the taxonomy stays consistent instead of sprouting near-duplicates."""
+    seen = []
+    try:
+        items = json.loads(_KT_STORE.read_text()) if _KT_STORE.exists() else []
+        for k in items:
+            d = (k.get("policy") or {}).get("disposition") or k.get("structured", {}).get("disposition")
+            if d and d not in seen:
+                seen.append(d)
+    except Exception:  # noqa: BLE001
+        pass
+    return sorted(seen)
+
+
 def compile_sop(sop_text: str) -> tuple[dict, dict]:
     """Return (executable_policy, meta). meta carries model + token usage."""
     provider, model = llm_registry.for_node("sop_compile")
+    known = known_dispositions()
+    known_str = ", ".join(known) if known else "(none yet — propose a snake_case key)"
     res = provider.generate(
-        _PROMPT.format(sop_text=sop_text.strip()),
+        _PROMPT.format(sop_text=sop_text.strip(), known_dispositions=known_str),
         model=model, node="sop_compile", system=_SYSTEM, json_mode=True,
     )
     policy = _parse_json(res.text)
@@ -214,16 +236,22 @@ def _sop_entry(p: dict, contributor: str, status: str) -> dict:
         lines.append(f"Resolution: {res['action']}{cap}.")
     if esc.get("team"):
         lines.append(f"Escalate to {esc['team']}" + (f" — {esc['handover']}" if esc.get("handover") else "") + ".")
-    knowledge = "\n".join(lines) or (p.get("disposition") or "SOP")
+    # title = the SOP's scenario NAME; disposition = the concern CATEGORY it serves.
+    title = p.get("title") or p.get("disposition") or p.get("id") or "SOP"
+    disp = p.get("disposition") or ""
+    if disp:
+        lines.insert(0, f"Disposition: {disp}.")
+    knowledge = "\n".join(lines) or title
     now = datetime.now(timezone.utc).isoformat()
     entry = {
         "id": "SOP-" + uuid.uuid4().hex[:8].upper(),
         "contributor": contributor, "raw_text": json.dumps(p),
-        "structured": {"title": p.get("disposition") or p.get("id") or "SOP",
-                       "type": "policy", "queue": (esc.get("team") or p.get("disposition") or "general"),
-                       "triggers": (trig.get("keywords") or []) + [p.get("disposition", "")],
+        "structured": {"title": title, "type": "policy",
+                       "queue": p.get("domain") or (esc.get("team") or "general"),
+                       "disposition": disp,
+                       "triggers": (trig.get("keywords") or []) + [title, disp],
                        "knowledge": knowledge,
-                       "tags": ["sop", "compiled"] + (trig.get("keywords") or [])},
+                       "tags": ["sop", "compiled"] + ([disp] if disp else []) + (trig.get("keywords") or [])},
         "type": "policy", "status": status, "compiled_sop": True,
         "policy": p, "submitted_at": now,
     }

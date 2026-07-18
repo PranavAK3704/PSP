@@ -105,7 +105,8 @@ def _save(items: list[dict]) -> None:
 _COD_SHORTFALL_POLICY = {
     "id": "SOP-COD-SHORTFALL",
     "domain": "cod_cash",
-    "disposition": "COD Shortfall — Captain Recovery & Rider Reactivation",
+    "disposition": "cod_shortfall",
+    "title": "COD Shortfall — Captain Recovery & Rider Reactivation",
     "trigger": {
         "keywords": ["cod shortfall", "short cod", "cod short", "shortfall", "wrongly updated",
                      "paid to cms", "rider deactivated", "rider id deactivated", "fe id blocked"],
@@ -194,17 +195,22 @@ def _policy_to_entry(p: dict, ts: str) -> dict:
         lines.append("L2/L3 process: " + ref["l2_l3_process"])
     if ref.get("guardrails"):
         lines.append("Guardrails: " + ref["guardrails"])
-    knowledge = "\n".join(lines) or (p.get("disposition") or "SOP")
+    # title = the SOP's scenario NAME; disposition = the concern CATEGORY it serves.
+    title = p.get("title") or p.get("disposition") or p.get("id") or "SOP"
+    disp = p.get("disposition") or ""
+    lines.insert(0, f"Disposition: {disp}." if disp else "")
+    knowledge = "\n".join(l for l in lines if l) or title
     src = p.get("source", "")
     contributor = "sop-redressal-tracker" if src else "domain-owner:cost_ops (Syed)"
     return {
         "id": p.get("id") or ("SOP-" + uuid.uuid4().hex[:8].upper()),
         "contributor": contributor, "raw_text": json.dumps(p, ensure_ascii=False),
-        "structured": {"title": p.get("disposition") or p.get("id") or "SOP", "type": "policy",
+        "structured": {"title": title, "type": "policy",
                        "queue": p.get("domain") or (esc.get("team") or "general"),
-                       "triggers": (trig.get("keywords") or []) + [p.get("disposition", "")],
+                       "disposition": disp,
+                       "triggers": (trig.get("keywords") or []) + [title, disp],
                        "knowledge": knowledge,
-                       "tags": ["sop", "compiled"] + ([src] if src else []) + (trig.get("keywords") or [])[:8]},
+                       "tags": ["sop", "compiled"] + ([src] if src else []) + ([disp] if disp else []) + (trig.get("keywords") or [])[:8]},
         "type": "policy", "status": "approved", "compiled_sop": True, "seeded": True,
         "policy": p, "submitted_at": ts, "reviewed_by": contributor, "reviewed_at": ts,
     }

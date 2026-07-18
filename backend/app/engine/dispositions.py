@@ -39,6 +39,11 @@ def locate(intent: str, keywords: list[str]) -> dict:
 
 
 def _theme_for(chunk: dict) -> str:
+    # Prefer the explicit disposition CATEGORY carried on the chunk (from a compiled SOP) — that
+    # is the authored taxonomy. Fall back to the lexical heuristic for legacy/corpus chunks.
+    disp = (chunk.get("disposition") or "").strip()
+    if disp:
+        return disp
     text = (chunk.get("title", "") + " " + chunk.get("text", "")).lower()
     src = chunk.get("id", "")
     if "hardstop" in text or "hardstop" in src or "loss" in text or "debit" in text or "reversal" in text:
@@ -49,15 +54,35 @@ def _theme_for(chunk: dict) -> str:
 
 
 def catalogue() -> list[dict]:
-    """All active dispositions with policy + live stats (for the UI)."""
+    """All active dispositions — the unified taxonomy: curated executable policies PLUS the
+    dispositions the authored/seeded SOP library serves (each with its SOP count) — with live
+    stats. Merged by disposition key so a category appearing in both is one entry."""
     st = concern_log.stats().get("by_disposition", {})
-    out = []
+    out: dict[str, dict] = {}
     for p in pol.all_policies():
         d = p["disposition"]
-        out.append({
+        out[d] = {
             "disposition": d, "policy_id": p["id"], "version": p["version"],
             "action": p["resolution"]["action"], "cap_inr": p["resolution"].get("cap_inr"),
             "trigger_keywords": p["trigger"].get("keywords", []),
-            "volume": st.get(d, 0), "status": "active",
-        })
-    return out
+            "volume": st.get(d, 0), "status": "active", "sop_count": 0,
+        }
+    # merge dispositions served by the SOP library (many SOPs → one disposition)
+    try:
+        from ..kt import engine as _kt
+        counts: dict[str, int] = {}
+        for k in _kt.all_kt():
+            if k.get("compiled_sop"):
+                d = (k.get("policy") or {}).get("disposition") or ""
+                if d:
+                    counts[d] = counts.get(d, 0) + 1
+        for d, n in counts.items():
+            if d in out:
+                out[d]["sop_count"] = n
+            else:
+                out[d] = {"disposition": d, "policy_id": None, "version": "sop", "action": "",
+                          "cap_inr": None, "trigger_keywords": [], "volume": st.get(d, 0),
+                          "status": "active", "sop_count": n}
+    except Exception:  # noqa: BLE001
+        pass
+    return list(out.values())

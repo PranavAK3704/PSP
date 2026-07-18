@@ -71,7 +71,8 @@ def _corpus() -> list[dict]:
                 st = k.get("structured", {}) or {}
                 chunks.append({
                     "id": k["id"], "kind": "kt", "theme": st.get("queue", ""),
-                    "queue": st.get("queue", ""), "title": st.get("title", k.get("raw_text", "")[:60]),
+                    "queue": st.get("queue", ""), "disposition": st.get("disposition", ""),
+                    "title": st.get("title", k.get("raw_text", "")[:60]),
                     "text": st.get("knowledge", k.get("raw_text", "")),
                     "tags": (st.get("triggers", []) or []) + (st.get("tags", []) or []),
                     "knowledge_type": k.get("type", "procedure"), "source_repo": "kt_engine/approved",

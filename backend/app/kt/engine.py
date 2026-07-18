@@ -61,21 +61,37 @@ def _read() -> list[dict]:
 
 
 def _load() -> list[dict]:
-    """Read the store and ADDITIVELY ensure every baked seed SOP is present (matched by stable
-    id). New seeds appear even in a non-empty store — but nothing the team authored, edited, or
-    an already-present seed is ever touched or duplicated. Baked in code, so seeds survive an
-    ephemeral-state reset; once present they're never re-added."""
+    """Read the store and reconcile it with the baked seed SOPs (matched by stable id):
+      • a seed id not in the store   → added,
+      • a seed id present but still a pristine seed (flagged `seeded`) whose baked content has
+        changed → refreshed in place (so shipping improved/enriched seeds updates the live copy),
+      • a seed the team has edited (the edit drops the `seeded` flag) → left untouched,
+      • anything the team authored → left untouched.
+    Nothing is ever duplicated; user edits always win. Baked in code, so seeds survive an
+    ephemeral-state reset."""
     items = _read()
-    have = {e.get("id") for e in items}
-    missing = [p for p in _seed_policies() if p.get("id") not in have]
-    if missing or not items:
-        ts = datetime.now(timezone.utc).isoformat()
-        items = items + [_policy_to_entry(p, ts) for p in missing]
+    seeds = {p.get("id"): p for p in _seed_policies()}
+    ts = datetime.now(timezone.utc).isoformat()
+    out, seen, changed = [], set(), False
+    for e in items:
+        eid = e.get("id")
+        seen.add(eid)
+        p = seeds.get(eid)
+        if p is not None and e.get("seeded") and e.get("policy") != p:
+            out.append(_policy_to_entry(p, ts))   # pristine seed, content changed → refresh
+            changed = True
+        else:
+            out.append(e)                          # user-edited / authored / unchanged seed → keep
+    for sid, p in seeds.items():
+        if sid not in seen:
+            out.append(_policy_to_entry(p, ts))    # new seed → add
+            changed = True
+    if changed or not items:
         try:
-            _save(items)
+            _save(out)
         except Exception:  # noqa: BLE001
             pass
-    return items
+    return out
 
 
 def _save(items: list[dict]) -> None:
@@ -169,6 +185,15 @@ def _policy_to_entry(p: dict, ts: str) -> dict:
         lines.append(f"Resolution: {res['action']}{cap}.")
     if esc.get("team"):
         lines.append(f"Escalate to {esc['team']}" + (f" — {esc['handover']}" if esc.get("handover") else "") + ".")
+    if p.get("priority"):
+        lines.append(f"Priority: {p['priority']}.")
+    ref = p.get("doc_reference") or {}   # richer detail merged from the Collated SOPs doc
+    if ref.get("l1_process"):
+        lines.append("L1 process (detailed): " + ref["l1_process"])
+    if ref.get("l2_l3_process"):
+        lines.append("L2/L3 process: " + ref["l2_l3_process"])
+    if ref.get("guardrails"):
+        lines.append("Guardrails: " + ref["guardrails"])
     knowledge = "\n".join(lines) or (p.get("disposition") or "SOP")
     src = p.get("source", "")
     contributor = "sop-redressal-tracker" if src else "domain-owner:cost_ops (Syed)"

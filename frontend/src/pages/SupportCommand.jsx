@@ -281,6 +281,12 @@ function SopEditor({ policy, gaps, onChange }) {
           <option value="">domain…</option>
           {BP_DOMAINS.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
+        <select value={policy.priority || ""} onChange={(e) => set("priority", e.target.value)}
+          title="Priority (from the Collated SOPs doc)"
+          className="bg-surface-container-lowest border border-on-primary-fixed-variant/20 rounded px-sm py-1 text-[12px]" style={{ fontFamily: "JetBrains Mono" }}>
+          <option value="">priority…</option>
+          {["P0", "P1", "P2"].map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
         <span className="text-[10px] px-2 py-0.5 rounded bg-secondary-container/15 text-secondary-container" style={{ fontFamily: "JetBrains Mono" }}>{policy.id || "pol_…"}</span>
       </div>
 
@@ -313,6 +319,21 @@ function SopEditor({ policy, gaps, onChange }) {
         <Field value={esc.team} onChange={(v) => setNested("escalation", "team", v)} placeholder="team" className="w-48" mono={false} />
         <Field value={esc.handover} onChange={(v) => setNested("escalation", "handover", v)} placeholder="handover" mono={false} className="flex-1 min-w-[160px]" />
       </div>
+
+      {/* Read-only richer detail merged in from the Collated SOPs doc (reference for the author). */}
+      {policy.doc_reference && (policy.doc_reference.l1_process || policy.doc_reference.l2_l3_process || policy.doc_reference.guardrails) && (
+        <div className="mt-md pt-md border-t border-on-primary-fixed-variant/15">
+          <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-secondary-container flex items-center gap-1 mb-sm">
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>menu_book</span>Reference · from the Collated SOPs doc</div>
+          {[["L1 process", policy.doc_reference.l1_process], ["L2 / L3 process", policy.doc_reference.l2_l3_process],
+            ["Guardrails", policy.doc_reference.guardrails], ["TAT", policy.doc_reference.tat]].map(([label, text]) => text ? (
+            <div key={label} className="mb-2">
+              <div className="text-[9px] font-bold uppercase tracking-wide text-on-surface-variant/70">{label}</div>
+              <div className="text-[11px] text-on-surface-variant whitespace-pre-wrap leading-relaxed">{text}</div>
+            </div>
+          ) : null)}
+        </div>
+      )}
     </div>
   );
 }
@@ -688,6 +709,14 @@ function StatusPill({ status }) {
     <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${ok ? "text-tertiary bg-tertiary/10" : "text-warn bg-warn/10"}`}>
       {ok ? "approved · live" : "draft"}</span>
   );
+}
+// Priority from the Collated SOPs doc (P0 critical → P2 low). Hidden when absent.
+function PriorityBadge({ p }) {
+  if (!p) return null;
+  const tone = p === "P0" ? "text-error bg-error/10 border-error/30"
+    : p === "P1" ? "text-warn bg-warn/10 border-warn/30"
+    : "text-on-surface-variant bg-surface-variant/40 border-on-primary-fixed-variant/20";
+  return <span className={`flex-none text-[9px] font-bold px-1.5 py-0.5 rounded border ${tone}`}>{p}</span>;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -1883,6 +1912,7 @@ export function KnowledgeBase() {
                     <div className="text-[12.5px] font-semibold truncate">{k.structured?.title || k.policy?.disposition || k.id}</div>
                     <div className="text-[10px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{k.id} · {(k.policy?.checks || []).length} checks</div>
                   </button>
+                  <PriorityBadge p={k.policy?.priority} />
                   <StatusPill status={k.status} />
                   <button onClick={() => openSop(k)} title="Edit" className="w-7 h-7 grid place-items-center rounded text-on-surface-variant hover:text-secondary-container hover:bg-secondary-container/10">
                     <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span></button>

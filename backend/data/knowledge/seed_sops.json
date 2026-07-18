@@ -96,7 +96,14 @@
    "handover": "neutral flow"
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The “Remarks” column in the query tells agents on whether lost attribution is pending or not.\n3. For c ross-validation, L1 agent will refer to the Shortage SOP. Additionally, L1 agents will also refer to Log 10 to check the detailed scans against the AWBs.\n4. L1 agent will check the Shortage Data Query to re-verify if the mails are sent to the partner. If they are not sent to BOTH partners, the mail needs to be triggered again to both or the respective hubs.\n5. Basis steps 2-3 and the scenarios below, the L1 agent will abide by the following:\n\nScenario 1: The Evidence and reply mails have not been sent to one or all partners - The mails need to be requeued to the partners (through escalation).\n- This is a direct L1 to L3 escalation on kapture.",
+   "l2_l3_process": "L2 and L3 agents come into play when the tickets are escalated. L2 agents must validate the escalation remarks to verify if the escalation made is valid.In case of escalation in the following scenarios, the L2 agents should follow these SOPs 1. L1 agent marks the ticket for reversal: L2 agent must check the reply and remarks added by the L1 agent and forward the corresponding shipments to the wrong losses sheet, filling in the appropriate columns – shared with the losses functional team.\n2. The L1 agent is unable to access the information needed to resolve the ticket; the L2 agent must reverify it. If the information is available, then the agent must offer the best possible resolution according to the SOPs. If the information is not available, then the ticket must be worked out along with the functional teams.",
+   "guardrails": "NA",
+   "tat": "72 hours",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-003",
@@ -151,7 +158,14 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The “Remarks” column in the query tells agents on whether lost attribution is pending or not.\n3. For c ross-validation, L1 agent will refer to the Shortage SOP. Additionally, L1 agents will also refer to Log 10 to check the detailed scans against the AWBs.\n4. L1 agent will check the Shortage Data Query to re-verify if the mails are sent to the partner. If they are not sent to BOTH partners, the mail needs to be triggered again to both or the respective hubs.\n5. Basis steps 2-3 and the scenarios below, the L1 agent will abide by the following:\n\nScenario 2: The captain is unable to mark shortage for shipment - The agent must check the vehicle arrival timestamp and then check if the ticket was raised within 24 hours after the timestamp (Shortage Data Query - marked_location_ticket_status or assigned_location_ticket_status: if the status mentioned is CLOSED) is in accordance with the Shortage SOP.\n- If the SOP is followed, then the issue becomes a tech issue (Template). (Font Size 10)\n- Else, reply with the following template:",
+   "l2_l3_process": "L2 and L3 agents come into play when the tickets are escalated. L2 agents must validate the escalation remarks to verify if the escalation made is valid.In case of escalation in the following scenarios, the L2 agents should follow these SOPs 1. L1 agent marks the ticket for reversal: L2 agent must check the reply and remarks added by the L1 agent and forward the corresponding shipments to the wrong losses sheet, filling in the appropriate columns – shared with the losses functional team.\n2. The L1 agent is unable to access the information needed to resolve the ticket; the L2 agent must reverify it. If the information is available, then the agent must offer the best possible resolution according to the SOPs. If the information is not available, then the ticket must be worked out along with the functional teams.",
+   "guardrails": "NA",
+   "tat": "72 hours",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-004",
@@ -198,7 +212,14 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The “Remarks” column in the query tells agents on whether lost attribution is pending or not.\n3. For c ross-validation, L1 agent will refer to the Shortage SOP. Additionally, L1 agents will also refer to Log 10 to check the detailed scans against the AWBs.\n4. L1 agent will check the Shortage Data Query to re-verify if the mails are sent to the partner. If they are not sent to BOTH partners, the mail needs to be triggered again to both or the respective hubs.\n5. Basis steps 2-3 and the scenarios below, the L1 agent will abide by the following:\n\nScenario 3: One partner has shared the evidence and the other has not - In this case, the loss is directly attributed to the partner that hasn’t sent the evidence in the given timeframe in accordance with the Shortage SOP. (Font Size 10)\n- The L1 agent must check the marked_location_ticket_status or assigned_location_ticket_status: if the status mentioned is SLA BREACHED it means that the partner has not shared the evidence. (Not to be confused with the CLOSED status)",
+   "l2_l3_process": "L2 and L3 agents come into play when the tickets are escalated. L2 agents must validate the escalation remarks to verify if the escalation made is valid.In case of escalation in the following scenarios, the L2 agents should follow these SOPs 1. L1 agent marks the ticket for reversal: L2 agent must check the reply and remarks added by the L1 agent and forward the corresponding shipments to the wrong losses sheet, filling in the appropriate columns – shared with the losses functional team.\n2. The L1 agent is unable to access the information needed to resolve the ticket; the L2 agent must reverify it. If the information is available, then the agent must offer the best possible resolution according to the SOPs. If the information is not available, then the ticket must be worked out along with the functional teams.",
+   "guardrails": "NA",
+   "tat": "72 hours",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-005",
@@ -252,7 +273,14 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The “Remarks” column in the query tells agents on whether lost attribution is pending or not.\n3. For c ross-validation, L1 agent will refer to the Shortage SOP. Additionally, L1 agents will also refer to Log 10 to check the detailed scans against the AWBs.\n4. L1 agent will check the Shortage Data Query to re-verify if the mails are sent to the partner. If they are not sent to BOTH partners, the mail needs to be triggered again to both or the respective hubs.\n5. Basis steps 2-3 and the scenarios below, the L1 agent will abide by the following:\n\nScenario 4: Both partners have shared the evidence but loss has been marked on one of the partners: Partner is contesting - This ticket must be escalated to the team who has been given the training to view and then validate the evidence.\n- Post validation of the evidence: If the evidence is valid: escalate the ticket and mention the correct remark for the escalation along with the evidence. (Font Size 10)",
+   "l2_l3_process": "L2 and L3 agents come into play when the tickets are escalated. L2 agents must validate the escalation remarks to verify if the escalation made is valid.In case of escalation in the following scenarios, the L2 agents should follow these SOPs 1. L1 agent marks the ticket for reversal: L2 agent must check the reply and remarks added by the L1 agent and forward the corresponding shipments to the wrong losses sheet, filling in the appropriate columns – shared with the losses functional team.\n2. The L1 agent is unable to access the information needed to resolve the ticket; the L2 agent must reverify it. If the information is available, then the agent must offer the best possible resolution according to the SOPs. If the information is not available, then the ticket must be worked out along with the functional teams.",
+   "guardrails": "NA",
+   "tat": "72 hours",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-006",
@@ -298,7 +326,14 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The “Remarks” column in the query tells agents on whether lost attribution is pending or not.\n3. For c ross-validation, L1 agent will refer to the Shortage SOP. Additionally, L1 agents will also refer to Log 10 to check the detailed scans against the AWBs.\n4. L1 agent will check the Shortage Data Query to re-verify if the mails are sent to the partner. If they are not sent to BOTH partners, the mail needs to be triggered again to both or the respective hubs.\n5. Basis steps 2-3 and the scenarios below, the L1 agent will abide by the following:\n\nScenario 5: Captain claims that wrong email ID was shared - \"You should have intimated this previously\" should be the response. 1. Follow this template:",
+   "l2_l3_process": "L2 and L3 agents come into play when the tickets are escalated. L2 agents must validate the escalation remarks to verify if the escalation made is valid.In case of escalation in the following scenarios, the L2 agents should follow these SOPs 1. L1 agent marks the ticket for reversal: L2 agent must check the reply and remarks added by the L1 agent and forward the corresponding shipments to the wrong losses sheet, filling in the appropriate columns – shared with the losses functional team.\n2. The L1 agent is unable to access the information needed to resolve the ticket; the L2 agent must reverify it. If the information is available, then the agent must offer the best possible resolution according to the SOPs. If the information is not available, then the ticket must be worked out along with the functional teams.",
+   "guardrails": "NA",
+   "tat": "72 hours",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-007",
@@ -395,7 +430,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 1.1: Loss marked – Captains claim connection (Wrong loss marked) – Scans valid – Hardstop SOP followed - Agent checks the scan data on Log10 and also checks the Hardstop SOP\n- Hardstop rule: any shipment arriving to the hub should be connected forward within 5 days(reverse) or 7 days(forward).\n- Raises it for reversal to the respective L2.",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-009",
@@ -441,7 +481,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 1.2: Loss marked – Captains claim connection (Wrong loss marked) – Scans valid – Hardstop SOP not followed - Agent checks the scan data on Log10 and also checks if the Hardstop rule is valid.\n- Hardstop rule: any shipment arriving to the hub should be connected forward within 5 days(reverse) or 7 days(forward).\n- Replies to the partner stating that reversal is not applicable due to Hardstop SOP breach.",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-010",
@@ -487,7 +532,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 2: Loss marked – Captains claim connection (Wrong loss marked) – Scans invalid (wrong destination) - Agent checks the scan data on Logx10.\n- Replies to the partner stating that reversal is not applicable due to wrong connection.\n- Follow this template.",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-011",
@@ -537,7 +587,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 3: Loss marked – Captains claim wrong loss – Fails to connect after Customer Rejection - Agent checks the scan data on Single AWB tracking or on log10.\n- If the scans don’t show a forward connection within the RTO connection timeline then the agent should reply to the captain stating that reversal is not applicable.\n- Follow this Template",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-012",
@@ -585,7 +640,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 4: Loss marked – Captains claim wrong loss – Fails to connect after Customer Unreachable - Agent checks the scan data on log10.\n- If as per the scans, shipment is not delivered within 7 days, then the agent should reply to the captain stating that reversal is not applicable.\n- Follow this Template",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-013",
@@ -632,7 +692,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 5: Loss marked – Captains claim wrong loss – Customer denies cancellation OTP - Agent checks the scan data on log10.\n- If the scans don’t show 3 attempts within 7 days and shipment is not delivered within 7 days then the agent should reply to the captain stating that reversal is not applicable.\n- Follow this Template",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-014",
@@ -683,7 +748,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 6: Loss marked – Captains claim wrong loss – Customer wants shipment post 7 days - Agent checks the scan data on log10.\n- If the scans don’t show 3 attempts within 7 days and shipment is not delivered within 7 days, then the agent should reply to the captain stating that the loss is not applicable for reversal and delivery needs to be attempted 3 times in accordance with the SOP following this template.\n- Additionally the captain should be informed that they should inform the customer to cancel and reorder in this case.\n- Follow this Template",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-015",
@@ -729,7 +799,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 7: Loss marked – Captains claim wrong loss – Shipment delivered but couldn’t be marked - In this case, the agent should reply to the partner stating that the issue should be directly taken up with the tech team with the relevant proof.\n- Follow this Template",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-016",
@@ -784,7 +859,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 8.1: Loss marked – Captains claim wrong loss – Shipment not inscanned back to hub – amount recovered from FE - Agent inputs the AWBs mentioned in the query LM FE Loss Marked and should check if the amount corresponding to the shipments has been recovered from the FE.\n- Since it has in this case, the agent should escalate the corresponding ticket for reversal to the respective L2.\n- Agent should reply to the partner stating that any loss marked against the respective shipments will be reversed following this template.",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-017",
@@ -839,7 +919,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 8.2: Loss marked – Captains claim wrong loss – Shipment not inscanned back to hub – amount not recovered from FE - Agent inputs the AWBs mentioned in the query LM FE Loss Marked and should check if the amount corresponding to the shipments has not been recovered from the FE.\n- Additionally, the agent should check log10 to check last shipment status should show ‘Consignment_Lost’.\n- If both conditions are true, the corresponding ticket should be escalated for reversal to the respective L2.\n- Agent should reply to the partner stating that any loss marked against the respective shipments will be reversed following this template.",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-018",
@@ -890,7 +975,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 9.1: Loss marked – Captains claim wrong loss – Awaited instruction – Seller Dependency SOP breach - Agent should check the Metabase query to verify the day the attempt instructions were sent.\n- Agent should check Log10 to verify the attempts as per the Seller Dependency SOP.\n- Since the SOP was breached, the agent should reply to the partner stating that no reversal will be done since the SOP was breached.",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-019",
@@ -943,7 +1033,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 9.2: Loss marked – Captains claim wrong loss – Awaited instruction – Seller Dependency SOP followed - Agent should check the Metabase query to verify the day the attempt instructions were sent.\n- Agent should check Log10 to verify the attempts as per the Seller Dependency SOP.\n- Since the SOP was followed, the agent should reply to the partner stating that any loss marked against the shipments stated will be reversed.\n- The corresponding ticket should be escalated to the respective L2 following this template.",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-020",
@@ -995,7 +1090,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 10: Loss marked – Captains claim wrong loss – wrong shipment(s)/bag(s) received (misrouted – hardstop is marked) - Agent should check the scans for the mentioned AWBs or bag IDs in log10 for shipments and Bag ID tracking query for bags (since the bag ID tracking query isn't available right now all the AWBs in the bag must be entered in the query separately).\n- According to the misroute SOP the captain must route the shipments to the correct hub within 2 days of the shipment arriving to that hub.\n- Since the partner has missed the deadline in this scenario the hardstop is marked and no reversalis applicable.\n-",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-021",
@@ -1044,7 +1144,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 11.1: Loss marked – Captains claim wrong loss – Shipments correctly misrouted - Enter the shipments on log10 and check the scans.\n- Check if the MISROUTE scan is within 2 days of the previous scan (valid).\n- Escalate to L2 for reversal of the loss marked.",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-022",
@@ -1091,7 +1196,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 11.2: Loss marked – Captains claim wrong loss – Shipments incorrectly misrouted - Enter the shipments on log10 and check the scans.\n- Check if the MISROUTE scan is within 2 days of the previous scan.\n- In this scenario the shipments have a chance to go back and forth between the 2 hubs, in this case the misroute can be done a maximum of twice and the loss will be marked on the original hub.\n- Reply to the partner stating that no reversal is applicable following this template.",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-023",
@@ -1140,7 +1250,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 12: Loss marked - Captain claims wrong loss - Shipment damaged (Scan issues): L1 agent must inform the partner that they must fill a form to mark the shipment as damaged - This ticket will directly be escalated to L3 who will review the form and the evidence and reverse any loss marked. https://docs.google.com/forms/d/e/1FAIpQLSes4awhzpR7mTe8Ti5ZrlG7lzrwrMyJlF13XCn2zaIwH-8c7Q/viewform",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-024",
@@ -1395,7 +1510,15 @@
    "handover": "L2: 1. Run the Orders & Planning View query to get the user pin.\n2. Search the user pin in Signal Superset.\n3. Generate a weekly volume-loss-driver summary with mapped teams; download it.\n4. Consolidate user-pin data into the Feedback Loop Repository (Excel); share weekly on the Partner Support group. | Unhappy"
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P1",
+  "doc_reference": {
+   "l1_process": "1. L1 agent puts the hub code into the Orders and Planning View query and will reply according to the “L1_remarks” column. The L1_Remarks are as follows:-1. Improve your RTO Performance by x % and as demand increases in your polygon, you may see an increase in load. In this case, reply with this template.\n2. For now, this is the volume that we are offering. As demand increases in your polygon, you may see an increase in load. In this case, reply with this template.\n3. Escalate to L2",
+   "l2_l3_process": "1. Whenever the tickets are escalated to L2, he/she will first run this order and planning view query to get the user pin.\n2. This user pin will then be searched for in Signal Superset query.\n3. Run the query to generate a weekly summary of volume loss drivers with mapped teams; download the output.\n4. Consolidate all user pin data into the Feedback Loop Repository Excel and share it weekly on the Partner Support group.",
+   "guardrails": "RTO,CPS - majorly\nAVA funnel for all the underutilizations\nCapacity, Serviceability could be resolved",
+   "tat": "12 hours",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-029",
@@ -1445,7 +1568,14 @@
    "handover": "L2: 1. Run the query to get the user pin.\n2. Search the user pin in Signal Superset.\n3. Weekly volume-loss-driver summary with mapped teams.\n4. Consolidate into Feedback Loop Repository; share weekly. | Unhappy"
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P1",
+  "doc_reference": {
+   "l1_process": "1.L1 agent puts the hub code into the Orders and Planning View query and will reply according to the “L1_remarks” column. The L1_Remarks are as follows:-1. Improve your RTO Performance by x % and as demand increases in your polygon, you may see an increase in load. In this case, reply with this template.\n2. For now, this is the volume that we are offering. As demand increases in your polygon, you may see an increase in load. In this case, reply with this template.\n3. Escalate to L2",
+   "l2_l3_process": "1. Whenever the tickets are escalated to L2, he/she will first run this order and planning view query to get the user pin.\n2. This user pin will then be searched for in Signal Superset query.\n3. Run the query to generate a weekly summary of volume loss drivers with mapped teams; download the output.\n4. Consolidate all user pin data into the Feedback Loop Repository Excel and share it weekly on the Partner Support group.",
+   "tat": "12 hours",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-030",
@@ -1496,7 +1626,14 @@
    "handover": "L2: 1. Run the query to get the user pin.\n2. Search the user pin in Signal Superset.\n3. Weekly volume-loss-driver summary with mapped teams.\n4. Consolidate into Feedback Loop Repository; share weekly. | Unhappy"
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P1",
+  "doc_reference": {
+   "l1_process": "1. L1 agent puts the hub code into the Orders and Planning View query and will reply according to the “L1_remarks” column. The L1_Remarks are as follows:-1. Improve your RTO Performance by x % and as demand increases in your polygon, you may see an increase in load. In this case, reply with this template.\n2. For now, this is the volume that we are offering. As demand increases in your polygon, you may see an increase in load. In this case, reply with this template.\n3. Escalate to L2",
+   "l2_l3_process": "1. Whenever the tickets are escalated to L2, he/she will first run this order and planning view query to get the user pin.\n2. This user pin will then be searched for in Signal Superset query.\n3. Run the query to generate a weekly summary of volume loss drivers with mapped teams; download the output.\n4. Consolidate all user pin data into the Feedback Loop Repository Excel and share it weekly on the Partner Support group.",
+   "tat": "24 hours",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-031",
@@ -1540,7 +1677,13 @@
    "handover": "why would they come on Kapture next?"
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P1",
+  "doc_reference": {
+   "l1_process": "In this case, L1 agents will ask the DC captains to connect with the Area Managers (AM) and get the polygon updated. Post update,they need to coordinate with the CH to share the serviceable and non-serviceable pincode list with Aman Agarwal4 and get the capacity inputs updated accordingly.",
+   "guardrails": "Educate the Captains on how can they view their serviceable area on the Captain Panel itself and then connect with AM in case of issues",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-032",
@@ -1583,7 +1726,13 @@
    "handover": "adoption drop"
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "In this case, L1 agents will ask the DC Captain to coordinate with the CH and ensure the required input is shared with Aman Agarwal4 on priority. Once the input is provided, the manifestation request will be processed. After manifestation, it will take approximately 5–6 days for the load to be received.",
+   "guardrails": "Instead of the DC Captain reaching out to CH, L1 agent (AI) should trigger an email to the respective CH on the same",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-033",
@@ -1627,7 +1776,12 @@
    "handover": "Happy"
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "For this issue, L1 will escalate the ticket to L3 ( Gohil Suryadevsinh Niravsinh)",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-034",
@@ -1670,7 +1824,12 @@
    "handover": "Unhappy"
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P1",
+  "doc_reference": {
+   "l1_process": "1. L1 agent puts the hub code into the query and will reply according to the “L1_remarks” column.\nThe L1_Remarks are as follows:-\n1. Improve your Pickup Performance by x%( maximum percentage from all the pincodes) to see an increase in load. In this case, reply with this template.\n1. For now, this is the volume that we are offering. As demand increases in your polygon, you may see an increase in load. In this case, reply with this template.",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-035",
@@ -1719,7 +1878,12 @@
    "handover": "neutral"
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P1",
+  "doc_reference": {
+   "l1_process": "If the captain also reports that the Capacity Load option is not visible:1. Inform the captain that the Capacity Load feature has been temporarily disabled due to internal reasons.\n2. Advise the captain to contact their Area Manager (AM) for any capacity-related concerns or assistance.Template: Dear Captain,Please be informed that the Capacity Load feature has been temporarily disabled due to internal reasons.During this period, you will not be able to access or use the feature as usual. We apologize for any inconvenience this may cause.For any capacity-related concerns, adjustments, or assistance, please reach out to your Area Manager (AM), who will be able to support you further.We appreciate your understanding and cooperation.Thank you",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-036",
@@ -1770,7 +1934,12 @@
    "handover": "Happy"
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. Captain can select on the checkbox for that ODA shipment and they will see an option to misroute to other DC called as \"Migrate AWB\". They can click on it and select the relevant DC.\n1. Identifying the right DC: With the help of the pincode (to be asked from the DC Captains), agents can figure out the exact DC to which the awb must be routed/migrated with the help of this query.\n2. If they are unable to misroute to another DC, they need not do anything. The pickup will get removed from their panel automatically after 3-4 days.",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-037",
@@ -1831,7 +2000,13 @@
    "handover": "L2: 1. For 'Under Computation', check the payment tracker for that cycle and revert.\n2. Status enquiry handled by L1/L2; L3 only case-by-case."
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if mandatory fields (Payment Cycle, Enbolt ID, Invoice Number) have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs. 1. For Step 2,\n1. L1 agents will open the Captain Payment Status and Amount query in the metabase.\n1. Once they open the query, L1 agent will search by the hub-code / invoice number / Enbolt ID\n2. Once the query runs, L1 agents will refer to the column “Remarks” for the status of the payment for the hub and also look for the last updated date of the status. 1. L1 agents will close the ticket using the appropriate status-specific message, as per the defined templates defined here. - Payment processed.\n- Hold Negative.\n- Risk is above threshold (COD pendency)\n- Risk is above threshold (COD + Shipment pendency )\n- Risk is above threshold (Open losses)\n- Risk is above threshold (COD + Shipment pendency + open losses)\n- DC under FnF Payout - Prachi Ramanuj Mourya\n- Payment Failed. -",
+   "l2_l3_process": "L3: As this is only a status enquiry, it can be handled by L1 and L2 and does not typically require L3 intervention. More complex scenarios may require L3 support, which will be evaluated and taken up on a case-by-case basis.",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-038",
@@ -1894,7 +2069,13 @@
    "handover": "L2: 1. Validate Enbolt ID; check how many DCs are mapped.\n2. If single DC, check the FnF tracker for filing.\n3. Check the FnF Dashboard hold reason; for deposit consideration, check COD hardstop first.\n4. Escalate to L3 for deposit consideration / held by ops / SD details missing."
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if mandatory fields (Hub Code, Enbolt ID ) have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.. 1. For Step 2, - L1 agent will refer to the FnF Dashboard that will have the following input and output - InputsHub Code in the first cell of the FnF Details_1 column.\n- OutputAP RemarksCost ops sub headerCost ops final remarksPayment process date\n1. Based on the AP Remarks, L1 agents will respond ➖ - FnF done ( cases are picked every 15 days in a month)\n- GST issue (not paid by vendor)\n- Open Pendency\n- Deposit Consideration Issue\n- Signature Pending\n- SD details not available\n- Hold by ops 1. L1 agents will reply only when the remarks show FnF done, GST issue, Signature Pending and Open pendency using these templates. For the rest of the cases, L1 will escalate the ticket to L2.",
+   "l2_l3_process": "L2: 1. Steps to be followed by L2:-\n- Validate Enbolt ID\nCheck how many DCs are mapped to one Enbolt ID\n- If only one DC is mapped, check in the F&F tracker to see if the hub has filed for FnF settlement\nSearch for the hub code in FnF Dashboard to check the reason for FnF hold\n- In case of Deposit consideration issue, first check for any COD hardstop status\n- If there is any hardstop, revert the ticket accordingly\nIn case of deposit consideration issues, held by ops and SD details not available, escalate to L3.\nL3: 1. In the case of Deposit consideration and held by ops, instead of routing the tickets to AMs the tickets will be escalated to L3 Krishnendu Mondal",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-039",
@@ -1945,7 +2126,13 @@
    "handover": "L2: Escalate to L3 to connect with AMs/CHs and get missing details filled in the sheet for Cost-Ops pickup."
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if mandatory fields (Hub Code, Enbolt ID ) have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. For Step 2,\nL1 agent will refer to the FnF Refund tracker and check in the SD refund request sheet the Cost Ops remarks Remarks by the Cost ops team:- - SD Refund Done\n- Pending from ops/Partner dependency Details missing in sheet Not eligible - need to move in FnF/ Multi - DC sheet\nOpen pendency - Pending from cost ops\nYet to pick(SD payments are picked up every week)\nWorking under progress1. L1 agents will reply only when the remarks show SD Refund Done and Pending from cost ops with these templates. For Pending from ops/Partner dependency, L1 will escalate this ticket to L2",
+   "l2_l3_process": "L2: If the Cost ops remark says pending from ops/ partner dependency, this ticket will be escalated to L3 by L2 to connect with the particular AMs/CHs and get the missing Details filled in the sheet\nL3: 1. L3 will connect to the AMs/CHs and get the details filled in the sheet to get picked up by the Cost Ops team.",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-040",
@@ -1996,7 +2183,13 @@
    "handover": "L2: 1. If no Enbolt ID, get it from the Captain Payment Status & Amount query.\n2. Enter the Enbolt ID in Advanced Search → Partner Invoices on O-Paper.\n3. Download the invoice PDFs."
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P1",
+  "doc_reference": {
+   "l1_process": "In this case, L1 agents need to directly escalate this ticket to L2",
+   "l2_l3_process": "L2: 1. Steps to be followed by L2:- If the Captain does not provide the Enbolt ID, get it from this Query.\nEnter this enbolt ID in the Advance search option under the partner invoices section on O-Paper to download the pdf of invoices.",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-041",
@@ -2040,7 +2233,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P1",
+  "doc_reference": {
+   "l1_process": "In this case, L1 agents will ask the Captains to connect with the Area Managers (AMs)",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-042",
@@ -2100,7 +2298,14 @@
    "handover": "L2: Case-by-case only."
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if mandatory fields (Payment Cycle / Enbolt ID / Invoice Number) have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs. 1. The L1 agent will refer to the Captain Payment Status and Amount query to identify the delta between the shipment count considered in the invoice and the actual shipments delivered or picked up by the captain for the relevant payment cycle. Inputs - Hub Code - Payment Cycle\n- Enbolt ID\n- Invoice NumberOutput - #FWD Shipments delivered (as per the invoice)\n- #RVP Shipments picked (as per the invoice)\n- Total # Shipments (FWD + RVP as per invoice)\n- Base rate for FWD\n- Base rate for RVP\n- Total amount for FWD Shipments\n- Total amount for RVP Shipments\n- Incentives\n- Deductions\n- Net Amount Payable\n- Final Status of payment\n- Actual FWD Shipments delivered (captured real time)\n- Actual RVP Shipments picked (captured real time)\n- Delta in FWD Shipment (Actual - Invoice)\n- Delta in RVP Shipment (Actual - Invoice) 1. Basis the delta, agents will revert back to the partners with the following templates. 1. Keep the ticket open with “awaiting user response” status for the partner to contest. 1. If the partner does not respond within 72 hours, the ticket will be auto-closed.",
+   "l2_l3_process": "L2: As this is only a status enquiry, it can be handled by L1 and does not typically require L2 intervention. More complex scenarios may require L2 support, which will be evaluated and taken up on a case-by-case basis.\nL3: As this is only a status enquiry, it can be handled by L1 and does not typically require L3 intervention. More complex scenarios may require L3 support, which will be evaluated and taken up on a case-by-case basis.",
+   "tat": "24 hours",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-043",
@@ -2157,7 +2362,14 @@
    "handover": "L2: Case-by-case only."
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "In this case, L1 agent will reroute this ticket to L1 of losses and debits queue to get this issue resolved",
+   "l2_l3_process": "L2: As this is only a status enquiry, it can be handled by L1 and does not typically require L2 intervention. More complex scenarios may require L2 support, which will be evaluated and taken up on a case-by-case basis.",
+   "tat": "72 hours",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-044",
@@ -2202,7 +2414,13 @@
    "handover": "L2: Case-by-case only."
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "In this case, L1 agent will reroute this ticket to L1 of losses and debits queue to get this issue resolved",
+   "l2_l3_process": "L2: More complex scenarios may require L2 support, which will be evaluated and taken up on a case-by-case basis.",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-045",
@@ -2259,7 +2477,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "- L1 will first check the AWB/AWBs in the Razorpay Epay bulk awb check query\n- If on entering the awb in the query, it shows the result then the awb is synced with razorpay\n- If the query does not show any results, revert with this form.",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-046",
@@ -2318,7 +2541,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if mandatory fields (Partner ID, FE phone number/ Hub code, Payment cycle) have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs\n2. For Step 2, - L1 agent will refer to the LM Pilot Payout Raw query that will have the following input and output - InputsPayment CyclePartner ID\n- Output\nOnce the query runs, L1 agents will refer to the column “Remarks” for the status of the payment for the hub and also look for the last updated date of the status.1. L1 agents will close the ticket using the appropriate status-specific message, as per the defined templates defined here. - Bts_open_ground\n- Bts_open_not_received\n- Dpt_not_created_bts_closed_after_14_days\n- Dpt_not_created_bts_received_after_14_days\n- Dpt_pending_created_later\n- FAILED\n- Failed_to_be_processed_next_cycle\n- Line_items_not_created\n- No_del_pick\n- Not_whitelisted\n- Pending_scheduled_for_later\n- Pending_others\n- Failed_pilot_name_mismatch\n- Failed_update_bank_account\n- Hold_blocked\n- Hold_others\n- Pending_non_payable_amount\n- Pending_scheduled_for_later_1_day_cycle\n- Pending_scheduled_for_later_14_days_cycle\n- Pending_scheduled_for_later_7_days_cycle\n- SUCCEEDED\n- Bts_open_others",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-047",
@@ -2378,7 +2606,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if mandatory fields (Partner ID, FE phone number,Hub code, Payment cycle) have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs\n2. For Step 2, - L1 agents will refer to DA_Opaper_Billing Dashboard where they will have the following inputs and outputs.\n- InputsMobile number of Fe\nOutputs\nAfter filtering by mobile number, the L1 agent will verify the following columns against the selected number: Enbolt, Opaper Status and Final. 1. L1 agents will close the ticket using the appropriate “Final” column specific message, as per the defined templates defined here. - Adhoc\n- Billing\n- Pending CF",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-048",
@@ -2435,7 +2668,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. L1 agent will first ask the Captain to check the CPS tab on the Captain Panel and see the Rate Card approved. If he wants to change the Rate card, that option will also be available under the same tab. Use this template.\n2. If the Captains come back and contest regarding a certain rate card, check this Rate card change request tracker. Here whatever rate is approved by the Cluster Head, that base rate will be used for processing Payment to the Pilot.",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-049",
@@ -2503,7 +2741,12 @@
    "handover": "L2: L2 will escalate to Priyasmita Das for a Deeper dive"
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "L-1 agents needs to share this template directly:\nDear Partner,Thank you for contacting us.Please follow these steps to download your invoice:1. Log in to your Captain Panel.\n2. Click on the Payments tab.\n3. Find the payment cycle for which you need the invoice.\n4. Click View Details next to that payment cycle.\n5. A Payment Details page will open.\n6. Click Tax Invoice or Credit Invoice, depending on which invoice you need.\n7. The invoice will be downloaded and saved in your Downloads folder.You can then open and use the invoice as needed.If you need any help, please let us know.",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-050",
@@ -2559,7 +2802,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. L1 agent will refer to this query to check the latest COD pendency of the hub\n2. Next, L1 agent will use this query to check the transaction details by entering either the hub code/Transaction ID\n3. If there is no COD pendency showing up, then agent can respond to the ticket using the following template Template: Dear Partner, The current COD pendency for your hub is reflecting as 0. The last deposit from your hub was received on [date] for an amount of Rs. XX.We will be closing the ticket for now. For any further assistance, feel free to reach out.\nThanks you,Valmo Partner Support.",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-051",
@@ -2620,7 +2868,13 @@
    "handover": "L2: Wrong-UPI deposits → escalate to Gopal Chandra Jha."
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. L1 agent will check the hub code on the deposit slip to validate if the amount was deposited with the right UPI ID.\n2. If the hub code is wrong, Escalate to L2.\n3. If the hub code is correct, verify the bank statement to confirm whether the transaction was successfully completed on that date. If the issue still persists, escalate the case to L2.",
+   "l2_l3_process": "L2: 1. In case of depositing money with the wrong UPI, escalate to Gopal Chandra Jha",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-052",
@@ -2674,7 +2928,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. In this case, L1 will check this Query.\n2. If this query does not show any amount deposited, this will need to be validated from Cluster Head. The L1 agent will reply with this Template.",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-053",
@@ -2735,7 +2994,13 @@
    "handover": "L2: Escalate to Gopal Chandra Jha (picks cases every alternate day)."
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. L1 agent will check this tracker to see if the DC is in hardstop or not.\n2. If DC is in hardstop, share these two form links LOSS and COD to the captain to fill these forms after he has cleared the pendencies.\n3. After these two steps, Escalate to L2",
+   "l2_l3_process": "L2: 1. L2 will escalate to Gopal Chandra Jha, he will pick the cases every alternate day and update.",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-054",
@@ -2782,7 +3047,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "L1 agents will directly escalate this ticket to Riyaz",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-055",
@@ -2833,7 +3103,12 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "To provide a standardized process for handling cases where a captain reports that the COD Pendency Tab or payment option is not visible in the Captain Panel.### Step 1: Verify Hub Code1. Check the captain's Hub Code against the hub list shared by Nandy.\n2. Validate whether the Hub Code is present in the approved list.### Step 2: If Hub Code is Available in the List1. Inform the captain that the Cash Pendency Section/Tab is currently unavailable in the Captain Panel.\n2. Please validate with the Hub code in the sheet shared by Cost-ops, if the hub code exists, share the PDF link to the partner with a template. Dear Partner,Thank you for reaching out to us.We understand that you are unable to see the Cash Pendency tab in your Captain Panel. please find the attached PDF where you can view the VAN account details.You may use the provided details to make the payment and clear your COD pendency.If you need any further assistance, feel free to reach out to us.Thank you,\nValmo Partner SupportIf not,2.1. Request the captain to fill out the designated Google Form so that we can create a VAN account for clearing the COD pendency.2.2. Explain that: - The submitted details will be reviewed by the concerned team.\n- A VAN account will be created.\n- VAN account details will be shared with the captain to complete the payment.Google Form: https://forms.gle/rCmeaPQxdTQsGU3y7\nDear Partner,Thank you for reaching out to us.We understand that you are unable to see the payment option in your Captain Panel to clear your COD pendency. To assist you with this, please fill out the Google Form provided below. Once we receive your details, our team will review the information, create a VAN account, and share the account details with you so that you can make the payment accordingly.Form Link: https://forms.gle/rCmeaPQxdTQsGU3y7Regarding the capacity load option, it is currently not visible in the Captain Panel as it has been temporarily disabled due to internal reasons. However, you can still get any capacity-related concerns resolved by contacting your Area Manager (AM), who will be able to assist you further.If you require any further assistance, please feel free to reach out to us.Thank you\nValmo Partner support",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-056",
@@ -2874,7 +3149,11 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. Before solving for the Scenarios the agent must check if the captain has provided Order ID and Hub ID to simplify the verification process.\n2. If any of the information required per the scenarios is unavailable then reply to the partner following this template.\n3. Agent should follow the instructions when faced with the following scenarios: -\n\nScenario 1: Captain wants to know how to place an order:\n- Agent must reply to the partner with the process following this template. (Dear Partner, Thank you for reaching out to us. We understand that you would like to order consumables. Please note that, to place orders, your account needs to be whitelisted on the portal.We have already shared your details with our vendors, who will get your number whitelisted. We kindly request you to wait for 12-24 hours for the process to be completed. Once this is done, you will be able to place orders for consumables Portal Link: https://sites.google.com/meesho.com/valmo-sop/order-consumables Note: If the you encounter any errors while placing an order, we kindly request you to try placing the order with other available vendors as well. Please feel free to reach out if you need any further assistance. Thank you,Valmo Partner Support)\n-",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-057",
@@ -2925,7 +3204,11 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. Before solving for the Scenarios the agent must check if the captain has provided Order ID and Hub ID to simplify the verification process.\n2. If any of the information required per the scenarios is unavailable then reply to the partner following this template.\n3. Agent should follow the instructions when faced with the following scenarios: -\n\nScenario 2: Captain is unable to order consumables since they are not whitelisted:\n- Agent must check if all the required details are present in the ticket. If not then the agent must reply to the partner with the following template asking the partner for the necessary information.\n- Agent must upload the details onto the whitelisting sheet and reply to the captain stating completion following this template.\n-",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-058",
@@ -2979,7 +3262,11 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. Before solving for the Scenarios the agent must check if the captain has provided Order ID and Hub ID to simplify the verification process.\n2. If any of the information required per the scenarios is unavailable then reply to the partner following this template.\n3. Agent should follow the instructions when faced with the following scenarios: -\n\nScenario 3: Captain wants to track their order / Haven’t received their order on time / wants to know the status of their order:\n- Agent must look up the order ID mentioned by the partner on the RVP Order details by applying a filter or using Ctrl+F.\n- Agent must view the corresponding values in the columns - Supplier Code, Dispatch Date, Delivery Date, Order Status, Docket no(which is the tracking id) and the courier name.\n- If the Order Status = Delivered then loop in the Supplier with a valid remark (Direct L3 escalation).\n- If the Order Status = Delivered but the delivery hasn’t happened, this amounts to a fake delivery case – then loop in the Supplier with a valid remark (Direct L3 escalation).\n- If order status = dispatched, agent must visit the tracking site of the Partner mentioned in the courier name column and enter the value in the docket no column to track the parcel.\n(For example courier name = Amazon, type “Amazon parcel tracking” on the search engine and enter the tracking ID).\n- Reply to the partner by mail mentioning the order status in the website and telling them how to track it themselves following this template.\n-",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-059",
@@ -3036,7 +3323,11 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. Before solving for the Scenarios the agent must check if the captain has provided Order ID and Hub ID to simplify the verification process.\n2. If any of the information required per the scenarios is unavailable then reply to the partner following this template.\n3. Agent should follow the instructions when faced with the following scenarios: -\n\nScenario 4: Captain has received lesser consumables than they have ordered:\n- Agent must look up the order ID mentioned by the partner on the RVP consumables partner details by applying a filter or using Ctrl+F.\n- Agent must view the following columns corresponding to the order ID - Order details, qty and order status.\n- Agent must cross verify the quantity mentioned by the Partner and the quantity mentioned in the RVP consumables partner details sheet. (order Details amount x qty)\n- If the quantity is matching and the status = delivered then reply to the partner using the following template and loop in the Supplier (Direct L3 escalation).\n- If the quantity is matching and the status is dispatched, then reply to the partner using the following template.\n- If the quantity is not matching then loop in the Supplier (Direct L3 escalation).",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-060",
@@ -3085,7 +3376,11 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. Agents must check if the required information is provided in the ticket and if the information is valid. If not then reply with the following template. Dispose with awaiting user input disposition.\n2. Agent should follow the instructions when faced with the following scenarios: -\n\nScenario 1: Damaged consumables received:\n- The agent must reply to the partner stating the inconvenience and looping in the Supplier (Direct L3 escalation).\n- Reply following this template.\n-",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-061",
@@ -3136,7 +3431,11 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. Agents must check if the required information is provided in the ticket and if the information is valid. If not then reply with the following template. Dispose with awaiting user input disposition.\n2. Agent should follow the instructions when faced with the following scenarios: -\n\nScenario 2: Secondary QC failure:\n- This occurs due to mismatch in the format of the standard codes on the packets causing failure in their scanning or manual input.\n- This erroneous code will have flown to all the consumables so the evidence required would be a picture of some of the consumables packets with the code present.\n- Suppliers must be looped into this conversation (Direct L3 escalation).\n- Reply to the partner using this template.",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-062",
@@ -3198,7 +3497,11 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. Agents must check if the required information is provided in the ticket and if the information is valid. If not then reply with the following template. Dispose with awaiting user input disposition.\n2. Proactive steps that can be taken:\n1. Input the hub code into the captain payout query and check the payment cycles in which the payments have not been completed.\n2. Note down these cycles and follow these steps to solve the following scenarios: -\n\nScenario 1: RVP consumables payment not received - Payment received for X out of Y consumables (X<Y):\n- This particular scenario is highly prone to fraud – Captain use 3P consumables, consumables provided to them in the forward leg or leftover consumables from previous orders to raise refunds for more consumables then they had ordered.\n- This fraud can be mitigated by having validation set up to check which packets were ordered then vs everything that was raised for the refund.\n- Agent must enter the hub ID in the captain payout query and check the mentioned payment cycles by the partners or follow the proactive steps.\n- For the mentioned billing cycles the partner must check the columns rvp_consumable_amount, rvp_consumable_packet_count and rvp_consumable_rate. (rate x count = amount).\n- If the count in the column < count mentioned then escalate to the L3.\n- If the count in the column = count mentioned then reply to the partner following this template.\n- After the validation from the L3 this issue will go to the Cost-Ops team.\n-",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-063",
@@ -3256,7 +3559,11 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "doc_reference": {
+   "l1_process": "1. Agents must check if the required information is provided in the ticket and if the information is valid. If not then reply with the following template. Dispose with awaiting user input disposition.\n2. Proactive steps that can be taken:\n1. Input the hub code into the captain payout query and check the payment cycles in which the payments have not been completed.\n2. Note down these cycles and follow these steps to solve the following scenarios: -\n\nScenario 2: RVP consumables payment not received - Payment not received for any ordered consumables:\n- Agents must enter the hub ID in the captain payout query and check the mentioned payment cycles by the partners or follow the proactive steps.\n- For the mentioned billing cycles the partner must check the columns rvp_consumable_amount, rvp_consumable_packet_count and rvp_consumable_rate. (rate x count = amount).\n- If the value in the count column for the mentioned payment cycles ~ 0 then this should be classified as an arrear and the payment for these cases will be done 2 weeks after the cycle in which the order was made.\n- The agent should reply to the partner following this template.",
+   "source": "collated_sops_doc"
+  }
  },
  {
   "id": "SOP-TRK-064",
@@ -3319,6 +3626,257 @@
    "handover": ""
   },
   "partner_rights": [],
-  "source": "sop_redressal_tracker"
+  "source": "sop_redressal_tracker",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. Whenever a captain raises a technical issue, the agent must first verify the exact nature of the problem and confirm whether it is related to Log10 or the Captain Panel. - If the issue is related to Log10, the agent should route the case to the Log10 Team using the template provided below.\n\"Dear Partner, this is a technical issue. Please raise a ticket with the Ops Tech team by emailing tech-support@valmo.in\n- and include relevant supporting proof for assistance.\nFor any other support, Please feel free to reach out to us “",
+   "source": "collated_sops_doc"
+  }
+ },
+ {
+  "id": "SOP-DOC-001",
+  "domain": "losses",
+  "l3_category": "Wrong Loss is marked on me",
+  "disposition": "Hardstop Loss - Loss marked - Captain claims wrong loss on hub or FE – SX claims issue",
+  "trigger": {
+   "keywords": [
+    "wrong",
+    "loss",
+    "marked",
+    "me",
+    "hardstop",
+    "captain",
+    "claims",
+    "hub",
+    "fe",
+    "sx",
+    "issue"
+   ],
+   "preconditions": [
+    "Wrong Loss is marked on me"
+   ]
+  },
+  "required_evidence": [
+   "AWB"
+  ],
+  "checks": [
+   {
+    "description": "L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs."
+   },
+   {
+    "description": "L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not."
+   },
+   {
+    "description": "For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs."
+   },
+   {
+    "description": "While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB."
+   },
+   {
+    "description": "Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter."
+   },
+   {
+    "description": "Basis these scenarios, L1 agents will act in the following ways:"
+   },
+   {
+    "description": "Scenario 13: Loss marked - Captain claims wrong loss on hub or FE – SX claims issue:Step 1: Identify the loss marked AWB When the Captain raises a request stating that the FE has been marked with a wrong loss, the agent needs to first enter the FE ID or Phone Number in query:https://metabase-main.bi.meeshogcp.in/question/187207-qc-fail Apply the exact time range when the loss was marked. The Captain will share the loss marked amount. The agent needs to locate the same amount on the mentioned date and identify the AWB number against which the loss was markedStep 2: Check the debit reason Enter the identified AWB number in query:https://metabase-main.bi.meeshogcp.in/question/187207-qc-fail Check the debit_reason column. The possible debit reasons are: LM Secondary QC junk image Pickup junk image ICUD junk image Pickup vs QC image mismatch.Step 3: Identify the node where loss was marked If the debit reason is LM Secondary QC junk image → Loss is marked on the LM Hub. If the debit reason is Pickup junk image → Loss is marked on the LM FE (Pickup FE). If the debit reason is ICUD junk image → Loss is marked on the LM FE (ICUD FE - Forward leg). If the debit reason is Pickup vs QC image mismatch → Loss is marked on the LM FE.Step 4: Validate images and take action The agent needs to review the images captured at the respective node where the loss was marked. Check whether the entity has followed the required SOP. If the entity has followed the SOP → The marked loss will be reversed. If the entity has not followed the SOP → The loss will be considered valid and the entity will bear the loss."
+   }
+  ],
+  "resolution": {
+   "action": "Scenario 13: Loss marked - Captain claims wrong loss on hub or FE – SX claims issue:Step 1: Identify the loss marked AWB When the Captain raises a request stating that the FE has been marked with a wrong loss, the agent needs to first enter the FE ID or Phone Number in query:https://metabase-main.bi.meeshogcp.in/question/187207-qc-fail Apply the exact time range when the loss was marked. The Captain will share the loss marked amount. The agent needs to locate the same amount on the mentioned date and identify the AWB number against which the loss was markedStep 2: Check the debit reason Enter the identified AWB number in query:https://metabase-main.bi.meeshogcp.in/question/187207-qc-fail Check the debit_reason column. The possible debit reasons are: LM Secondary QC junk image Pickup junk image ICUD junk image Pickup vs QC image mismatch.Step 3: Identify the node where loss was marked If the debit reason is LM Secondary QC junk image → Loss is marked on the LM Hub. If the debit reason is Pickup junk image → Loss is marked on the LM FE (Pickup FE). If the debit reason is ICUD junk image → Loss is marked on the LM FE (ICUD FE - Forward leg). If the debit reason is Pickup vs QC image mismatch → Loss is marked on the LM FE.Step 4: Validate images and take action The agent needs to review the images captured at the respective node where the loss was marked. Check whether the entity has followed the required SOP. If the entity has followed the SOP → The marked loss will be reversed. If the entity has not followed the SOP → The loss will be considered valid and the entity will bear the loss.",
+   "cap_inr": null,
+   "params": {}
+  },
+  "escalation": {
+   "team": "",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "collated_sops_doc",
+  "priority": "",
+  "doc_reference": {
+   "l1_process": "1. L1 agent checks if AWB Numbers have been rightly added by the Captain. If not, L1 agent requests Captains for the right inputs.\n2. L1 agent refers to this Metabase query to check the lost attribution against the AWB. The remarks column in the query tells agents on whether lost attribution is pending or not.\n3. For cross-validation, L1 agent will refer to the Hardstop SOP. Additionally, L1 agent will also refer to Log10 to check the detailed scans against the AWBs.\n4. While looking at the scans – scans that mention nodes with the naming PCXX are the general nomenclature for Packaging Centers – this means that the AWBs were consolidated into a parent package with a parent AWB. These AWBs must not be further processed, the agent must proceed with the parent AWB.\n5. Parent AWB can be found by inputting the given AWB into this single AWB tracking with the AWB value as the filter.\n6. Basis these scenarios, L1 agents will act in the following ways:\n\nScenario 13: Loss marked - Captain claims wrong loss on hub or FE – SX claims issue:Step 1: Identify the loss marked AWB When the Captain raises a request stating that the FE has been marked with a wrong loss, the agent needs to first enter the FE ID or Phone Number in query:https://metabase-main.bi.meeshogcp.in/question/187207-qc-fail Apply the exact time range when the loss was marked. The Captain will share the loss marked amount. The agent needs to locate the same amount on the mentioned date and identify the AWB number against which the loss was markedStep 2: Check the debit reason Enter the identified AWB number in query:https://metabase-main.bi.meeshogcp.in/question/187207-qc-fail Check the debit_reason column. The possible debit reasons are: LM Secondary QC junk image Pickup junk image ICUD junk image Pickup vs QC image mismatch.Step 3: Identify the node where loss was marked If the debit reason is LM Secondary QC junk image → Loss is marked on the LM Hub. If the debit reason is Pickup junk image → Loss is marked on the LM FE (Pickup FE). If the debit reason is ICUD junk image → Loss is marked on the LM FE (ICUD FE - Forward leg). If the debit reason is Pickup vs QC image mismatch → Loss is marked on the LM FE.Step 4: Validate images and take action The agent needs to review the images captured at the respective node where the loss was marked. Check whether the entity has followed the required SOP. If the entity has followed the SOP → The marked loss will be reversed. If the entity has not followed the SOP → The loss will be considered valid and the entity will bear the loss.",
+   "guardrails": "Current Guardrail: Requests from AM on AWB level (Requested by agents to Captains in the ticket itself) current Guardrail: 1. Requests from AM OR 1. Prior requests from Captains due to Tech Issues / Ops Issues - We have shared a new requirement with Kapture to add an additional field prompting captains to share any tech/ops ticket ID they might have created with regard to the issue for Agents to input in the ticket.\n- For Tech tickets, L1-L2 Agents need to be provided access to Log10 (To-Do) to check whether a prior tech ticket has been raised in this regard.\n- For Ops tickets, once L1 agents can check the ticket in Kapture platform itself.OR 1. Captain informs beforehand that he received a damaged shipment and could not process the shipment - In the short term, L1 agents will be provided access to the damage shipment tracker (link). These trackers are refreshed on a monthly level. Monthly data to be shared with Support lead (Nandini Raj P S) who will share it with recommended L1-L2 agents\n- In the long run, will try to have this within Kapture OR 1. Hardstop Loss can be waived off under the following circumstances - Tenurity of the captain: <60 days AND\n- 0 hardstop reversals done in the past AND\n- At least 1 payment cycle invoice generated AND\n- Current hardstop pendency = 0",
+   "source": "collated_sops_doc"
+  }
+ },
+ {
+  "id": "SOP-DOC-002",
+  "domain": "payments",
+  "l3_category": "My Pilot has not received the Payments",
+  "disposition": "Even if the UTRs were generated and the Payments were processed from our end ( as per the result in Metabase),the payments did not reflect in the FE’s account",
+  "trigger": {
+   "keywords": [
+    "my",
+    "pilot",
+    "has",
+    "received",
+    "payments",
+    "even",
+    "utrs",
+    "were",
+    "generated",
+    "processed",
+    "from",
+    "our",
+    "end",
+    "as",
+    "result",
+    "metabase",
+    "did",
+    "reflect",
+    "fe",
+    "account"
+   ],
+   "preconditions": [
+    "My Pilot has not received the Payments"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "In Step 1, L1 agent will first check this Reversal Sheet as shared by Razorpay if the transaction ID shared by the FE is available in the sheet."
+   },
+   {
+    "description": "In case the transaction ID is available, L1 agent will reply with this template."
+   },
+   {
+    "description": "If the transaction ID is not available, the FE will need to check with his bank because in that case razorpay has not received any reversed amount."
+   }
+  ],
+  "resolution": {
+   "action": "If the transaction ID is not available, the FE will need to check with his bank because in that case razorpay has not received any reversed amount.",
+   "cap_inr": null,
+   "params": {}
+  },
+  "escalation": {
+   "team": "",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "collated_sops_doc",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. In Step 1, L1 agent will first check this Reversal Sheet as shared by Razorpay if the transaction ID shared by the FE is available in the sheet.\n2. In case the transaction ID is available, L1 agent will reply with this template.\n3. If the transaction ID is not available, the FE will need to check with his bank because in that case razorpay has not received any reversed amount.",
+   "source": "collated_sops_doc"
+  }
+ },
+ {
+  "id": "SOP-DOC-003",
+  "domain": "cod_cash",
+  "l3_category": "COD Shortfall",
+  "disposition": "Captain says a he has marked COD shortfall mistakenly on the Pilot",
+  "trigger": {
+   "keywords": [
+    "cod",
+    "shortfall",
+    "captain",
+    "says",
+    "he",
+    "has",
+    "marked",
+    "mistakenly",
+    "pilot"
+   ],
+   "preconditions": [
+    "COD Shortfall"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "In Step 1, L1 agent will check this Query to see if the COD short amount has been debited or not."
+   },
+   {
+    "description": "In Step 2, if the L1 agent sees that the COD amount has been debited ( above 1500), share this form link to be filled by the DC Captain."
+   },
+   {
+    "description": "Once the Captain fills this link, reply with this template."
+   }
+  ],
+  "resolution": {
+   "action": "Once the Captain fills this link, reply with this template.",
+   "cap_inr": null,
+   "params": {}
+  },
+  "escalation": {
+   "team": "",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "collated_sops_doc",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. In Step 1, L1 agent will check this Query to see if the COD short amount has been debited or not.\n2. In Step 2, if the L1 agent sees that the COD amount has been debited ( above 1500), share this form link to be filled by the DC Captain.\n3. Once the Captain fills this link, reply with this template.",
+   "source": "collated_sops_doc"
+  }
+ },
+ {
+  "id": "SOP-DOC-004",
+  "domain": "consumables",
+  "l3_category": "FE ID Reactivation",
+  "disposition": "Captain raises a request to Re activate his FE",
+  "trigger": {
+   "keywords": [
+    "fe",
+    "id",
+    "reactivation",
+    "captain",
+    "raises",
+    "request",
+    "re",
+    "activate",
+    "his"
+   ],
+   "preconditions": [
+    "FE ID Reactivation"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "In step 1, Agent will Check status in Log10. The Status could be:"
+   },
+   {
+    "description": "Blacklisted"
+   },
+   {
+    "description": "Temporarily Inactive"
+   },
+   {
+    "description": "If the status shows Blacklisted, Escalate to L2."
+   },
+   {
+    "description": "If the status shows temporarily Inactive, check in the Autopay Whitelist L2 query, This query will show two reasons broadly:"
+   },
+   {
+    "description": "Not - Whitelisted"
+   },
+   {
+    "description": "Whitelisted"
+   },
+   {
+    "description": "If the query shows Not - Whitelisted, ask the FE to be onboarded on Valmo1. In case of Whitelisted, check the LM Pilot Payout Query to check if any COD debit has been marked."
+   },
+   {
+    "description": "If the COD debit of > 1500 has been marked, send this form to the FE to be filled by him."
+   }
+  ],
+  "resolution": {
+   "action": "If the COD debit of > 1500 has been marked, send this form to the FE to be filled by him.",
+   "cap_inr": null,
+   "params": {}
+  },
+  "escalation": {
+   "team": "",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "collated_sops_doc",
+  "priority": "P0",
+  "doc_reference": {
+   "l1_process": "1. In step 1, Agent will Check status in Log10. The Status could be:\nBlacklisted\nTemporarily Inactive\n2. If the status shows Blacklisted, Escalate to L2.\n3. If the status shows temporarily Inactive, check in the Autopay Whitelist L2 query, This query will show two reasons broadly:\nNot - Whitelisted\nWhitelisted\n4. If the query shows Not - Whitelisted, ask the FE to be onboarded on Valmo1. In case of Whitelisted, check the LM Pilot Payout Query to check if any COD debit has been marked.\n5. If the COD debit of > 1500 has been marked, send this form to the FE to be filled by him.",
+   "source": "collated_sops_doc"
+  }
  }
 ]

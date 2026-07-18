@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 
 from ..llm import registry as llm_registry
@@ -25,6 +26,8 @@ from ..durable_state import durable_path
 
 # MUTABLE authored content → durable state dir (survives redeploys); default backend/data.
 _STORE = durable_path("kt_queue.json")
+# STATIC baked seed SOPs (from the SOP Redressal Tracker sheet) — shipped with the image.
+_SEED_SOPS_FILE = Path(__file__).resolve().parents[2] / "data" / "knowledge" / "seed_sops.json"
 
 _SYSTEM = ("You structure raw operational knowledge (spoken/typed, possibly with attached "
            "sheet/image summaries) into a clean, machine-usable knowledge entry for Valmo "
@@ -48,22 +51,31 @@ ATTACHMENTS (summaries, if any):
 """
 
 
-def _load() -> list[dict]:
+def _read() -> list[dict]:
     if _STORE.exists():
         try:
             return json.loads(_STORE.read_text())
         except Exception:  # noqa: BLE001
             return []
-    # First run (or a free-tier ephemeral-state reset): seed the baseline compiled SOPs so the
-    # library is never empty and the engine has real SOPs to retrieve. Baked in code — like the
-    # Losses Domain Brain seed — so it survives redeploys/restarts. Once anyone authors, the
-    # store is non-empty and this never re-adds (no duplicates).
-    seed = _seed_entries()
-    try:
-        _save(seed)
-    except Exception:  # noqa: BLE001
-        pass
-    return seed
+    return []
+
+
+def _load() -> list[dict]:
+    """Read the store and ADDITIVELY ensure every baked seed SOP is present (matched by stable
+    id). New seeds appear even in a non-empty store — but nothing the team authored, edited, or
+    an already-present seed is ever touched or duplicated. Baked in code, so seeds survive an
+    ephemeral-state reset; once present they're never re-added."""
+    items = _read()
+    have = {e.get("id") for e in items}
+    missing = [p for p in _seed_policies() if p.get("id") not in have]
+    if missing or not items:
+        ts = datetime.now(timezone.utc).isoformat()
+        items = items + [_policy_to_entry(p, ts) for p in missing]
+        try:
+            _save(items)
+        except Exception:  # noqa: BLE001
+            pass
+    return items
 
 
 def _save(items: list[dict]) -> None:
@@ -118,27 +130,59 @@ _COD_SHORTFALL_POLICY = {
 }
 
 
-def _seed_entries() -> list[dict]:
-    ts = datetime.now(timezone.utc).isoformat()
-    p = _COD_SHORTFALL_POLICY
-    trig = p["trigger"]
-    knowledge = "\n".join([
-        "Required from the captain: " + ", ".join(p["required_evidence"]) + ".",
-        *[f"Check: {c['description']}" for c in p["checks"]],
-        f"Resolution: {p['resolution']['action']}.",
-        f"Escalate to {p['escalation']['team']} — {p['escalation']['handover']}.",
-    ])
-    return [{
-        "id": p["id"],
-        "contributor": "domain-owner:cost_ops (Syed)",
-        "raw_text": json.dumps(p),
-        "structured": {"title": p["disposition"], "type": "policy", "queue": "cod_cash",
-                       "triggers": trig["keywords"] + [p["disposition"]],
-                       "knowledge": knowledge, "tags": ["sop", "compiled", "cod", "shortfall"]},
+@lru_cache(maxsize=1)
+def _load_seed_sops() -> list[dict]:
+    """The 64 SOPs parsed from the SOP Redressal Tracker sheet (baked JSON)."""
+    try:
+        if _SEED_SOPS_FILE.exists():
+            data = json.loads(_SEED_SOPS_FILE.read_text())
+            return data if isinstance(data, list) else []
+    except Exception:  # noqa: BLE001
+        return []
+    return []
+
+
+@lru_cache(maxsize=1)
+def _seed_policies() -> tuple:
+    """All baked seed policies (COD Shortfall + the tracker SOPs). Cached — the ids are what the
+    additive seeder checks against. Returned as a tuple so it's hashable/cacheable."""
+    return tuple([_COD_SHORTFALL_POLICY] + list(_load_seed_sops()))
+
+
+def _policy_to_entry(p: dict, ts: str) -> dict:
+    """Turn a baked ExecutablePolicy into an APPROVED, compiled KT entry (retrievable + shown in
+    the Knowledge Base, grouped by its domain)."""
+    p = p or {}
+    trig = p.get("trigger", {}) or {}
+    res = p.get("resolution", {}) or {}
+    esc = p.get("escalation", {}) or {}
+    lines = []
+    if p.get("l3_category"):
+        lines.append(f"Category: {p['l3_category']}.")
+    if p.get("required_evidence"):
+        lines.append("Required from the captain: " + ", ".join(p["required_evidence"]) + ".")
+    for c in (p.get("checks") or []):
+        if c.get("description"):
+            lines.append("Step: " + c["description"])
+    if res.get("action"):
+        cap = f" (cap ₹{res.get('cap_inr')})" if res.get("cap_inr") is not None else ""
+        lines.append(f"Resolution: {res['action']}{cap}.")
+    if esc.get("team"):
+        lines.append(f"Escalate to {esc['team']}" + (f" — {esc['handover']}" if esc.get("handover") else "") + ".")
+    knowledge = "\n".join(lines) or (p.get("disposition") or "SOP")
+    src = p.get("source", "")
+    contributor = "sop-redressal-tracker" if src else "domain-owner:cost_ops (Syed)"
+    return {
+        "id": p.get("id") or ("SOP-" + uuid.uuid4().hex[:8].upper()),
+        "contributor": contributor, "raw_text": json.dumps(p, ensure_ascii=False),
+        "structured": {"title": p.get("disposition") or p.get("id") or "SOP", "type": "policy",
+                       "queue": p.get("domain") or (esc.get("team") or "general"),
+                       "triggers": (trig.get("keywords") or []) + [p.get("disposition", "")],
+                       "knowledge": knowledge,
+                       "tags": ["sop", "compiled"] + ([src] if src else []) + (trig.get("keywords") or [])[:8]},
         "type": "policy", "status": "approved", "compiled_sop": True, "seeded": True,
-        "policy": p, "submitted_at": ts, "reviewed_by": "domain-owner:cost_ops (Syed)",
-        "reviewed_at": ts,
-    }]
+        "policy": p, "submitted_at": ts, "reviewed_by": contributor, "reviewed_at": ts,
+    }
 
 
 def submit(text: str, contributor: str, attachments: list[str] | None = None) -> dict:

@@ -1,0 +1,3324 @@
+[
+ {
+  "id": "SOP-TRK-001",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Shortage Loss – Common L1 checks (apply to S1–S5)",
+  "trigger": {
+   "keywords": [
+    "shortage",
+    "loss",
+    "common",
+    "checks",
+    "s1",
+    "s5",
+    "losses",
+    "debits"
+   ],
+   "preconditions": []
+  },
+  "required_evidence": [
+   "AWB"
+  ],
+  "checks": [
+   {
+    "description": "Verify the Captain entered the correct AWB numbers; if not, request correct inputs."
+   },
+   {
+    "description": "Open the Valmo Lost Data query (Metabase) and check lost attribution vs the AWB ('Remarks' shows if attribution is pending)."
+   },
+   {
+    "description": "Cross-validate using the Shortage SOP and Log10 detailed scans against the AWBs."
+   },
+   {
+    "description": "Check the Shortage Data Query to confirm evidence/reply mails were sent to both partners; if not, requeue to both / the respective hubs."
+   }
+  ],
+  "resolution": {
+   "action": "Check the Shortage Data Query to confirm evidence/reply mails were sent to both partners; if not, requeue to both / the respective hubs.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01"
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-002",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Shortage Loss – S1: Evidence/reply mails not sent to one or all partners",
+  "trigger": {
+   "keywords": [
+    "shortage",
+    "loss",
+    "s1",
+    "evidence",
+    "reply",
+    "mails",
+    "sent",
+    "one",
+    "all",
+    "partners",
+    "wrong",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Requeue the evidence mails to the partner(s) via escalation."
+   }
+  ],
+  "resolution": {
+   "action": "Direct L1→L3 escalation on Kapture (requeue evidence mails).",
+   "cap_inr": null,
+   "params": {
+    "flow_type": "neutral flow",
+    "template": "D-LD-01",
+    "functional_team": "Hub/sortation partners",
+    "escalation_criteria": "Direct L1→L3 escalation on Kapture (requeue evidence mails)."
+   }
+  },
+  "escalation": {
+   "team": "Hub/sortation partners",
+   "handover": "neutral flow"
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-003",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Shortage Loss – S2: Captain unable to mark shortage for shipment",
+  "trigger": {
+   "keywords": [
+    "shortage",
+    "loss",
+    "s2",
+    "captain",
+    "unable",
+    "mark",
+    "shipment",
+    "wrong",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check the vehicle arrival timestamp."
+   },
+   {
+    "description": "Confirm the ticket was raised within 24h of arrival (marked/assigned_location_ticket_status = CLOSED per Shortage SOP)."
+   },
+   {
+    "description": "If SOP followed → treat as tech/system issue (template)."
+   },
+   {
+    "description": "Else → reply with the rejection template."
+   }
+  ],
+  "resolution": {
+   "action": "Tech team if SOP followed (system issue).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01",
+    "functional_team": "Tech",
+    "escalation_criteria": "Tech team if SOP followed (system issue)."
+   }
+  },
+  "escalation": {
+   "team": "Tech",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-004",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Shortage Loss – S3: One partner shared evidence, the other has not",
+  "trigger": {
+   "keywords": [
+    "shortage",
+    "loss",
+    "s3",
+    "one",
+    "partner",
+    "shared",
+    "evidence",
+    "other",
+    "has",
+    "wrong",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Attribute the loss to the partner that did not share evidence within SLA (status = SLA BREACHED, not CLOSED)."
+   }
+  ],
+  "resolution": {
+   "action": "Attribute the loss to the partner that did not share evidence within SLA (status = SLA BREACHED, not CLOSED).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01",
+    "functional_team": "Hub partners"
+   }
+  },
+  "escalation": {
+   "team": "Hub partners",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-005",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Shortage Loss – S4: Both partners shared evidence; loss marked on one – partner contesting",
+  "trigger": {
+   "keywords": [
+    "shortage",
+    "loss",
+    "s4",
+    "both",
+    "partners",
+    "shared",
+    "evidence",
+    "marked",
+    "one",
+    "partner",
+    "contesting",
+    "me",
+    "even",
+    "after",
+    "submitted",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Shortage Loss is marked on me even after I submitted evidence."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Escalate to the trained evidence-validation team."
+   },
+   {
+    "description": "If evidence is valid, escalate with the correct remark + evidence."
+   }
+  ],
+  "resolution": {
+   "action": "Escalate to evidence-validation team; then reversal escalation if valid.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01,D-LD-03",
+    "functional_team": "Evidence-validation team; Losses functional team",
+    "escalation_criteria": "Escalate to evidence-validation team; then reversal escalation if valid."
+   }
+  },
+  "escalation": {
+   "team": "Evidence-validation team; Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-006",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Shortage Loss – S5: Captain claims wrong email ID was shared",
+  "trigger": {
+   "keywords": [
+    "shortage",
+    "loss",
+    "s5",
+    "captain",
+    "claims",
+    "wrong",
+    "email",
+    "id",
+    "was",
+    "shared",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Respond: “You should have intimated this previously.”"
+   }
+  ],
+  "resolution": {
+   "action": "Respond: “You should have intimated this previously.”",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01"
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-007",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – Common L1 checks (apply to S1.1–S12)",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "common",
+    "checks",
+    "s1",
+    "s12",
+    "losses",
+    "debits"
+   ],
+   "preconditions": []
+  },
+  "required_evidence": [
+   "AWB"
+  ],
+  "checks": [
+   {
+    "description": "Verify the Captain entered the correct AWB numbers; if not, request correct inputs."
+   },
+   {
+    "description": "Open the Valmo Lost Data query (Metabase) and check lost attribution vs the AWB ('Remarks' shows if pending)."
+   },
+   {
+    "description": "Cross-validate using the Hardstop SOP and Log10 detailed scans."
+   },
+   {
+    "description": "For scans at PCXX nodes (Packaging Centers), shipments were consolidated under a parent AWB — process the parent AWB (find it via Single AWB Tracking)."
+   }
+  ],
+  "resolution": {
+   "action": "For scans at PCXX nodes (Packaging Centers), shipments were consolidated under a parent AWB — process the parent AWB (find it via Single AWB Tracking).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01",
+    "functional_team": "Losses functional team"
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-008",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S1.1: Wrong loss; scans valid; Hardstop SOP followed",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s1",
+    "wrong",
+    "loss",
+    "scans",
+    "valid",
+    "followed",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check Log10 scans + Hardstop SOP (forward connection within 5 days reverse / 7 days forward)."
+   },
+   {
+    "description": "Raise for reversal to the respective L2."
+   }
+  ],
+  "resolution": {
+   "action": "Reversal escalation to respective L2.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01",
+    "functional_team": "Losses functional team",
+    "escalation_criteria": "Reversal escalation to respective L2."
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-009",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S1.2: Wrong loss; scans valid; Hardstop SOP NOT followed",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s1",
+    "wrong",
+    "loss",
+    "scans",
+    "valid",
+    "followed",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check Log10 + the Hardstop rule."
+   },
+   {
+    "description": "Reply: reversal not applicable due to Hardstop SOP breach."
+   }
+  ],
+  "resolution": {
+   "action": "Reply: reversal not applicable due to Hardstop SOP breach.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01"
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-010",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S2: Wrong loss; scans invalid (wrong destination)",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s2",
+    "wrong",
+    "loss",
+    "scans",
+    "invalid",
+    "destination",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check Log10 scans."
+   },
+   {
+    "description": "Reply: reversal not applicable due to wrong connection (template)."
+   }
+  ],
+  "resolution": {
+   "action": "Reply: reversal not applicable due to wrong connection (template).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01"
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-011",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S3: Fails to connect after Customer Rejection",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s3",
+    "fails",
+    "connect",
+    "after",
+    "customer",
+    "rejection",
+    "wrong",
+    "loss",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [
+   "AWB"
+  ],
+  "checks": [
+   {
+    "description": "Check scans on Single AWB Tracking / Log10."
+   },
+   {
+    "description": "If no forward connection within the RTO connection timeline → reply reversal not applicable (template)."
+   }
+  ],
+  "resolution": {
+   "action": "If no forward connection within the RTO connection timeline → reply reversal not applicable (template).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01"
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-012",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S4: Fails to connect after Customer Unreachable",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s4",
+    "fails",
+    "connect",
+    "after",
+    "customer",
+    "unreachable",
+    "wrong",
+    "loss",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check Log10 scans."
+   },
+   {
+    "description": "If not delivered within 7 days → reply reversal not applicable (template)."
+   }
+  ],
+  "resolution": {
+   "action": "If not delivered within 7 days → reply reversal not applicable (template).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01"
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-013",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S5: Customer denies cancellation OTP",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s5",
+    "customer",
+    "denies",
+    "cancellation",
+    "otp",
+    "wrong",
+    "loss",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check Log10 scans."
+   },
+   {
+    "description": "If no 3 attempts within 7 days and not delivered within 7 days → reply reversal not applicable (template)."
+   }
+  ],
+  "resolution": {
+   "action": "If no 3 attempts within 7 days and not delivered within 7 days → reply reversal not applicable (template).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01"
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-014",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S6: Customer wants shipment post 7 days",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s6",
+    "customer",
+    "wants",
+    "shipment",
+    "post",
+    "days",
+    "wrong",
+    "loss",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check Log10 scans."
+   },
+   {
+    "description": "If no 3 attempts within 7 days and not delivered → reply loss not reversible (template); 3 delivery attempts required."
+   },
+   {
+    "description": "Advise the Captain to tell the customer to cancel & reorder."
+   }
+  ],
+  "resolution": {
+   "action": "Advise the Captain to tell the customer to cancel & reorder.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01"
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-015",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S7: Shipment delivered but couldn't be marked",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s7",
+    "shipment",
+    "delivered",
+    "but",
+    "couldn",
+    "marked",
+    "wrong",
+    "loss",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Reply: take up directly with the tech team with relevant proof (template)."
+   }
+  ],
+  "resolution": {
+   "action": "Tech team (with proof).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01",
+    "functional_team": "Tech",
+    "escalation_criteria": "Tech team (with proof)."
+   }
+  },
+  "escalation": {
+   "team": "Tech",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-016",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S8.1: Not inscanned back to hub – amount recovered from FE",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s8",
+    "inscanned",
+    "back",
+    "hub",
+    "amount",
+    "recovered",
+    "from",
+    "fe",
+    "wrong",
+    "loss",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check the LM FE Loss Marked query; confirm the amount was recovered from the FE."
+   },
+   {
+    "description": "Escalate the ticket for reversal to the respective L2."
+   },
+   {
+    "description": "Reply that loss will be reversed (template)."
+   }
+  ],
+  "resolution": {
+   "action": "Reversal escalation to respective L2.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01",
+    "functional_team": "Losses functional team; FE payout",
+    "escalation_criteria": "Reversal escalation to respective L2."
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team; FE payout",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-017",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S8.2: Not inscanned back to hub – amount NOT recovered from FE",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s8",
+    "inscanned",
+    "back",
+    "hub",
+    "amount",
+    "recovered",
+    "from",
+    "fe",
+    "wrong",
+    "loss",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check the LM FE Loss Marked query (amount not recovered) and Log10 last status = Consignment_Lost."
+   },
+   {
+    "description": "If both true → escalate for reversal to L2."
+   },
+   {
+    "description": "Reply that loss will be reversed (template)."
+   }
+  ],
+  "resolution": {
+   "action": "Reversal escalation to respective L2.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01",
+    "functional_team": "Losses functional team",
+    "escalation_criteria": "Reversal escalation to respective L2."
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-018",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S9.1: Awaited instruction – Seller Dependency SOP breached",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s9",
+    "awaited",
+    "instruction",
+    "seller",
+    "dependency",
+    "breached",
+    "wrong",
+    "loss",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check Valmo Lost Data (Metabase) for the date instructions were sent."
+   },
+   {
+    "description": "Check Log10 attempts vs the Seller Dependency SOP."
+   },
+   {
+    "description": "SOP breached → reply no reversal."
+   }
+  ],
+  "resolution": {
+   "action": "SOP breached → reply no reversal.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01"
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-019",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S9.2: Awaited instruction – Seller Dependency SOP followed",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s9",
+    "awaited",
+    "instruction",
+    "seller",
+    "dependency",
+    "followed",
+    "wrong",
+    "loss",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check Valmo Lost Data (Metabase) for the instruction date."
+   },
+   {
+    "description": "Check Log10 attempts vs the Seller Dependency SOP."
+   },
+   {
+    "description": "SOP followed → reply reversal applicable; escalate to L2 (template)."
+   }
+  ],
+  "resolution": {
+   "action": "Reversal escalation to respective L2.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01",
+    "functional_team": "Losses functional team",
+    "escalation_criteria": "Reversal escalation to respective L2."
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-020",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S10: Wrong shipment/bag received (misrouted – hardstop marked)",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s10",
+    "wrong",
+    "shipment",
+    "bag",
+    "received",
+    "misrouted",
+    "marked",
+    "losses",
+    "me",
+    "shipments",
+    "debits"
+   ],
+   "preconditions": [
+    "Losses are marked on me for misrouted shipments."
+   ]
+  },
+  "required_evidence": [
+   "AWB"
+  ],
+  "checks": [
+   {
+    "description": "Check scans (Log10 / Bag ID tracking — enter AWBs individually)."
+   },
+   {
+    "description": "Misroute SOP requires routing to the correct hub within 2 days."
+   },
+   {
+    "description": "Deadline missed → hardstop marked, no reversal."
+   }
+  ],
+  "resolution": {
+   "action": "Deadline missed → hardstop marked, no reversal.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01,D-LD-05"
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-021",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S11.1: Shipments correctly misrouted",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s11",
+    "shipments",
+    "correctly",
+    "misrouted",
+    "losses",
+    "marked",
+    "me",
+    "debits"
+   ],
+   "preconditions": [
+    "Losses are marked on me for misrouted shipments."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Enter shipments in Log10; check scans."
+   },
+   {
+    "description": "Confirm MISROUTE scan is within 2 days of the previous scan (valid)."
+   },
+   {
+    "description": "Escalate to L2 for reversal."
+   }
+  ],
+  "resolution": {
+   "action": "Reversal escalation to L2.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01,D-LD-05",
+    "functional_team": "Losses functional team",
+    "escalation_criteria": "Reversal escalation to L2."
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-022",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S11.2: Shipments incorrectly misrouted",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s11",
+    "shipments",
+    "incorrectly",
+    "misrouted",
+    "losses",
+    "marked",
+    "me",
+    "debits"
+   ],
+   "preconditions": [
+    "Losses are marked on me for misrouted shipments."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Enter shipments in Log10; check scans."
+   },
+   {
+    "description": "Misroute allowed max twice; loss stays on the original hub."
+   },
+   {
+    "description": "Reply no reversal (template)."
+   }
+  ],
+  "resolution": {
+   "action": "Reply no reversal (template).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01,D-LD-05"
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-023",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Hardstop – S12: Shipment damaged (scan issues)",
+  "trigger": {
+   "keywords": [
+    "hardstop",
+    "s12",
+    "shipment",
+    "damaged",
+    "scan",
+    "issues",
+    "wrong",
+    "loss",
+    "marked",
+    "me",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Wrong loss is marked on me."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Inform the partner to fill the damage form: https://docs.google.com/spreadsheets/d/1ZdrSnMR3sbx5kgd5CX1C-SrkVxcTuKNcT8491pzH0bY/edit?resourcekey=&gid=1276904803#gid=1276904803"
+   },
+   {
+    "description": "Ticket escalated directly to L3, who reviews the form + evidence and reverses any loss marked."
+   }
+  ],
+  "resolution": {
+   "action": "Direct L3 escalation (damage form + evidence review).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-01",
+    "functional_team": "L3 (damage review)",
+    "escalation_criteria": "Direct L3 escalation (damage form + evidence review)."
+   }
+  },
+  "escalation": {
+   "team": "L3 (damage review)",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-024",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Intimation -- S1: Hardstop mail received",
+  "trigger": {
+   "keywords": [
+    "intimation",
+    "s1",
+    "hardstop",
+    "mail",
+    "received",
+    "alert",
+    "email",
+    "even",
+    "though",
+    "shipment",
+    "has",
+    "already",
+    "been",
+    "processed",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "I received a hardstop alert email even though the shipment has already been processed."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "same checks to be run"
+   },
+   {
+    "description": "Inform the partner that it is just an intimation mechanism, it is likely that loss will not be marked."
+   },
+   {
+    "description": "Further inform the partner that they should reach out to us if the loss is marked"
+   }
+  ],
+  "resolution": {
+   "action": "Further inform the partner that they should reach out to us if the loss is marked",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-02"
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-025",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Clarity -- S1: Clarity required on the loss applied",
+  "trigger": {
+   "keywords": [
+    "clarity",
+    "s1",
+    "required",
+    "loss",
+    "applied",
+    "need",
+    "more",
+    "processes",
+    "related",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "I need more clarity on the processes related to losses."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "agent must check the loss applied if hardstop or shortage."
+   },
+   {
+    "description": "Share the SOPs for loss marking process for the marked loss."
+   }
+  ],
+  "resolution": {
+   "action": "Share the SOPs for loss marking process for the marked loss.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-04"
+   }
+  },
+  "escalation": {
+   "team": "Losses functional team",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-026",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "Reversal -- S1: Reversal status enquiry",
+  "trigger": {
+   "keywords": [
+    "reversal",
+    "s1",
+    "status",
+    "enquiry",
+    "my",
+    "reversals",
+    "delayed",
+    "yet",
+    "processed",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "My reversals are delayed and not yet processed."
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Direct escalation - L2"
+   }
+  ],
+  "resolution": {
+   "action": "Direct escalation - L2",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-06",
+    "functional_team": "L3 - losses",
+    "l2_sop": "1. L2 agent must review the loss marked on the shipment.\n2. review the reversal marked in the reversal tracker with the date\n3. contact the losses team POC for the processing of the loss.\n4. since this affects the ART situiation to be escalated to management."
+   }
+  },
+  "escalation": {
+   "team": "L3 - losses",
+   "handover": "L2: 1. L2 agent must review the loss marked on the shipment.\n2. review the reversal marked in the reversal tracker with the date\n3. contact the losses team POC for the processing of the loss.\n4. since this affects the ART situiation to be escalated to management."
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-027",
+  "domain": "losses",
+  "l3_category": "Losses & Debits",
+  "disposition": "QC failure",
+  "trigger": {
+   "keywords": [
+    "qc",
+    "failure",
+    "loss",
+    "marked",
+    "even",
+    "after",
+    "have",
+    "shared",
+    "images",
+    "losses",
+    "debits"
+   ],
+   "preconditions": [
+    "Loss is marked even after I have shared QC images"
+   ]
+  },
+  "required_evidence": [
+   "AWB"
+  ],
+  "checks": [
+   {
+    "description": "Step 1: Identify the loss marked AWB* When the Captain raises a request stating that the FE has been marked with a wrong loss, the agent needs to first enter the **FE ID or Phone Number** in query:https://metabase-main.bi.meeshogcp.in/question/187207-qc-fail* Apply the **exact time range** when the loss was marked.* The Captain will share the **loss marked amount**.* The agent needs to locate the same amount on the mentioned date and identify the **AWB number** against which the loss was marked."
+   },
+   {
+    "description": "Step 2: Check the debit reason* Enter the identified **AWB number** in query:https://metabase-main.bi.meeshogcp.in/question/187207-qc-fail* Check the **debit_reason** column.* The possible debit reasons are:* LM Secondary QC junk image* Pickup junk image* ICUD junk image* Pickup vs QC image mismatch."
+   },
+   {
+    "description": "Step 3: Identify the node where loss was marked* If the debit reason is **LM Secondary QC junk image** → Loss is marked on the **LM Hub**.* If the debit reason is **Pickup junk image** → Loss is marked on the **LM FE (Pickup FE)**.* If the debit reason is **ICUD junk image** → Loss is marked on the **LM FE (ICUD FE - Forward leg)**.* If the debit reason is **Pickup vs QC image mismatch** → Loss is marked on the **LM FE**."
+   },
+   {
+    "description": "Step 4: Validate images and take action* The agent needs to review the images captured at the respective node where the loss was marked.* Check whether the entity has followed the required SOP.* If the entity has followed the SOP → The marked loss will be reversed.* If the entity has not followed the SOP → The loss will be considered valid and the entity will bear the loss."
+   }
+  ],
+  "resolution": {
+   "action": "Direct L2 escaltion if a image mismatch is ientified by L1 agent",
+   "cap_inr": null,
+   "params": {
+    "template": "D-LD-08",
+    "functional_team": "L3 - SX claims",
+    "l2_sop": "1. L2 agent must review the ticket and the loss marked.\n2. If the loss is correctly marked then response to captain\n3. If the loss is rightly contested then L2 agent must raise it for reversal on the dashboard made by the SX team.\n4. SX team is to check the loss and confirm the re-attribution within 48 hours.",
+    "escalation_criteria": "Direct L2 escaltion if a image mismatch is ientified by L1 agent"
+   }
+  },
+  "escalation": {
+   "team": "L3 - SX claims",
+   "handover": "L2: 1. L2 agent must review the ticket and the loss marked.\n2. If the loss is correctly marked then response to captain\n3. If the loss is rightly contested then L2 agent must raise it for reversal on the dashboard made by the SX team.\n4. SX team is to check the loss and confirm the re-attribution within 48 hours."
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-028",
+  "domain": "orders",
+  "l3_category": "Orders & Planning",
+  "disposition": "Forward Leg",
+  "trigger": {
+   "keywords": [
+    "forward",
+    "leg",
+    "hub",
+    "has",
+    "good",
+    "performance",
+    "but",
+    "receiving",
+    "low",
+    "load",
+    "orders",
+    "planning"
+   ],
+   "preconditions": [
+    "Hub has good performance but receiving low load (4.2.1)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Enter the hub code in the Orders & Planning View query."
+   },
+   {
+    "description": "Reply per the 'L1_remarks' column (e.g., improve RTO performance by x%; load grows with polygon demand) using the template."
+   },
+   {
+    "description": "Escalate to L2."
+   }
+  ],
+  "resolution": {
+   "action": "Escalate to L2.",
+   "cap_inr": null,
+   "params": {
+    "flow_type": "Unhappy",
+    "template": "D-OP-01",
+    "l2_sop": "1. Run the Orders & Planning View query to get the user pin.\n2. Search the user pin in Signal Superset.\n3. Generate a weekly volume-loss-driver summary with mapped teams; download it.\n4. Consolidate user-pin data into the Feedback Loop Repository (Excel); share weekly on the Partner Support group.",
+    "escalation_criteria": "Escalate to L2."
+   }
+  },
+  "escalation": {
+   "team": "",
+   "handover": "L2: 1. Run the Orders & Planning View query to get the user pin.\n2. Search the user pin in Signal Superset.\n3. Generate a weekly volume-loss-driver summary with mapped teams; download it.\n4. Consolidate user-pin data into the Feedback Loop Repository (Excel); share weekly on the Partner Support group. | Unhappy"
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-029",
+  "domain": "orders",
+  "l3_category": "Orders & Planning",
+  "disposition": "Forward Leg",
+  "trigger": {
+   "keywords": [
+    "forward",
+    "leg",
+    "current",
+    "load",
+    "lower",
+    "than",
+    "promised",
+    "orders",
+    "planning"
+   ],
+   "preconditions": [
+    "Current load lower than promised load (4.2.2)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Enter the hub code in the Orders & Planning View query."
+   },
+   {
+    "description": "Reply per 'L1_remarks' (improve RTO performance by x%; load grows with polygon demand) using the template."
+   },
+   {
+    "description": "Escalate to L2."
+   }
+  ],
+  "resolution": {
+   "action": "Escalate to L2.",
+   "cap_inr": null,
+   "params": {
+    "flow_type": "Unhappy",
+    "template": "D-OP-02",
+    "l2_sop": "1. Run the query to get the user pin.\n2. Search the user pin in Signal Superset.\n3. Weekly volume-loss-driver summary with mapped teams.\n4. Consolidate into Feedback Loop Repository; share weekly.",
+    "escalation_criteria": "Escalate to L2."
+   }
+  },
+  "escalation": {
+   "team": "",
+   "handover": "L2: 1. Run the query to get the user pin.\n2. Search the user pin in Signal Superset.\n3. Weekly volume-loss-driver summary with mapped teams.\n4. Consolidate into Feedback Loop Repository; share weekly. | Unhappy"
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-030",
+  "domain": "orders",
+  "l3_category": "Orders & Planning",
+  "disposition": "Forward Leg",
+  "trigger": {
+   "keywords": [
+    "forward",
+    "leg",
+    "hub",
+    "has",
+    "high",
+    "load",
+    "fluctuation",
+    "orders",
+    "planning"
+   ],
+   "preconditions": [
+    "Hub has high load fluctuation (4.2.3)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Enter the hub code in the Orders & Planning View query."
+   },
+   {
+    "description": "Reply per 'L1_remarks' (improve RTO performance by x%; load grows with polygon demand) using the template."
+   },
+   {
+    "description": "Escalate to L2."
+   }
+  ],
+  "resolution": {
+   "action": "Escalate to L2.",
+   "cap_inr": null,
+   "params": {
+    "flow_type": "Unhappy",
+    "template": "D-OP-03",
+    "functional_team": "Planning team",
+    "l2_sop": "1. Run the query to get the user pin.\n2. Search the user pin in Signal Superset.\n3. Weekly volume-loss-driver summary with mapped teams.\n4. Consolidate into Feedback Loop Repository; share weekly.",
+    "escalation_criteria": "Escalate to L2."
+   }
+  },
+  "escalation": {
+   "team": "Planning team",
+   "handover": "L2: 1. Run the query to get the user pin.\n2. Search the user pin in Signal Superset.\n3. Weekly volume-loss-driver summary with mapped teams.\n4. Consolidate into Feedback Loop Repository; share weekly. | Unhappy"
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-031",
+  "domain": "orders",
+  "l3_category": "Orders & Planning",
+  "disposition": "Forward Leg",
+  "trigger": {
+   "keywords": [
+    "forward",
+    "leg",
+    "add",
+    "subtract",
+    "pin",
+    "code",
+    "from",
+    "serviceable",
+    "area",
+    "orders",
+    "planning"
+   ],
+   "preconditions": [
+    "Add/subtract pin code to/from serviceable area (4.2.4)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "In this case, L1 agents will ask the DC captains to connect with the Area Managers (AM) and get the polygon updated. Post update,they need to coordinate with the CH to share the serviceable and non-serviceable pincode list with Aman Agarwal4 and get the capacity inputs updated accordingly."
+   }
+  ],
+  "resolution": {
+   "action": "In this case, L1 agents will ask the DC captains to connect with the Area Managers (AM) and get the polygon updated. Post update,they need to coordinate with the CH to share the serviceable and non-serviceable pincode list with Aman Agarwal4 and get the capacity inputs updated accordingly.",
+   "cap_inr": null,
+   "params": {
+    "flow_type": "why would they come on Kapture next?",
+    "template": "D-OP-12"
+   }
+  },
+  "escalation": {
+   "team": "",
+   "handover": "why would they come on Kapture next?"
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-032",
+  "domain": "orders",
+  "l3_category": "Orders & Planning",
+  "disposition": "Forward Leg",
+  "trigger": {
+   "keywords": [
+    "forward",
+    "leg",
+    "load",
+    "made",
+    "zero",
+    "without",
+    "intimation",
+    "orders",
+    "planning"
+   ],
+   "preconditions": [
+    "Load made zero without intimation (4.2.5)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "In this case, L1 agents will ask the DC Captain to coordinate with the CH and ensure the required input is shared with Aman Agarwal4 on priority. Once the input is provided, the manifestation request will be processed. After manifestation, it will take approximately 5–6 days for the load to be received."
+   }
+  ],
+  "resolution": {
+   "action": "In this case, L1 agents will ask the DC Captain to coordinate with the CH and ensure the required input is shared with Aman Agarwal4 on priority. Once the input is provided, the manifestation request will be processed. After manifestation, it will take approximately 5–6 days for the load to be received.",
+   "cap_inr": null,
+   "params": {
+    "flow_type": "adoption drop",
+    "template": "D-OP-04",
+    "functional_team": "L3 / Area Managers"
+   }
+  },
+  "escalation": {
+   "team": "L3 / Area Managers",
+   "handover": "adoption drop"
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-033",
+  "domain": "orders",
+  "l3_category": "Orders & Planning",
+  "disposition": "Reverse Leg",
+  "trigger": {
+   "keywords": [
+    "reverse",
+    "leg",
+    "rvp",
+    "load",
+    "made",
+    "zero",
+    "reinitiate",
+    "orders",
+    "planning"
+   ],
+   "preconditions": [
+    "RVP load made zero / reinitiate RVP (4.2.6)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Escalate the ticket to L3 (Gohil Suryadevsinh Niravsinh)."
+   }
+  ],
+  "resolution": {
+   "action": "Direct L1→L3 (Gohil Suryadevsinh Niravsinh).",
+   "cap_inr": null,
+   "params": {
+    "flow_type": "Happy",
+    "template": "D-OP-06",
+    "functional_team": "L3",
+    "escalation_criteria": "Direct L1→L3 (Gohil Suryadevsinh Niravsinh)."
+   }
+  },
+  "escalation": {
+   "team": "L3",
+   "handover": "Happy"
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-034",
+  "domain": "orders",
+  "l3_category": "Orders & Planning",
+  "disposition": "Reverse Leg",
+  "trigger": {
+   "keywords": [
+    "reverse",
+    "leg",
+    "increase",
+    "rvp",
+    "load",
+    "orders",
+    "planning"
+   ],
+   "preconditions": [
+    "Increase RVP load (4.2.7)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Enter the hub code in the query."
+   },
+   {
+    "description": "Reply per 'L1_remarks' (improve pickup performance by x%; load grows with polygon demand) using the template."
+   }
+  ],
+  "resolution": {
+   "action": "Reply per 'L1_remarks' (improve pickup performance by x%; load grows with polygon demand) using the template.",
+   "cap_inr": null,
+   "params": {
+    "flow_type": "Unhappy",
+    "template": "D-OP-08"
+   }
+  },
+  "escalation": {
+   "team": "",
+   "handover": "Unhappy"
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-035",
+  "domain": "orders",
+  "l3_category": "Orders & Planning",
+  "disposition": "Captain can't see Capacity Load option",
+  "trigger": {
+   "keywords": [
+    "captain",
+    "can",
+    "see",
+    "capacity",
+    "load",
+    "option",
+    "unable",
+    "view",
+    "tab",
+    "panel",
+    "orders",
+    "planning"
+   ],
+   "preconditions": [
+    "Unable to view Capacity Tab in captain panel (4.2.8)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Inform the Captain the Capacity Load feature is temporarily disabled (internal reasons)."
+   },
+   {
+    "description": "Advise contacting their Area Manager for capacity concerns (template)."
+   }
+  ],
+  "resolution": {
+   "action": "Advise contacting their Area Manager for capacity concerns (template).",
+   "cap_inr": null,
+   "params": {
+    "flow_type": "neutral",
+    "template": "REV-OP-capacitytab",
+    "functional_team": "Area Managers"
+   }
+  },
+  "escalation": {
+   "team": "Area Managers",
+   "handover": "neutral"
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-036",
+  "domain": "orders",
+  "l3_category": "Orders & Planning",
+  "disposition": "Reverse Leg",
+  "trigger": {
+   "keywords": [
+    "reverse",
+    "leg",
+    "there",
+    "increase",
+    "misrouted",
+    "oda",
+    "rvp",
+    "shipments",
+    "orders",
+    "planning"
+   ],
+   "preconditions": [
+    "There is an increase in the misrouted/ODA rvp shipments\n(4.2.9)"
+   ]
+  },
+  "required_evidence": [
+   "AWB"
+  ],
+  "checks": [
+   {
+    "description": "Captain can select on the checkbox for that ODA shipment and they will see an option to misroute to other DC called as \"Migrate AWB\". They can click on it and select the relevant DC."
+   },
+   {
+    "description": "a. Identifying the right DC: With the help of the pincode , agents can figure out the exact DC to which the awb must be routed/migrated with the help of this query."
+   },
+   {
+    "description": "If they are unable to misroute to another DC, they need not do anything. The pickup will get removed from their panel automatically after 3-4 days."
+   }
+  ],
+  "resolution": {
+   "action": "If they are unable to misroute to another DC, they need not do anything. The pickup will get removed from their panel automatically after 3-4 days.",
+   "cap_inr": null,
+   "params": {
+    "flow_type": "Happy",
+    "template": "D-OP-13"
+   }
+  },
+  "escalation": {
+   "team": "",
+   "handover": "Happy"
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-037",
+  "domain": "payments",
+  "l3_category": "Payments",
+  "disposition": "Captain wants to know why payment wasn't received for a cycle.\n Inputs:\nPayment Cycle*, \nEnbolt ID*, \nInvoice Number*, \nHub code*",
+  "trigger": {
+   "keywords": [
+    "captain",
+    "wants",
+    "know",
+    "why",
+    "payment",
+    "wasn",
+    "received",
+    "cycle",
+    "inputs",
+    "enbolt",
+    "id",
+    "invoice",
+    "number",
+    "hub",
+    "code",
+    "have",
+    "payments"
+   ],
+   "preconditions": [
+    "I have not received payment (4.3.1)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Validate mandatory fields (Payment Cycle, Enbolt ID, Invoice Number); if missing, request from Captain."
+   },
+   {
+    "description": "Open Captain Payment Status & Amount (Metabase); search by hub code / invoice / Enbolt ID."
+   },
+   {
+    "description": "Read the 'Remarks' status + last updated date."
+   },
+   {
+    "description": "Close with the status-specific template (Payment processed; Pending E-Sign; Hold Negative; GST Defaulter Hold; Risk above threshold variants; Grocery Defaulter; GST >20L; DC under FnF Payout; Hold by ops; Payment Failed)."
+   }
+  ],
+  "resolution": {
+   "action": "If status = 'Under Computation', escalate to L2.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-PY-01",
+    "functional_team": "Cost Ops (payment tracker)",
+    "l2_sop": "1. For 'Under Computation', check the payment tracker for that cycle and revert.\n2. Status enquiry handled by L1/L2; L3 only case-by-case.",
+    "escalation_criteria": "If status = 'Under Computation', escalate to L2."
+   }
+  },
+  "escalation": {
+   "team": "Cost Ops (payment tracker)",
+   "handover": "L2: 1. For 'Under Computation', check the payment tracker for that cycle and revert.\n2. Status enquiry handled by L1/L2; L3 only case-by-case."
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-038",
+  "domain": "payments",
+  "l3_category": "Payments",
+  "disposition": "Captain wants to close DC / FnF settlement. \nInputs: Hub Code*,\n Enbolt ID*,\n bank/SD docs, \nvendor name.",
+  "trigger": {
+   "keywords": [
+    "captain",
+    "wants",
+    "close",
+    "dc",
+    "fnf",
+    "settlement",
+    "inputs",
+    "hub",
+    "code",
+    "enbolt",
+    "id",
+    "bank",
+    "sd",
+    "docs",
+    "vendor",
+    "name",
+    "want",
+    "full",
+    "final",
+    "payments"
+   ],
+   "preconditions": [
+    "I want a full & final settlement (4.3.2)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Validate Hub Code + Enbolt ID; if missing, request."
+   },
+   {
+    "description": "Refer the FnF Dashboard (input Hub Code → AP Remarks, Cost-ops sub-header/final remarks, payment process date)."
+   },
+   {
+    "description": "Reply only for: FnF done, GST issue, Signature Pending, Open pendency (templates)."
+   },
+   {
+    "description": "Else escalate to L2."
+   }
+  ],
+  "resolution": {
+   "action": "Escalate to L2 for Deposit Consideration Issue, SD details not available, Hold by ops.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-PY-03",
+    "l2_sop": "1. Validate Enbolt ID; check how many DCs are mapped.\n2. If single DC, check the FnF tracker for filing.\n3. Check the FnF Dashboard hold reason; for deposit consideration, check COD hardstop first.\n4. Escalate to L3 for deposit consideration / held by ops / SD details missing.",
+    "escalation_criteria": "Escalate to L2 for Deposit Consideration Issue, SD details not available, Hold by ops."
+   }
+  },
+  "escalation": {
+   "team": "",
+   "handover": "L2: 1. Validate Enbolt ID; check how many DCs are mapped.\n2. If single DC, check the FnF tracker for filing.\n3. Check the FnF Dashboard hold reason; for deposit consideration, check COD hardstop first.\n4. Escalate to L3 for deposit consideration / held by ops / SD details missing."
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-039",
+  "domain": "payments",
+  "l3_category": "Payments",
+  "disposition": "Captain wants Security Deposit refunded.",
+  "trigger": {
+   "keywords": [
+    "captain",
+    "wants",
+    "security",
+    "deposit",
+    "refunded",
+    "refund",
+    "payments"
+   ],
+   "preconditions": [
+    "Security Deposit refund (4.3.2)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Validate Hub Code + Enbolt ID."
+   },
+   {
+    "description": "Refer the FnF Refund tracker (SD refund request sheet → Cost-Ops remarks)."
+   },
+   {
+    "description": "Reply only for 'SD Refund Done' and 'Pending from cost ops' (templates)."
+   },
+   {
+    "description": "Escalate 'Pending from ops / Partner dependency' to L2."
+   }
+  ],
+  "resolution": {
+   "action": "Escalate to L2 → L3 for 'Pending from ops / Partner dependency'.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-PY-03",
+    "functional_team": "Cost Ops; AMs/CHs; L3",
+    "l2_sop": "Escalate to L3 to connect with AMs/CHs and get missing details filled in the sheet for Cost-Ops pickup.",
+    "escalation_criteria": "Escalate to L2 → L3 for 'Pending from ops / Partner dependency'."
+   }
+  },
+  "escalation": {
+   "team": "Cost Ops; AMs/CHs; L3",
+   "handover": "L2: Escalate to L3 to connect with AMs/CHs and get missing details filled in the sheet for Cost-Ops pickup."
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-040",
+  "domain": "payments",
+  "l3_category": "Payments",
+  "disposition": "Bulk invoices NOT required.\n Inputs: Hub Code*, \nEnbolt ID*,\n Invoice No(s), \nPayment Cycle(s)*",
+  "trigger": {
+   "keywords": [
+    "bulk",
+    "invoices",
+    "required",
+    "inputs",
+    "hub",
+    "code",
+    "enbolt",
+    "id",
+    "invoice",
+    "no",
+    "payment",
+    "cycle",
+    "download",
+    "get",
+    "previous",
+    "cycles",
+    "payments"
+   ],
+   "preconditions": [
+    "Download/get invoices of previous cycles (4.3.3)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Escalate directly to L2."
+   }
+  ],
+  "resolution": {
+   "action": "Direct L1→L2.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-PY-09",
+    "l2_sop": "1. If no Enbolt ID, get it from the Captain Payment Status & Amount query.\n2. Enter the Enbolt ID in Advanced Search → Partner Invoices on O-Paper.\n3. Download the invoice PDFs.",
+    "escalation_criteria": "Direct L1→L2."
+   }
+  },
+  "escalation": {
+   "team": "",
+   "handover": "L2: 1. If no Enbolt ID, get it from the Captain Payment Status & Amount query.\n2. Enter the Enbolt ID in Advanced Search → Partner Invoices on O-Paper.\n3. Download the invoice PDFs."
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-041",
+  "domain": "payments",
+  "l3_category": "Payments",
+  "disposition": "Bulk invoices required (full date range).",
+  "trigger": {
+   "keywords": [
+    "bulk",
+    "invoices",
+    "required",
+    "full",
+    "date",
+    "range",
+    "download",
+    "get",
+    "previous",
+    "cycles",
+    "payments"
+   ],
+   "preconditions": [
+    "Download/get invoices of previous cycles (4.3.3)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Ask the Captain to connect with the Area Managers (AMs)."
+   }
+  ],
+  "resolution": {
+   "action": "Ask the Captain to connect with the Area Managers (AMs).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-PY-09",
+    "functional_team": "Area Managers"
+   }
+  },
+  "escalation": {
+   "team": "Area Managers",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-042",
+  "domain": "payments",
+  "l3_category": "Payments",
+  "disposition": "Captain says FWD+RVP shipment count differs between captain and invoice. \nInputs: Hub Code*, \nInvoice Number*, \nPayment Cycle*",
+  "trigger": {
+   "keywords": [
+    "captain",
+    "says",
+    "fwd",
+    "rvp",
+    "shipment",
+    "count",
+    "differs",
+    "between",
+    "invoice",
+    "inputs",
+    "hub",
+    "code",
+    "number",
+    "payment",
+    "cycle",
+    "mismatch",
+    "payments"
+   ],
+   "preconditions": [
+    "Shipment count mismatch in invoice (4.3.4)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Validate mandatory fields."
+   },
+   {
+    "description": "Use the Captain Payment Status & Amount query to find the delta between invoiced and actual FWD/RVP shipments."
+   },
+   {
+    "description": "Reply with the template; keep the ticket 'awaiting user response'."
+   },
+   {
+    "description": "Auto-close if no response within 72h."
+   }
+  ],
+  "resolution": {
+   "action": "Mostly L1; L2 case-by-case.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-PY-04",
+    "l2_sop": "Case-by-case only.",
+    "escalation_criteria": "Mostly L1; L2 case-by-case."
+   }
+  },
+  "escalation": {
+   "team": "",
+   "handover": "L2: Case-by-case only."
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-043",
+  "domain": "payments",
+  "l3_category": "Payments",
+  "disposition": "Debits marked + credit note shared; captain wants clarification. Inputs: Hub Code*, Payment Cycle*, Credit Note No*/Enbolt ID*/AWBs, CN attachment.",
+  "trigger": {
+   "keywords": [
+    "debits",
+    "marked",
+    "credit",
+    "note",
+    "shared",
+    "captain",
+    "wants",
+    "clarification",
+    "inputs",
+    "hub",
+    "code",
+    "payment",
+    "cycle",
+    "no",
+    "enbolt",
+    "id",
+    "awbs",
+    "cn",
+    "attachment",
+    "wrong",
+    "invoice",
+    "payments"
+   ],
+   "preconditions": [
+    "Wrong debits marked in invoice – clarification (4.3.5)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Reroute the ticket to L1 of the Losses & Debits queue."
+   }
+  ],
+  "resolution": {
+   "action": "Reroute to Losses & Debits L1 queue.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-PY-02",
+    "functional_team": "Losses & Debits team",
+    "l2_sop": "Case-by-case only.",
+    "escalation_criteria": "Reroute to Losses & Debits L1 queue."
+   }
+  },
+  "escalation": {
+   "team": "Losses & Debits team",
+   "handover": "L2: Case-by-case only."
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-044",
+  "domain": "payments",
+  "l3_category": "Payments",
+  "disposition": "Captain contesting the debit and asking for reversal.",
+  "trigger": {
+   "keywords": [
+    "captain",
+    "contesting",
+    "debit",
+    "asking",
+    "reversal",
+    "wrong",
+    "debits",
+    "marked",
+    "invoice",
+    "payments"
+   ],
+   "preconditions": [
+    "Wrong debits marked in invoice – reversal (4.3.6)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Reroute the ticket to L1 of the Losses & Debits queue."
+   }
+  ],
+  "resolution": {
+   "action": "Reroute to Losses & Debits L1 queue.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-PY-02",
+    "functional_team": "Losses & Debits team",
+    "l2_sop": "Case-by-case only.",
+    "escalation_criteria": "Reroute to Losses & Debits L1 queue."
+   }
+  },
+  "escalation": {
+   "team": "Losses & Debits team",
+   "handover": "L2: Case-by-case only."
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-045",
+  "domain": "payments",
+  "l3_category": "Payments",
+  "disposition": "Customer paid on Company QR (Razorpay) but amount in captain COD pendency. \nInputs: Hub code*, \nSingle/Bulk AWB*",
+  "trigger": {
+   "keywords": [
+    "customer",
+    "paid",
+    "company",
+    "qr",
+    "razorpay",
+    "but",
+    "amount",
+    "captain",
+    "cod",
+    "pendency",
+    "inputs",
+    "hub",
+    "code",
+    "single",
+    "bulk",
+    "awb",
+    "payments"
+   ],
+   "preconditions": [
+    "Razorpay (company QR) paid but in COD pendency (4.3.7)"
+   ]
+  },
+  "required_evidence": [
+   "AWB"
+  ],
+  "checks": [
+   {
+    "description": "Check the AWB(s) in the Razorpay Epay Bulk AWB Check query."
+   },
+   {
+    "description": "Result shown → AWB synced with Razorpay."
+   },
+   {
+    "description": "No result → revert with the form."
+   }
+  ],
+  "resolution": {
+   "action": "No result → revert with the form.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-CC-04"
+   }
+  },
+  "escalation": {
+   "team": "",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-046",
+  "domain": "payments",
+  "l3_category": "Payments",
+  "disposition": "FE not paid for the chosen cycle. \nInputs: Partner ID*, \nFE phone*, \nHub code*, \nPayment cycle*, \nDate",
+  "trigger": {
+   "keywords": [
+    "fe",
+    "paid",
+    "chosen",
+    "cycle",
+    "inputs",
+    "partner",
+    "id",
+    "phone",
+    "hub",
+    "code",
+    "payment",
+    "date",
+    "my",
+    "pilot",
+    "has",
+    "received",
+    "payments"
+   ],
+   "preconditions": [
+    "My Pilot has not received payment (4.3.8)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Validate fields (Partner ID, FE phone, Hub code, Payment cycle)."
+   },
+   {
+    "description": "Refer the LM Pilot Payout Raw query (input Payment Cycle + Partner ID)."
+   },
+   {
+    "description": "Read 'Remarks' + last updated date."
+   },
+   {
+    "description": "Close with the status-specific template (Bts_open variants, Dpt_not_created variants, FAILED, Hold variants, Pending variants, SUCCEEDED, etc.)."
+   }
+  ],
+  "resolution": {
+   "action": "Close with the status-specific template (Bts_open variants, Dpt_not_created variants, FAILED, Hold variants, Pending variants, SUCCEEDED, etc.).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-PY-05",
+    "functional_team": "FE Payout / Cost Ops"
+   }
+  },
+  "escalation": {
+   "team": "FE Payout / Cost Ops",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-047",
+  "domain": "payments",
+  "l3_category": "Payments",
+  "disposition": "FE not paid and status not in Metabase query – manual payout cases. \nInputs: Partner ID*,\n FE phone*,\n Hub code*,\n Payment cycle*,\n Date",
+  "trigger": {
+   "keywords": [
+    "fe",
+    "paid",
+    "status",
+    "metabase",
+    "query",
+    "manual",
+    "payout",
+    "cases",
+    "inputs",
+    "partner",
+    "id",
+    "phone",
+    "hub",
+    "code",
+    "payment",
+    "cycle",
+    "date",
+    "my",
+    "pilot",
+    "has",
+    "received",
+    "payments"
+   ],
+   "preconditions": [
+    "My Pilot has not received payment (4.3.8)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Refer the DA_Opaper_Billing Dashboard; filter by FE mobile number."
+   },
+   {
+    "description": "Verify Enbolt, Opaper Status and Final columns."
+   },
+   {
+    "description": "Close with the 'Final'-specific template (Adhoc / Billing / Pending CF)."
+   }
+  ],
+  "resolution": {
+   "action": "Close with the 'Final'-specific template (Adhoc / Billing / Pending CF).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-PY-05"
+   }
+  },
+  "escalation": {
+   "team": "",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-048",
+  "domain": "payments",
+  "l3_category": "Payments",
+  "disposition": "FE not paid per approved rate card. \nInputs: Partner ID*, \nFE phone*, \nHub code*, \nPayment cycle*,\n Date",
+  "trigger": {
+   "keywords": [
+    "fe",
+    "paid",
+    "approved",
+    "rate",
+    "card",
+    "inputs",
+    "partner",
+    "id",
+    "phone",
+    "hub",
+    "code",
+    "payment",
+    "cycle",
+    "date",
+    "my",
+    "pilot",
+    "received",
+    "partial",
+    "payments"
+   ],
+   "preconditions": [
+    "My Pilot received partial payment (4.3.9)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Ask the Captain to check the CPS tab on the Captain Panel for the approved rate card (can be changed there) — template."
+   },
+   {
+    "description": "If contested, check the Rate Card Change Request tracker."
+   },
+   {
+    "description": "Use the rate approved by the Cluster Head for pilot payment."
+   }
+  ],
+  "resolution": {
+   "action": "Use the rate approved by the Cluster Head for pilot payment.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-PY-07"
+   }
+  },
+  "escalation": {
+   "team": "",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-049",
+  "domain": "payments",
+  "l3_category": "Payments",
+  "disposition": "Inputs: Hub code *\nPayment cycle*",
+  "trigger": {
+   "keywords": [
+    "inputs",
+    "hub",
+    "code",
+    "payment",
+    "cycle",
+    "have",
+    "received",
+    "invoices",
+    "signing",
+    "payments"
+   ],
+   "preconditions": [
+    "I have not received invoices for E-signing"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check if the DC is in Autopay from the File."
+   },
+   {
+    "description": "If the DC is in Autopay:"
+   },
+   {
+    "description": "Inform the DC that invoices are available on the Captain Panel."
+   },
+   {
+    "description": "Guide them to check invoices from the Captain Panel."
+   },
+   {
+    "description": "If the DC is not in Autopay:"
+   },
+   {
+    "description": "Check for any O-Paper onboarding issue."
+   },
+   {
+    "description": "Help resolve the onboarding issue if found."
+   },
+   {
+    "description": "If no issue is found:"
+   },
+   {
+    "description": "Escalate the case to L2 for further support."
+   }
+  ],
+  "resolution": {
+   "action": "If none of the Previous issues exist,escalate to L2",
+   "cap_inr": null,
+   "params": {
+    "template": "D-PY-06",
+    "l2_sop": "L2 will escalate to Priyasmita Das for a Deeper dive",
+    "escalation_criteria": "If none of the Previous issues exist,escalate to L2"
+   }
+  },
+  "escalation": {
+   "team": "",
+   "handover": "L2: L2 will escalate to Priyasmita Das for a Deeper dive"
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-050",
+  "domain": "cod_cash",
+  "l3_category": "Cash Handover",
+  "disposition": "Deposited money but still reflecting in COD pendency. \nInputs: Source (CMS/Bank)*, \nTransaction ID*, \nDate*,\n Attachment*",
+  "trigger": {
+   "keywords": [
+    "deposited",
+    "money",
+    "but",
+    "still",
+    "reflecting",
+    "cod",
+    "pendency",
+    "inputs",
+    "source",
+    "cms",
+    "bank",
+    "transaction",
+    "id",
+    "date",
+    "attachment",
+    "system",
+    "cash",
+    "handover"
+   ],
+   "preconditions": [
+    "COD pendency reflecting in system (4.4.1)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check the Valmo LMDC COD Pendency query for the latest pendency."
+   },
+   {
+    "description": "Check the Cash Handover query by hub code / Transaction ID."
+   },
+   {
+    "description": "If no pendency, close with the template (pendency 0; last deposit date & amount)."
+   }
+  ],
+  "resolution": {
+   "action": "If no pendency, close with the template (pendency 0; last deposit date & amount).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-CC-06"
+   }
+  },
+  "escalation": {
+   "team": "",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-051",
+  "domain": "cod_cash",
+  "l3_category": "Cash Handover",
+  "disposition": "Deposited but reflecting due to payment to wrong UPI. \nInputs: Deposit Slip*,\n Transaction ID*, \nDate*, \nBank Statement",
+  "trigger": {
+   "keywords": [
+    "deposited",
+    "but",
+    "reflecting",
+    "due",
+    "payment",
+    "wrong",
+    "upi",
+    "inputs",
+    "deposit",
+    "slip",
+    "transaction",
+    "id",
+    "date",
+    "bank",
+    "statement",
+    "cod",
+    "pendency",
+    "system",
+    "cash",
+    "handover"
+   ],
+   "preconditions": [
+    "COD pendency reflecting in system (4.4.1)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check the hub code on the deposit slip to validate the correct UPI."
+   },
+   {
+    "description": "Wrong hub code → escalate to L2."
+   },
+   {
+    "description": "Correct hub code → verify the bank statement for a completed transaction; if unresolved, escalate to L2."
+   }
+  ],
+  "resolution": {
+   "action": "Escalate to L2 (wrong UPI / unresolved).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-CC-06",
+    "functional_team": "Gopal Chandra Jha",
+    "l2_sop": "Wrong-UPI deposits → escalate to Gopal Chandra Jha.",
+    "escalation_criteria": "Escalate to L2 (wrong UPI / unresolved)."
+   }
+  },
+  "escalation": {
+   "team": "Gopal Chandra Jha",
+   "handover": "L2: Wrong-UPI deposits → escalate to Gopal Chandra Jha."
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-052",
+  "domain": "cod_cash",
+  "l3_category": "Cash Handover",
+  "disposition": "Deposited via CMS but not reflecting for DC. \nInputs: Deposit Slip*,\n Transaction ID*, \nDate*, \nBank Statement.",
+  "trigger": {
+   "keywords": [
+    "deposited",
+    "cms",
+    "but",
+    "reflecting",
+    "dc",
+    "inputs",
+    "deposit",
+    "slip",
+    "transaction",
+    "id",
+    "date",
+    "bank",
+    "statement",
+    "cod",
+    "pendency",
+    "system",
+    "cash",
+    "handover"
+   ],
+   "preconditions": [
+    "COD pendency reflecting in system (4.4.1)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check the Cash Handover query."
+   },
+   {
+    "description": "If no amount shown, validate with the Cluster Head; reply with the template."
+   }
+  ],
+  "resolution": {
+   "action": "If no amount shown, validate with the Cluster Head; reply with the template.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-CC-06",
+    "functional_team": "Cluster Head"
+   }
+  },
+  "escalation": {
+   "team": "Cluster Head",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-053",
+  "domain": "cod_cash",
+  "l3_category": "Cash Handover",
+  "disposition": "COD/Negative Payout hardstop marked even after clearing COD pendency & losses. Inputs: Deposit Slip*, Transaction ID*, Date*",
+  "trigger": {
+   "keywords": [
+    "cod",
+    "negative",
+    "payout",
+    "hardstop",
+    "marked",
+    "even",
+    "after",
+    "clearing",
+    "pendency",
+    "losses",
+    "inputs",
+    "deposit",
+    "slip",
+    "transaction",
+    "id",
+    "date",
+    "reflecting",
+    "system",
+    "cash",
+    "handover"
+   ],
+   "preconditions": [
+    "COD pendency reflecting in system (4.4.1)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Check the hardstop tracker."
+   },
+   {
+    "description": "If in hardstop, share the LOSS form + COD form for the Captain to fill after clearing pendencies."
+   },
+   {
+    "description": "Escalate to L2."
+   }
+  ],
+  "resolution": {
+   "action": "Escalate to L2 after forms filled.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-CC-06",
+    "functional_team": "Gopal Chandra Jha",
+    "l2_sop": "Escalate to Gopal Chandra Jha (picks cases every alternate day).",
+    "escalation_criteria": "Escalate to L2 after forms filled."
+   }
+  },
+  "escalation": {
+   "team": "Gopal Chandra Jha",
+   "handover": "L2: Escalate to Gopal Chandra Jha (picks cases every alternate day)."
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-054",
+  "domain": "cod_cash",
+  "l3_category": "Cash Handover",
+  "disposition": "CMS partner does not come to collect the COD amount. Inputs: Hub code*",
+  "trigger": {
+   "keywords": [
+    "cms",
+    "partner",
+    "does",
+    "come",
+    "collect",
+    "cod",
+    "amount",
+    "inputs",
+    "hub",
+    "code",
+    "aligned",
+    "cash",
+    "handover"
+   ],
+   "preconditions": [
+    "CMS is not aligned (4.4.2)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Escalate the ticket directly to Riyaz."
+   }
+  ],
+  "resolution": {
+   "action": "Direct escalation to Riyaz.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-CC-02",
+    "functional_team": "Riyaz (CMS)",
+    "escalation_criteria": "Direct escalation to Riyaz."
+   }
+  },
+  "escalation": {
+   "team": "Riyaz (CMS)",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-055",
+  "domain": "cod_cash",
+  "l3_category": "Cash Handover",
+  "disposition": "Captain unable to see Cash Pendency Tab in panel. Inputs: Hub code",
+  "trigger": {
+   "keywords": [
+    "captain",
+    "unable",
+    "see",
+    "cash",
+    "pendency",
+    "tab",
+    "panel",
+    "inputs",
+    "hub",
+    "code",
+    "visible",
+    "handover"
+   ],
+   "preconditions": [
+    "Cash Pendency Tab not visible (5)"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Verify the hub code against the Cost-Ops list."
+   },
+   {
+    "description": "If present → inform tab unavailable and share the VAN account PDF (template)."
+   },
+   {
+    "description": "If not present → ask the Captain to fill the Google Form to create a VAN account; team reviews, creates VAN account, shares details (template)."
+   }
+  ],
+  "resolution": {
+   "action": "If not present → ask the Captain to fill the Google Form to create a VAN account; team reviews, creates VAN account, shares details (template).",
+   "cap_inr": null,
+   "params": {
+    "template": "REV-CC-cashtab",
+    "functional_team": "Cost Ops"
+   }
+  },
+  "escalation": {
+   "team": "Cost Ops",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-056",
+  "domain": "consumables",
+  "l3_category": "Consumables",
+  "disposition": "S1: How to place an order",
+  "trigger": {
+   "keywords": [
+    "s1",
+    "how",
+    "place",
+    "order",
+    "has",
+    "received",
+    "cannot",
+    "consumables"
+   ],
+   "preconditions": [
+    "Has not received / cannot order consumables"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Reply with the ordering-process template (account must be whitelisted; details shared with vendors; wait 12–24h; portal link; try other vendors on error)."
+   }
+  ],
+  "resolution": {
+   "action": "Reply with the ordering-process template (account must be whitelisted; details shared with vendors; wait 12–24h; portal link; try other vendors on error).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-CN-01",
+    "functional_team": "Vendors / Suppliers"
+   }
+  },
+  "escalation": {
+   "team": "Vendors / Suppliers",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-057",
+  "domain": "consumables",
+  "l3_category": "Consumables",
+  "disposition": "S2: Unable to order – not whitelisted. Inputs: Partner name, mobile, email, Hub ID",
+  "trigger": {
+   "keywords": [
+    "s2",
+    "unable",
+    "order",
+    "whitelisted",
+    "inputs",
+    "partner",
+    "name",
+    "mobile",
+    "email",
+    "hub",
+    "id",
+    "has",
+    "received",
+    "cannot",
+    "consumables"
+   ],
+   "preconditions": [
+    "Has not received / cannot order consumables"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "If details missing, request via template."
+   },
+   {
+    "description": "Upload details to the whitelisting sheet; reply completion (template)."
+   }
+  ],
+  "resolution": {
+   "action": "Upload details to the whitelisting sheet; reply completion (template).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-CN-05",
+    "functional_team": "Vendors / Suppliers"
+   }
+  },
+  "escalation": {
+   "team": "Vendors / Suppliers",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-058",
+  "domain": "consumables",
+  "l3_category": "Consumables",
+  "disposition": "S3: Track order / not received / status. Inputs: Order ID, Hub ID",
+  "trigger": {
+   "keywords": [
+    "s3",
+    "track",
+    "order",
+    "received",
+    "status",
+    "inputs",
+    "id",
+    "hub",
+    "has",
+    "cannot",
+    "consumables"
+   ],
+   "preconditions": [
+    "Has not received / cannot order consumables"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Look up the Order ID in RVP Order Details; check Supplier Code, Dispatch/Delivery Date, Order Status, Docket No, Courier."
+   },
+   {
+    "description": "Delivered → loop in Supplier (L3)."
+   },
+   {
+    "description": "Delivered but not received (fake delivery) → loop in Supplier (L3)."
+   },
+   {
+    "description": "Dispatched → track on the courier site with the docket no; reply with status + how to self-track (template)."
+   }
+  ],
+  "resolution": {
+   "action": "Direct L3 escalation (loop in Supplier) for delivered / fake-delivery.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-CN-02",
+    "functional_team": "Suppliers (L3)",
+    "escalation_criteria": "Direct L3 escalation (loop in Supplier) for delivered / fake-delivery."
+   }
+  },
+  "escalation": {
+   "team": "Suppliers (L3)",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-059",
+  "domain": "consumables",
+  "l3_category": "Consumables",
+  "disposition": "S4: Received fewer consumables than ordered. Inputs: Order ID, consumables ordered, video proof of unpacking",
+  "trigger": {
+   "keywords": [
+    "s4",
+    "received",
+    "fewer",
+    "consumables",
+    "than",
+    "ordered",
+    "inputs",
+    "order",
+    "id",
+    "video",
+    "proof",
+    "unpacking",
+    "has",
+    "cannot"
+   ],
+   "preconditions": [
+    "Has not received / cannot order consumables"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Look up the Order ID in RVP Consumables Partner Details; check Order details, qty, status (amount = order details × qty)."
+   },
+   {
+    "description": "Qty matches + delivered → template + loop Supplier (L3)."
+   },
+   {
+    "description": "Qty matches + dispatched → template."
+   },
+   {
+    "description": "Qty not matching → loop Supplier (L3)."
+   }
+  ],
+  "resolution": {
+   "action": "Direct L3 escalation (loop in Supplier).",
+   "cap_inr": null,
+   "params": {
+    "template": "D-CN-04",
+    "functional_team": "Suppliers (L3)",
+    "escalation_criteria": "Direct L3 escalation (loop in Supplier)."
+   }
+  },
+  "escalation": {
+   "team": "Suppliers (L3)",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-060",
+  "domain": "consumables",
+  "l3_category": "Consumables",
+  "disposition": "S1: Damaged consumables received (video evidence)",
+  "trigger": {
+   "keywords": [
+    "s1",
+    "damaged",
+    "consumables",
+    "received",
+    "video",
+    "evidence",
+    "secondary",
+    "qc",
+    "mismatch",
+    "format",
+    "tampered",
+    "inputs",
+    "order",
+    "id",
+    "hub"
+   ],
+   "preconditions": [
+    "Secondary QC mismatch (damaged / format mismatch / tampered). Inputs: Order ID, Hub ID"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Reply acknowledging the inconvenience and loop in Supplier (Direct L3 escalation) — template."
+   }
+  ],
+  "resolution": {
+   "action": "Direct L3 escalation (Supplier).",
+   "cap_inr": null,
+   "params": {
+    "template": "REV-CN-damaged",
+    "functional_team": "Suppliers (L3)",
+    "escalation_criteria": "Direct L3 escalation (Supplier)."
+   }
+  },
+  "escalation": {
+   "team": "Suppliers (L3)",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-061",
+  "domain": "consumables",
+  "l3_category": "Consumables",
+  "disposition": "S2: Secondary QC failure (code format mismatch)",
+  "trigger": {
+   "keywords": [
+    "s2",
+    "secondary",
+    "qc",
+    "failure",
+    "code",
+    "format",
+    "mismatch",
+    "damaged",
+    "tampered",
+    "inputs",
+    "order",
+    "id",
+    "hub",
+    "consumables"
+   ],
+   "preconditions": [
+    "Secondary QC mismatch (damaged / format mismatch / tampered). Inputs: Order ID, Hub ID"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Evidence = photo of consumable packets showing the code (error flows to all consumables)."
+   },
+   {
+    "description": "Loop in Suppliers (Direct L3 escalation); reply with template."
+   }
+  ],
+  "resolution": {
+   "action": "Direct L3 escalation (Supplier).",
+   "cap_inr": null,
+   "params": {
+    "template": "REV-CN-qcformat",
+    "functional_team": "Suppliers (L3)",
+    "escalation_criteria": "Direct L3 escalation (Supplier)."
+   }
+  },
+  "escalation": {
+   "team": "Suppliers (L3)",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-062",
+  "domain": "consumables",
+  "l3_category": "Consumables",
+  "disposition": "S1: Payment received for X of Y consumables (X<Y) – fraud-prone",
+  "trigger": {
+   "keywords": [
+    "s1",
+    "payment",
+    "received",
+    "consumables",
+    "fraud",
+    "prone",
+    "rvp",
+    "invoice",
+    "till",
+    "april",
+    "inputs",
+    "hub",
+    "id",
+    "order",
+    "billing",
+    "cycle",
+    "cn",
+    "dn",
+    "number"
+   ],
+   "preconditions": [
+    "RVP consumables invoice/payment not received (till April). Inputs: Hub ID, Order ID, Billing cycle, CN/DN, Invoice number"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Enter the Hub ID in the Captain Payout query; check rvp_consumable_amount, rvp_consumable_packet_count, rvp_consumable_rate (rate × count = amount)."
+   },
+   {
+    "description": "Column count < claimed count → escalate to L3."
+   },
+   {
+    "description": "Count matches → reply template."
+   },
+   {
+    "description": "Post-L3 validation routes to Cost-Ops."
+   }
+  ],
+  "resolution": {
+   "action": "Escalate to L3 if counts mismatch; then Cost-Ops.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-PY-10,D-CN-03",
+    "functional_team": "Cost Ops; L3",
+    "escalation_criteria": "Escalate to L3 if counts mismatch; then Cost-Ops."
+   }
+  },
+  "escalation": {
+   "team": "Cost Ops; L3",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-063",
+  "domain": "consumables",
+  "l3_category": "Consumables",
+  "disposition": "S2: Payment not received for any ordered consumables",
+  "trigger": {
+   "keywords": [
+    "s2",
+    "payment",
+    "received",
+    "any",
+    "ordered",
+    "consumables",
+    "rvp",
+    "invoice",
+    "till",
+    "april",
+    "inputs",
+    "hub",
+    "id",
+    "order",
+    "billing",
+    "cycle",
+    "cn",
+    "dn",
+    "number"
+   ],
+   "preconditions": [
+    "RVP consumables invoice/payment not received (till April). Inputs: Hub ID, Order ID, Billing cycle, CN/DN, Invoice number"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Enter the Hub ID in the Captain Payout query; check rvp_consumable_* columns."
+   },
+   {
+    "description": "If count ≈ 0 for the cycles → classify as arrear; payment 2 weeks after the order cycle."
+   },
+   {
+    "description": "Reply with the template."
+   }
+  ],
+  "resolution": {
+   "action": "Reply with the template.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-PY-10,D-CN-03",
+    "functional_team": "Cost Ops"
+   }
+  },
+  "escalation": {
+   "team": "Cost Ops",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ },
+ {
+  "id": "SOP-TRK-064",
+  "domain": "other",
+  "l3_category": "Others",
+  "disposition": "Unable to scan,\nUnable to close DRS/BTS,\nUnable to mark shipment as delivered,\nUnable to click/upload pictures,\nApp is hanging or freezing,\nLogin issues,\nAny other Log10",
+  "trigger": {
+   "keywords": [
+    "unable",
+    "scan",
+    "close",
+    "drs",
+    "bts",
+    "mark",
+    "shipment",
+    "as",
+    "delivered",
+    "click",
+    "upload",
+    "pictures",
+    "app",
+    "hanging",
+    "freezing",
+    "login",
+    "issues",
+    "any",
+    "other",
+    "log10",
+    "tech",
+    "others"
+   ],
+   "preconditions": [
+    "Tech issues"
+   ]
+  },
+  "required_evidence": [],
+  "checks": [
+   {
+    "description": "Whenever a captain raises a technical issue, the agent must first verify the exact nature of the problem and confirm whether it is related to Log10."
+   },
+   {
+    "description": "If the issue is related to Log10, the agent should route the case to the Log10 Team using the template provided below:"
+   },
+   {
+    "description": "\"Dear Partner, this is a technical issue. Please raise a ticket with the Ops Tech team by emailing log10-tech-support@valmo.in.and include relevant supporting proof for assistance."
+   },
+   {
+    "description": "For any other support,Please  feel free to reach out to us."
+   }
+  ],
+  "resolution": {
+   "action": "For any other support,Please  feel free to reach out to us.",
+   "cap_inr": null,
+   "params": {
+    "template": "D-OT-02"
+   }
+  },
+  "escalation": {
+   "team": "",
+   "handover": ""
+  },
+  "partner_rights": [],
+  "source": "sop_redressal_tracker"
+ }
+]

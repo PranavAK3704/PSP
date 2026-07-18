@@ -80,6 +80,11 @@ class CompileIn(BaseModel):
 class SopApproveIn(BaseModel):
     policy: dict
     contributor: str = "sop-author"
+    sop_id: str = ""            # set when editing an existing SOP → update in place (no duplicate)
+
+
+class SopDeleteIn(BaseModel):
+    sop_id: str
 
 
 class BlueprintCompileIn(BaseModel):
@@ -281,17 +286,24 @@ async def sop_extract(file: UploadFile = File(...)):
 @app.post("/api/sop/save", dependencies=[_author])
 def save_sop(body: SopApproveIn):
     """Save a compiled SOP as a DRAFT (author-or-approver) so it is never lost — it shows in
-    the Authored library and can be approved later. Returns {ok, id, gaps}."""
-    entry = sop_compiler.save_sop_draft(body.policy, body.contributor)
+    the library and can be approved later. sop_id set → edit in place. Returns {ok, id, gaps}."""
+    entry = sop_compiler.save_sop_draft(body.policy, body.contributor, body.sop_id)
     return {"ok": True, "id": entry["id"], "gaps": sop_compiler.detect_policy_gaps(body.policy)}
 
 
 @app.post("/api/sop/approve", dependencies=[_approver])
 def approve_sop(body: SopApproveIn):
     """A reviewed structured SOP enters the retrieval corpus (with reload) so the engine
-    follows it — reusing the approved-KT corpus-merge path. Returns {ok, entry, gaps}."""
-    entry = sop_compiler.approve_sop(body.policy, body.contributor)
+    follows it. sop_id set → update the existing SOP in place. Returns {ok, id, gaps}."""
+    entry = sop_compiler.approve_sop(body.policy, body.contributor, body.sop_id)
     return {"ok": True, "id": entry["id"], "gaps": sop_compiler.detect_policy_gaps(body.policy)}
+
+
+@app.post("/api/sop/delete", dependencies=[_approver])
+def delete_sop(body: SopDeleteIn):
+    """Remove a compiled SOP by id (Knowledge Base management, approver only). Returns {ok, removed}."""
+    removed = sop_compiler.delete_sop(body.sop_id)
+    return {"ok": True, "removed": removed}
 
 
 # ── Authoring Studio: Domain Blueprints (a domain's stage-0 "brain") ─────────

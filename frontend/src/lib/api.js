@@ -78,11 +78,13 @@ export const getCaptainCases = (id) => apiGet(`/api/captain/${id}/cases`);
 // SOP compile now streams stages (SSE) so the UI can animate the structuring/tiering.
 export const compileSopStream = (sop_text, onStage, onEnd) =>
   stream({ url: "/api/sop/compile", method: "POST", body: { sop_text } }, onStage, onEnd);
-export const approveSop = (policy, contributor = "sop-author") =>
-  apiPost("/api/sop/approve", { policy, contributor });
+// sop_id set → update that SOP in place (editing from the Knowledge Base); omit → create new.
+export const approveSop = (policy, contributor = "sop-author", sop_id = "") =>
+  apiPost("/api/sop/approve", { policy, contributor, sop_id });
 // Save a compiled SOP as a draft so it's never lost (shows in the library, approve later).
-export const saveSopDraft = (policy, contributor = "sop-author") =>
-  apiPost("/api/sop/save", { policy, contributor });
+export const saveSopDraft = (policy, contributor = "sop-author", sop_id = "") =>
+  apiPost("/api/sop/save", { policy, contributor, sop_id });
+export const deleteSop = (sop_id) => apiPost("/api/sop/delete", { sop_id });
 // Upload a real ops artifact (Excel / Word / PDF / CSV / text) → extracted text to prefill the editor.
 export function extractSop(file) {
   const fd = new FormData();

@@ -233,22 +233,26 @@ def _sop_entry(p: dict, contributor: str, status: str) -> dict:
     return entry
 
 
-def _persist_sop(policy: dict, contributor: str, status: str) -> dict:
-    """Persist a compiled SOP as a KT entry (status 'draft' or 'approved'). Drops any earlier
-    DRAFT of the same disposition first, so repeated saves don't pile up and a queued draft
-    becomes its approved form cleanly. Approved SOPs reload the retrieval corpus so the engine
-    follows them immediately (parity with kt.review)."""
+def _persist_sop(policy: dict, contributor: str, status: str, sop_id: str = "") -> dict:
+    """Persist a compiled SOP as a KT entry (status 'draft' or 'approved'). When sop_id is given
+    (editing from the Knowledge Base) the existing entry is UPDATED in place, keeping its id — no
+    duplicate. Otherwise a new entry is created; any earlier DRAFT of the same disposition is
+    dropped so drafts don't pile up and a queued draft becomes its approved form cleanly. Approved
+    SOPs reload the retrieval corpus so the engine follows them immediately (parity with kt.review)."""
     p = policy or {}
     # Ensure the first-run seed is planted before we touch the store, so writing an SOP can
     # never pre-empt the seed (which would otherwise be skipped once the file is non-empty).
     from ..kt import engine as _kt
     _kt.ensure_seeded()
     entry = _sop_entry(p, contributor, status)
+    if sop_id:
+        entry["id"] = sop_id                       # keep the same id when editing in place
     items = json.loads(_KT_STORE.read_text()) if _KT_STORE.exists() else []
     disp = str(p.get("disposition") or "").strip().lower()
-    if disp:
-        items = [e for e in items if not (e.get("compiled_sop") and e.get("status") == "draft"
-                 and str((e.get("policy") or {}).get("disposition", "")).strip().lower() == disp)]
+    items = [e for e in items
+             if e.get("id") != sop_id                                    # drop the edited entry
+             and not (not sop_id and e.get("compiled_sop") and e.get("status") == "draft"
+                      and disp and str((e.get("policy") or {}).get("disposition", "")).strip().lower() == disp)]
     items.append(entry)
     _KT_STORE.write_text(json.dumps(items, indent=1))
     if status == "approved":
@@ -257,13 +261,30 @@ def _persist_sop(policy: dict, contributor: str, status: str) -> dict:
     return entry
 
 
-def approve_sop(policy: dict, contributor: str = "sop-author") -> dict:
+def approve_sop(policy: dict, contributor: str = "sop-author", sop_id: str = "") -> dict:
     """A reviewed structured SOP enters the retrieval corpus (with reload) so the engine
     follows it — persisted as an APPROVED, compiled KT entry. Returns the stored entry."""
-    return _persist_sop(policy, contributor, "approved")
+    return _persist_sop(policy, contributor, "approved", sop_id)
 
 
-def save_sop_draft(policy: dict, contributor: str = "sop-author") -> dict:
-    """Save a compiled SOP as a DRAFT so it is never lost — it shows in the Authored library
-    (as 'draft') and can be approved later. Does NOT enter the retrieval corpus until approved."""
-    return _persist_sop(policy, contributor, "draft")
+def save_sop_draft(policy: dict, contributor: str = "sop-author", sop_id: str = "") -> dict:
+    """Save a compiled SOP as a DRAFT so it is never lost — it shows in the library (as 'draft')
+    and can be approved later. Does NOT enter the retrieval corpus until approved."""
+    return _persist_sop(policy, contributor, "draft", sop_id)
+
+
+def delete_sop(sop_id: str) -> bool:
+    """Remove a compiled SOP by id (Knowledge Base management). Reloads the corpus so the engine
+    stops following it immediately. Returns True if an entry was removed."""
+    if not sop_id:
+        return False
+    from ..kt import engine as _kt
+    _kt.ensure_seeded()
+    items = json.loads(_KT_STORE.read_text()) if _KT_STORE.exists() else []
+    kept = [e for e in items if e.get("id") != sop_id]
+    if len(kept) == len(items):
+        return False
+    _KT_STORE.write_text(json.dumps(kept, indent=1))
+    from . import store
+    store.reload()
+    return True

@@ -76,6 +76,7 @@ def _save(items: list[dict]) -> None:
 # in the Authored library and the retrieval corpus on first boot.
 _COD_SHORTFALL_POLICY = {
     "id": "SOP-COD-SHORTFALL",
+    "domain": "cod_cash",
     "disposition": "COD Shortfall — Captain Recovery & Rider Reactivation",
     "trigger": {
         "keywords": ["cod shortfall", "short cod", "cod short", "shortfall", "wrongly updated",

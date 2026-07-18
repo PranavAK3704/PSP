@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getInsights, getAudit, getKt, submitKt, reviewKt, compileSopStream, getLedger,
-  approveSop, saveSopDraft, extractSop, compileBlueprintStream, getBlueprints, saveBlueprint, approveBlueprint,
+  approveSop, saveSopDraft, deleteSop, extractSop, compileBlueprintStream, getBlueprints, saveBlueprint, approveBlueprint,
   getConcernTrace, exportLedger, getAuditRubric, saveAuditRubric, runAudit, runAuditBatch, getAuditScores,
   getFramework, saveFramework, uploadFramework, approveFramework } from "../lib/api.js";
 import PolicyCompileAnimation from "../components/PolicyCompileAnimation.jsx";
@@ -275,6 +275,12 @@ function SopEditor({ policy, gaps, onChange }) {
     <div className="flex flex-col">
       <div className="flex items-center gap-sm flex-wrap mb-sm">
         <Field value={policy.disposition} onChange={(v) => set("disposition", v)} placeholder="disposition" className="w-48" />
+        <select value={policy.domain || ""} onChange={(e) => set("domain", e.target.value)}
+          title="Which domain this SOP belongs to (groups it in the Knowledge Base)"
+          className="bg-surface-container-lowest border border-on-primary-fixed-variant/20 rounded px-sm py-1 text-[12px]" style={{ fontFamily: "JetBrains Mono" }}>
+          <option value="">domain…</option>
+          {BP_DOMAINS.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
         <span className="text-[10px] px-2 py-0.5 rounded bg-secondary-container/15 text-secondary-container" style={{ fontFamily: "JetBrains Mono" }}>{policy.id || "pol_…"}</span>
       </div>
 
@@ -1737,14 +1743,208 @@ function TrendSparkline({ series }) {
 }
 
 /* ── Support Command — ONE state, tabs inside (Command · Authoring · Auditing · Governance · Concern Log) ── */
+/* ══════════════════════════════════════════════════════════════════════════
+   KNOWLEDGE BASE — the home for all authored knowledge, organized BY DOMAIN.
+   Each domain shows its Brain + its SOPs together (so the brain↔SOP relationship
+   and any gaps are visible), searchable, with view / edit / approve / delete.
+   Distinct from the Authoring Studio (which is the *create* flow).
+   ══════════════════════════════════════════════════════════════════════════ */
+const DOMAIN_LABELS = {
+  losses: "Losses & Debits", payments: "Payments", fe_id: "FE-ID / Rider",
+  cod_cash: "COD / Cash", consumables: "Consumables", orders: "Orders", other: "Other / Unassigned",
+};
+const DOMAIN_ICON = {
+  losses: "account_balance_wallet", payments: "payments", fe_id: "badge",
+  cod_cash: "savings", consumables: "inventory_2", orders: "local_shipping", other: "category",
+};
+// Best-effort domain for an SOP: explicit policy.domain wins, else map the queue/team text.
+function sopDomain(k) {
+  const raw = String((k.policy || {}).domain || k.structured?.queue || "").toLowerCase();
+  if (BP_DOMAINS.includes(raw)) return raw;
+  if (/loss|debit/.test(raw)) return "losses";
+  if (/cod|cash/.test(raw)) return "cod_cash";
+  if (/pay|utr|payout/.test(raw)) return "payments";
+  if (/(^|\W)fe(\W|$)|rider|deactiv|id.?block/.test(raw)) return "fe_id";
+  if (/consum/.test(raw)) return "consumables";
+  if (/order/.test(raw)) return "orders";
+  return "other";
+}
+
+export function KnowledgeBase() {
+  const { isApprover } = useAuth();
+  const [blueprints, setBlueprints] = useState([]);
+  const [kt, setKt] = useState({ all: [] });
+  const [q, setQ] = useState("");
+  const [edit, setEdit] = useState(null);      // { kind:"sop"|"brain", id, data }
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState(null);
+  const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 3800); };
+  const load = () => { getBlueprints().then((d) => setBlueprints(d.blueprints || [])); getKt().then(setKt); };
+  useEffect(load, []);
+
+  const sops = (kt.all || []).filter((k) => k.compiled_sop);
+  const ql = q.trim().toLowerCase();
+  const matchSop = (k) => !ql
+    || (k.structured?.title || "").toLowerCase().includes(ql)
+    || JSON.stringify(k.policy || {}).toLowerCase().includes(ql);
+  const rows = BP_DOMAINS.map((d) => ({
+    domain: d,
+    brain: blueprints.find((b) => b.domain === d) || null,
+    sops: sops.filter((k) => sopDomain(k) === d && matchSop(k)),
+  }));
+  const shown = ql ? rows.filter((r) => r.sops.length > 0) : rows;
+
+  function openSop(k) { setEdit({ kind: "sop", id: k.id, data: JSON.parse(JSON.stringify(k.policy || {})) }); }
+  function openBrain(b) { setEdit({ kind: "brain", id: b.domain, data: JSON.parse(JSON.stringify(b)) }); }
+  async function saveEdit(goLive) {
+    if (!edit || busy) return;
+    setBusy(true);
+    try {
+      if (edit.kind === "sop") {
+        const r = goLive ? await approveSop(edit.data, "kb-editor", edit.id)
+                         : await saveSopDraft(edit.data, "kb-editor", edit.id);
+        if (r?.ok) flash(goLive ? "SOP approved — live in the engine." : "SOP saved as a draft.");
+      } else {
+        await saveBlueprint(edit.data, "domain-owner");
+        if (goLive) await approveBlueprint(edit.data.domain);
+        flash(goLive ? "Brain approved — the engine follows it now." : "Brain saved as a draft.");
+      }
+      setEdit(null); load();
+    } finally { setBusy(false); }
+  }
+  async function removeSop(k) {
+    if (!window.confirm(`Delete "${k.structured?.title || k.id}"? This removes it from the engine.`)) return;
+    const r = await deleteSop(k.id);
+    if (r?.ok) { flash(r.removed ? "SOP deleted." : "Already gone."); load(); }
+  }
+
+  return (
+    <div className="flex flex-col gap-gutter">
+      {toast && (
+        <div className="glass-card rounded-lg px-md py-sm flex items-center gap-2 text-sm border border-tertiary/40 text-tertiary">
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>check_circle</span>{toast}
+        </div>
+      )}
+
+      <div className="flex items-end justify-between gap-md flex-wrap">
+        <div>
+          <div className="text-[15px] font-bold text-on-surface flex items-center gap-2">
+            <span className="material-symbols-outlined text-secondary-container" style={{ fontSize: 20 }}>menu_book</span>
+            Knowledge Base</div>
+          <p className="text-xs text-on-surface-variant mt-0.5 max-w-[620px]">
+            Every domain's Brain and its SOPs, together in one place — {sops.length} SOP{sops.length !== 1 ? "s" : ""} across {BP_DOMAINS.length} domains.
+            Click any item to view, edit, approve or delete. Author new ones in the Authoring Studio.</p>
+        </div>
+        <div className="relative">
+          <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-on-surface-variant/60" style={{ fontSize: 17 }}>search</span>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search all SOPs — title, keyword, team…"
+            className="w-[320px] max-w-full bg-surface-container-lowest border border-on-primary-fixed-variant/20 rounded-lg pl-8 pr-3 py-2 text-[13px] focus:outline-none focus:border-secondary-container placeholder:text-on-surface-variant/40" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-gutter items-start">
+        {shown.map((r) => (
+          <div key={r.domain} className="glass-card rounded-xl p-lg flex flex-col gap-sm">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="material-symbols-outlined text-secondary-container" style={{ fontSize: 19 }}>{DOMAIN_ICON[r.domain]}</span>
+                <span className="font-bold text-sm truncate">{DOMAIN_LABELS[r.domain]}</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-secondary-container/10 text-secondary-container flex-none" style={{ fontFamily: "JetBrains Mono" }}>{r.domain}</span>
+              </div>
+              <span className="text-[10px] text-on-surface-variant flex-none" style={{ fontFamily: "JetBrains Mono" }}>{r.sops.length} SOP{r.sops.length !== 1 ? "s" : ""}</span>
+            </div>
+
+            {/* Brain slot */}
+            {r.brain ? (
+              <button onClick={() => openBrain(r.brain)}
+                className="flex items-center gap-2 text-left bg-surface-container-lowest border border-on-primary-fixed-variant/15 rounded-lg px-md py-sm hover:border-secondary-container/40 transition-all">
+                <span className="material-symbols-outlined text-secondary-container" style={{ fontSize: 16 }}>neurology</span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[12px] font-semibold truncate">{r.brain.label || r.brain.domain}</div>
+                  <div className="text-[10px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{(r.brain.signals || []).length} signals · {(r.brain.decision || []).length} branches</div>
+                </div>
+                <StatusPill status={r.brain.status} />
+                <span className="material-symbols-outlined text-on-surface-variant/60" style={{ fontSize: 15 }}>edit</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 text-[11px] text-on-surface-variant/70 border border-dashed border-on-primary-fixed-variant/20 rounded-lg px-md py-sm">
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>neurology</span>
+                No Brain yet for this domain — author one in the Authoring Studio.
+              </div>
+            )}
+
+            {/* SOPs */}
+            <div className="flex flex-col gap-xs">
+              {r.sops.length === 0 && <div className="text-[11px] text-on-surface-variant/60 pl-1 py-1">No SOPs in this domain yet.</div>}
+              {r.sops.map((k) => (
+                <div key={k.id} className="flex items-center gap-2 bg-surface-container-lowest border border-on-primary-fixed-variant/15 rounded-lg px-md py-sm hover:border-secondary-container/40 transition-all">
+                  <span className="material-symbols-outlined text-on-surface-variant/60" style={{ fontSize: 15 }}>description</span>
+                  <button onClick={() => openSop(k)} className="min-w-0 flex-1 text-left">
+                    <div className="text-[12.5px] font-semibold truncate">{k.structured?.title || k.policy?.disposition || k.id}</div>
+                    <div className="text-[10px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{k.id} · {(k.policy?.checks || []).length} checks</div>
+                  </button>
+                  <StatusPill status={k.status} />
+                  <button onClick={() => openSop(k)} title="Edit" className="w-7 h-7 grid place-items-center rounded text-on-surface-variant hover:text-secondary-container hover:bg-secondary-container/10">
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span></button>
+                  {isApprover && (
+                    <button onClick={() => removeSop(k)} title="Delete" className="w-7 h-7 grid place-items-center rounded text-on-surface-variant hover:text-error hover:bg-error/10">
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span></button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {ql && shown.length === 0 && <div className="text-sm text-on-surface-variant">No SOPs match “{q}”.</div>}
+
+      {/* Edit modal */}
+      {edit && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-black/60 backdrop-blur-sm p-md" onClick={() => !busy && setEdit(null)}>
+          <div className="glass-card rounded-2xl w-[94%] max-w-[720px] max-h-[88vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-lg py-md border-b border-on-primary-fixed-variant/20">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-secondary-container" style={{ fontSize: 19 }}>{edit.kind === "sop" ? "description" : "neurology"}</span>
+                <span className="text-sm font-bold">Edit {edit.kind === "sop" ? "SOP" : "Domain Brain"}</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary-container/10 text-secondary-container" style={{ fontFamily: "JetBrains Mono" }}>{edit.id}</span>
+              </div>
+              <button onClick={() => !busy && setEdit(null)} className="w-8 h-8 grid place-items-center rounded-lg text-on-surface-variant hover:text-error hover:bg-error/10">
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span></button>
+            </div>
+            <div className="overflow-y-auto custom-scrollbar p-lg flex-1">
+              {edit.kind === "sop"
+                ? <SopEditor policy={edit.data} gaps={[]} onChange={(v) => setEdit((e) => ({ ...e, data: v }))} />
+                : <BlueprintEditor bp={edit.data} gaps={[]} onChange={(v) => setEdit((e) => ({ ...e, data: v }))} />}
+            </div>
+            <div className="flex items-center gap-sm flex-wrap px-lg py-md border-t border-on-primary-fixed-variant/20">
+              <button onClick={() => saveEdit(false)} disabled={busy}
+                className="border border-secondary-container text-secondary-container px-lg py-sm rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-secondary-container/10 disabled:opacity-50 transition-all">
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>save</span>Save draft</button>
+              {isApprover && (
+                <button onClick={() => saveEdit(true)} disabled={busy}
+                  className="bg-tertiary text-on-tertiary px-lg py-sm rounded-lg font-bold text-sm flex items-center gap-2 hover:brightness-110 disabled:opacity-50 transition-all">
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>rocket_launch</span>Approve &amp; go live</button>
+              )}
+              <button onClick={() => setEdit(null)} disabled={busy}
+                className="text-on-surface-variant text-sm px-md py-sm hover:text-on-surface disabled:opacity-50">Cancel</button>
+              {busy && <span className="text-[11px] text-on-surface-variant">saving…</span>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const SC_TABS = [
   ["command", "Command Deck", "space_dashboard"],
+  ["knowledge", "Knowledge Base", "menu_book"],
   ["authoring", "Authoring Studio", "edit_note"],
   ["auditing", "Auditing Studio", "fact_check"],
   ["governance", "Governance", "gavel"],
   ["concernlog", "Concern Log", "receipt_long"],
 ];
-const SC_COMP = { command: Command, authoring: AuthoringStudio, auditing: AuditingStudio, governance: GovernanceFramework, concernlog: Ledger };
+const SC_COMP = { command: Command, knowledge: KnowledgeBase, authoring: AuthoringStudio, auditing: AuditingStudio, governance: GovernanceFramework, concernlog: Ledger };
 export default function SupportCommand() {
   const [tab, setTab] = useState("command");
   const C = SC_COMP[tab];

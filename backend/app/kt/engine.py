@@ -29,6 +29,17 @@ _STORE = durable_path("kt_queue.json")
 # STATIC baked seed SOPs (from the SOP Redressal Tracker sheet) — shipped with the image.
 _SEED_SOPS_FILE = Path(__file__).resolve().parents[2] / "data" / "knowledge" / "seed_sops.json"
 
+
+def render_captain_reply(p: dict) -> str:
+    """The exact captain-facing reply for an SOP, with {link} placeholders filled from policy.links.
+    Empty if the SOP has none. Operational specifics (form links) are preserved here, not abstracted."""
+    cr = (p or {}).get("captain_reply") or ""
+    if not cr:
+        return ""
+    for k, v in ((p or {}).get("links") or {}).items():
+        cr = cr.replace("{" + k + "}", str(v))
+    return cr
+
 _SYSTEM = ("You structure raw operational knowledge (spoken/typed, possibly with attached "
            "sheet/image summaries) into a clean, machine-usable knowledge entry for Valmo "
            "partner support. Be precise; do not invent policy.")
@@ -107,9 +118,20 @@ _COD_SHORTFALL_POLICY = {
     "domain": "cod_cash",
     "disposition": "cod_shortfall",
     "title": "COD Shortfall — Captain Recovery & Rider Reactivation",
+    # What the captain is actually told (the bot surfaces this verbatim, then logs the concern).
+    # The captain never sees the internal relay chain — just: fill the form, you'll be notified.
+    "captain_reply": ("Kindly fill this form with your shortfall details so we can verify and reactivate "
+                      "your Rider/FE ID: {form}. I've logged your case — you'll be notified right here the "
+                      "moment your ID is reactivated after the shortfall is cleared."),
+    "links": {"form": "https://docs.google.com/forms/d/e/1FAIpQLSd5u0HcS7JBBt2F1B6UihNsjIIMN1OReoXFJC4wSlUmRkxelg/viewform"},
     "trigger": {
         "keywords": ["cod shortfall", "short cod", "cod short", "shortfall", "wrongly updated",
-                     "paid to cms", "rider deactivated", "rider id deactivated", "fe id blocked"],
+                     "paid to cms", "rider deactivated", "rider id deactivated", "fe id blocked",
+                     # aligned to real captain ticket vocabulary (FE-ID reactivation is the shortfall consequence)
+                     "fe id deactivated", "fe id is deactivated", "reactivate fe account",
+                     "reactivate my fe account", "fe account deactivated", "id deactivated",
+                     "reactivate fe id", "reactivate", "reactivation", "fe reactivation",
+                     "wrongly debited", "wrong debit cod", "short amount deducted", "cod deducted"],
         "preconditions": [
             "A short COD amount was recorded against the captain's pilot/rider for a given date",
             "The Rider/FE ID may have been deactivated because of the shortfall",
@@ -126,18 +148,20 @@ _COD_SHORTFALL_POLICY = {
          "source": "cost_ops"},
     ],
     "resolution": {
-        "action": ("Pay the validated shortfall via ADHOC Adjustment in Auto Pay, reactivate the "
-                   "deactivated Rider/FE ID, and record recovery from the captain"),
+        "action": ("Tell the captain to fill the shortfall form, log the concern, and notify the captain "
+                   "when the Rider/FE ID is reactivated (L3 clears the concern on reactivation)"),
         "cap_inr": None,   # amount = the validated shortfall; no fixed system cap
         "params": {"pay_channel": "ADHOC Adjustment / Auto Pay",
-                   "reactivation_owner": "Teja (DAP POC)",
+                   "reactivation_owner": "current DAP POC",
                    "recovery_owner": "Cost Ops (Gopal)"},
     },
     "escalation": {
-        "team": "Cost Ops",
-        "handover": ("Syed pulls the shortfall list + comms + tracker entry → Cost Ops validates "
-                     "(2d) → Cost Ops processes payment (1d) via ADHOC/Auto Pay → Teja/DAP "
-                     "reactivates the Rider/FE ID → Cost Ops (Gopal) records recovery from the captain"),
+        "team": "Cost Ops (COD shortfall)",
+        # Internal relay — captain never sees this; it tells L3 where the concern travels.
+        "handover": ("Form → Syed (pull + tracker entry) → Cost Ops validates (2d) → Cost Ops processes "
+                     "payment via ADHOC/Auto Pay (1d) → current DAP POC reactivates the Rider/FE ID → "
+                     "Cost Ops (Gopal) records recovery. L3 clears the concern once the ID is reactivated; "
+                     "the bot then notifies the captain."),
     },
     "partner_rights": [
         "A genuine COD shortfall wrongly attributed to the captain is paid back via ADHOC "
@@ -184,6 +208,11 @@ def _policy_to_entry(p: dict, ts: str) -> dict:
     if res.get("action"):
         cap = f" (cap ₹{res.get('cap_inr')})" if res.get("cap_inr") is not None else ""
         lines.append(f"Resolution: {res['action']}{cap}.")
+    cr = render_captain_reply(p)   # the exact captain-facing reply (with links filled in) — must not be dropped
+    if cr:
+        lines.append("Tell the captain (verbatim, adapt to their language): " + cr)
+    for label, url in (p.get("links") or {}).items():
+        lines.append(f"Link · {label}: {url}")
     if esc.get("team"):
         lines.append(f"Escalate to {esc['team']}" + (f" — {esc['handover']}" if esc.get("handover") else "") + ".")
     if p.get("priority"):

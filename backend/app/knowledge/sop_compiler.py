@@ -43,12 +43,20 @@ Return ONLY JSON with EXACTLY this shape:
   "checks": [
     {{"id": "<slug>", "description": "<the yes/no test>", "reads": ["<evidence>"], "expect": "<passing condition>"}}
   ],
-  "resolution": {{"action": "<verb_snake>", "params": {{"idempotent": true}}, "cap_inr": <number or null>}},
-  "escalation": {{"team": "<team (Ln)>", "handover": "<what to hand over>"}},
+  "resolution": {{"action": "<what the engine does when checks pass>", "params": {{"idempotent": true}}, "cap_inr": <number or null>}},
+  "captain_reply": "<the exact message to send the captain, if the SOP specifies one — e.g. 'Kindly fill this form: {{form}}, you'll be notified when done'. Use {{form}}/{{tracker}} placeholders for links. Empty string if none.>",
+  "links": {{"<label e.g. form|tracker>": "<the FULL url, copied verbatim from the SOP>"}},
+  "escalation": {{"team": "<team / queue>", "handover": "<the FULL relay: keep every named POC and step from the SOP, verbatim, e.g. 'Form → Syed → Cost Ops → <POC> reactivates'>"}},
   "partner_rights": ["<guardrail from the Partner Constitution>"],
   "source_sop_ref": "manual_compile",
   "compiled_by": "sop_compiler"
 }}
+
+CRITICAL — do NOT abstract away operational specifics. Copy VERBATIM into the JSON:
+- every URL / form link / tracker link from the SOP → into "links" (and reference it in captain_reply),
+- every named person / POC / team and the ORDER they act in → into escalation.handover,
+- any "reply to the captain / fill this form / use this template" instruction → into captain_reply.
+These are the whole point of a process SOP; losing them makes the SOP useless.
 
 The Partner Constitution principles you may cite in partner_rights:
 presumption of good faith, true-cause attribution, radical transparency,
@@ -183,6 +191,36 @@ def compile_sop(sop_text: str) -> tuple[dict, dict]:
     return policy, meta
 
 
+def detect_fidelity_gaps(source_text: str, policy: dict) -> list[dict]:
+    """Flag operational specifics in the SOURCE text that the compiled policy DROPPED — so the
+    author sees the omission BEFORE approving, instead of trusting the machine 'understood' it.
+    This is what turns 'hope it got it right' into 'it shows what it missed, you fix it'."""
+    p = policy or {}
+    src = source_text or ""
+    blob = json.dumps(p, ensure_ascii=False).lower()
+    gaps: list[dict] = []
+    # 1) dropped links (forms / trackers) — the highest-signal, unambiguous loss
+    urls = re.findall(r'https?://[^\s)\]"\'<>]+', src)
+    dropped = [u for u in dict.fromkeys(urls) if u.lower()[:40] not in blob]
+    if dropped:
+        gaps.append({"severity": "high", "where": "links",
+                     "message": f"The SOP text has {len(dropped)} link(s) (e.g. a form / tracker) the compiled "
+                                f"policy didn't keep — captains won't be given them. Add them to 'links'."})
+    # 2) a "reply to captain / fill the form / use template" instruction but no captain_reply captured
+    if re.search(r'(?i)\b(fill (in |out )?(the )?form|reply on ticket|reply:|use (the|this) template|share (the|this) (form|link))\b', src) \
+       and not str(p.get("captain_reply", "")).strip():
+        gaps.append({"severity": "high", "where": "captain_reply",
+                     "message": "The SOP tells the agent what to say to the captain (a reply / form / template), "
+                                "but captain_reply is empty — the bot won't relay it."})
+    # 3) a named multi-step relay that got flattened into a thin handover
+    esc = str((p.get("escalation") or {}).get("handover", "") or "")
+    if ("→" in src or re.search(r'(?i)\bstep\s*\d', src)) and len(esc) < 40:
+        gaps.append({"severity": "warn", "where": "escalation.handover",
+                     "message": "The SOP describes a multi-step relay / named POCs, but the handover is thin — "
+                                "the chain may have been simplified. Confirm the POCs + order are preserved."})
+    return gaps
+
+
 def compile_sop_streamed(sop_text: str):
     """Stream the compilation as stages so the UI can animate the real structuring/tiering
     (BRD §4.3). Yields: understand → the actual extracted sections of the ExecutablePolicy →
@@ -214,8 +252,10 @@ def compile_sop_streamed(sop_text: str):
 
     # DEDUP guardrail: surface already-compiled SOPs this one overlaps (non-blocking warning).
     similar = find_similar_sops(policy.get("disposition", "") or "", sop_text)
+    # gaps = missing decision-logic + FIDELITY (specifics the compiler dropped vs the source text)
+    gaps = detect_policy_gaps(policy) + detect_fidelity_gaps(sop_text, policy)
     yield {"stage": "done", "label": "Executable Policy compiled",
-           "policy": policy, "gaps": detect_policy_gaps(policy), "meta": meta,
+           "policy": policy, "gaps": gaps, "meta": meta,
            "similar_sops": similar}
 
 
@@ -234,6 +274,12 @@ def _sop_entry(p: dict, contributor: str, status: str) -> dict:
     if res.get("action"):
         cap = f" (cap ₹{res.get('cap_inr')})" if res.get("cap_inr") is not None else ""
         lines.append(f"Resolution: {res['action']}{cap}.")
+    from ..kt.engine import render_captain_reply
+    cr = render_captain_reply(p)   # captain-facing reply + links preserved, not abstracted away
+    if cr:
+        lines.append("Tell the captain (verbatim, adapt to their language): " + cr)
+    for label, url in (p.get("links") or {}).items():
+        lines.append(f"Link · {label}: {url}")
     if esc.get("team"):
         lines.append(f"Escalate to {esc['team']}" + (f" — {esc['handover']}" if esc.get("handover") else "") + ".")
     # title = the SOP's scenario NAME; disposition = the concern CATEGORY it serves.

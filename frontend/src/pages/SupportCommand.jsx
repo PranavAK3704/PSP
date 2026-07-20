@@ -325,8 +325,21 @@ function SopEditor({ policy, gaps, onChange }) {
       <SectionHead icon="diversity_3" title="Escalation" gaps={g("escalation")} />
       <div className="flex flex-wrap gap-xs items-center">
         <Field value={esc.team} onChange={(v) => setNested("escalation", "team", v)} placeholder="team" className="w-48" mono={false} />
-        <Field value={esc.handover} onChange={(v) => setNested("escalation", "handover", v)} placeholder="handover" mono={false} className="flex-1 min-w-[160px]" />
+        <Field value={esc.handover} onChange={(v) => setNested("escalation", "handover", v)} placeholder="handover / relay chain (keep every POC + step)" mono={false} className="flex-1 min-w-[160px]" />
       </div>
+
+      <SectionHead icon="forum" title="Captain reply · what the bot tells the captain (verbatim)" gaps={g("captain_reply")} />
+      <textarea value={policy.captain_reply || ""} onChange={(e) => set("captain_reply", e.target.value)}
+        placeholder="e.g. Kindly fill this form: {form} — I've logged your case, you'll be notified when your ID is reactivated."
+        className="w-full min-h-[64px] bg-surface-container-lowest border border-on-primary-fixed-variant/20 rounded-lg p-sm text-[13px] leading-relaxed focus:outline-none focus:border-secondary-container resize-y placeholder:text-on-surface-variant/40" />
+      {policy.links && Object.keys(policy.links).length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-1">
+          {Object.entries(policy.links).map(([k, v]) => (
+            <span key={k} className="text-[10px] px-2 py-0.5 rounded bg-secondary-container/10 text-secondary-container inline-flex items-center gap-1" style={{ fontFamily: "JetBrains Mono" }} title={String(v)}>
+              <span className="material-symbols-outlined" style={{ fontSize: 12 }}>link</span>{k}</span>
+          ))}
+        </div>
+      )}
 
       {/* Read-only richer detail merged in from the Collated SOPs doc (reference for the author). */}
       {policy.doc_reference && (policy.doc_reference.l1_process || policy.doc_reference.l2_l3_process || policy.doc_reference.guardrails) && (

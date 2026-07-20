@@ -65,6 +65,10 @@ export default function CaptainPanel() {
   const [phase, setPhase] = useState("idle");
   const [recording, setRecording] = useState(false);
   const [voiceLang, setVoiceLang] = useState(() => localStorage.getItem("valmo.voiceLang") || "hi-IN");
+  const [convo, setConvo] = useState(false);       // hands-free conversation mode
+  const [vstate, setVstate] = useState("idle");    // idle | listening | thinking | speaking
+  const [heard, setHeard] = useState("");          // live transcript of the captain
+  const convoRef = useRef(false);
   const [attachments, setAttachments] = useState([]);
   const [railOpen, setRailOpen] = useState(true);
   const [cases, setCases] = useState([]);
@@ -120,6 +124,7 @@ export default function CaptainPanel() {
     setMessages((m) => [...m, { who: "captain", text: msg, atts }]);
     setEvents([]);
     setBusy(true); setPhase("thinking");
+    if (convoRef.current) setVstate("thinking");
     let cid = active.convId;
     if (!cid) { cid = crypto.randomUUID(); store.setConvId(captainId, cid); }
     await stream(
@@ -128,9 +133,11 @@ export default function CaptainPanel() {
                 attachments: atts.map((a) => ({ filename: a.filename, mime: a.mime, size: a.size })) } },
       (ev) => {
         if (ev.node === "reply") {
-          setMessages((m) => [...m, { who: "bot", text: ev.data?.reply || ev.detail,
+          const replyText = ev.data?.reply || ev.detail || "";
+          setMessages((m) => [...m, { who: "bot", text: replyText,
             action: ev.data?.decision_action, concernId: ev.data?.concern_id }]);
           setPhase("resolved");
+          if (convoRef.current) speak(replyText, () => listen());   // speak, then listen again (hands-free loop)
         } else {
           setEvents((prev) => [...prev, ev]);
         }
@@ -163,6 +170,77 @@ export default function CaptainPanel() {
     rec.onerror = () => setRecording(false);
     recRef.current = rec; rec.start(); setRecording(true);
   }
+
+  // ── Conversation mode (hands-free): listen → auto-send → think → speak → listen ──
+  // Half-duplex (mic off while speaking, so the TTS doesn't feed back into the mic).
+  // Tap the orb to interrupt the bot; "End" to leave. STT+TTS are browser-native (Web
+  // Speech API) — swappable for Sarvam/Deepgram+ElevenLabs in production without touching this.
+  function _speechText(t) {
+    return String(t || "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/https?:\/\/\S+/g, " (link) ")
+      .replace(/[#*_`>]/g, "").replace(/\s+/g, " ").trim();
+  }
+  function _pickVoice() {
+    const vs = window.speechSynthesis?.getVoices?.() || [];
+    const p = voiceLang.toLowerCase();
+    return vs.find((v) => (v.lang || "").toLowerCase() === p)
+        || vs.find((v) => (v.lang || "").toLowerCase().startsWith(p.slice(0, 2))) || null;
+  }
+  function speak(text, then) {
+    const syn = window.speechSynthesis;
+    if (!syn) { then && then(); return; }
+    syn.cancel();
+    const u = new SpeechSynthesisUtterance(_speechText(text).slice(0, 700));
+    u.lang = voiceLang; const v = _pickVoice(); if (v) u.voice = v;
+    setVstate("speaking");
+    u.onend = () => { if (then && convoRef.current) then(); };
+    u.onerror = () => { if (then && convoRef.current) then(); };
+    syn.speak(u);
+  }
+  function listen() {
+    if (!convoRef.current) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { stopConvo(); return; }
+    try { recRef.current?.stop(); } catch (_) { /* noop */ }
+    const rec = new SR();
+    rec.lang = voiceLang; rec.interimResults = true; rec.continuous = false;
+    let finalText = "";
+    rec.onstart = () => { setVstate("listening"); setHeard(""); };
+    rec.onresult = (e) => {
+      let interim = "";
+      for (const r of e.results) { if (r.isFinal) finalText += r[0].transcript; else interim += r[0].transcript; }
+      setHeard(finalText || interim);
+    };
+    rec.onerror = (e) => {   // no-speech is fine (retry); a denied mic must stop the loop
+      if (e && (e.error === "not-allowed" || e.error === "service-not-allowed")) {
+        stopConvo(); alert("Please allow microphone access for conversation mode.");
+      }
+    };
+    rec.onend = () => {
+      if (!convoRef.current) return;
+      const t = finalText.trim();
+      if (t) send(t);                                  // → think → reply → speak → listen
+      else setTimeout(() => convoRef.current && listen(), 350);   // heard nothing → keep waiting
+    };
+    recRef.current = rec;
+    try { rec.start(); } catch (_) { /* already running */ }
+  }
+  function startConvo() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { alert("Conversation mode needs Chrome or Edge (Web Speech API)."); return; }
+    window.speechSynthesis?.getVoices?.();             // warm the voice list
+    setConvo(true); convoRef.current = true; setVstate("listening"); setHeard("");
+    listen();
+  }
+  function stopConvo() {
+    convoRef.current = false; setConvo(false); setVstate("idle"); setHeard("");
+    try { recRef.current?.stop(); } catch (_) { /* noop */ }
+    window.speechSynthesis?.cancel();
+  }
+  function interruptBot() {   // tap the orb while it's talking → cut off + listen now
+    window.speechSynthesis?.cancel();
+    if (convoRef.current) listen();
+  }
+  useEffect(() => () => stopConvo(), []);   // clean up on unmount
 
   const openCases = cases.filter((c) => c.status === "open").length;
   const _cq = caseQ.trim().toLowerCase();
@@ -300,8 +378,12 @@ export default function CaptainPanel() {
               style={{ display: "none" }} onChange={pickFiles} />
             <button className="icon-btn" onClick={() => fileRef.current?.click()} title="Attach photo / file" disabled={busy}>
               <Paperclip size={17} /></button>
-            <button className={`icon-btn ${recording ? "rec" : ""}`} onClick={toggleMic} title={`Voice · ${voiceLang}`}>
+            <button className={`icon-btn ${recording ? "rec" : ""}`} onClick={toggleMic} title={`Dictate · ${voiceLang}`}>
               {recording ? <MicOff size={17} /> : <Mic size={17} />}
+            </button>
+            <button className="icon-btn" onClick={startConvo} title="Conversation mode — talk hands-free"
+              style={{ color: "var(--signal)" }}>
+              <Radio size={17} />
             </button>
             <select value={voiceLang} title="Voice language"
               onChange={(e) => { setVoiceLang(e.target.value); localStorage.setItem("valmo.voiceLang", e.target.value); }}
@@ -378,6 +460,42 @@ export default function CaptainPanel() {
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Conversation mode: full-screen orb visualizer (GPT/Claude voice-mode feel) ── */}
+      {convo && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "grid", placeItems: "center",
+          background: "rgba(6,14,32,0.92)", backdropFilter: "blur(10px)" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20, textAlign: "center", padding: 24, maxWidth: 560 }}>
+            <div onClick={interruptBot} style={{ cursor: "pointer" }}
+              title={vstate === "speaking" ? "Tap to interrupt" : ""}>
+              <DecisionCore size={220} state={vstate === "speaking" ? "resolved" : vstate === "idle" ? "idle" : "thinking"} />
+            </div>
+            <div className="mono" style={{ fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase",
+              color: vstate === "speaking" ? "var(--good)" : "var(--signal)" }}>
+              {vstate === "listening" ? "● Sun raha hoon… boliye"
+                : vstate === "thinking" ? "◍ Ek second, check kar raha hoon…"
+                : vstate === "speaking" ? "◎ Bol raha hoon" : "idle"}
+            </div>
+            <div style={{ minHeight: 48, fontSize: 16, lineHeight: 1.5, color: "var(--text)", maxWidth: 480 }}>
+              {vstate === "listening"
+                ? (heard ? `"${heard}"` : <span style={{ color: "var(--text-faint)" }}>Apni problem boliye — Hindi, Hinglish ya English mein.</span>)
+                : vstate === "speaking"
+                  ? _speechText(messages.filter((m) => m.who === "bot").slice(-1)[0]?.text || "").slice(0, 240)
+                  : ""}
+            </div>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 6 }}>
+              {vstate === "speaking" && (
+                <button className="icon-btn" onClick={interruptBot} style={{ height: 40, padding: "0 16px", fontSize: 12, gap: 6 }}>
+                  <Mic size={15} /> Interrupt</button>
+              )}
+              <button onClick={stopConvo} className="icon-btn"
+                style={{ height: 40, padding: "0 18px", fontSize: 12, gap: 6, background: "var(--bad-soft)", color: "var(--bad)", borderColor: "var(--bad)" }}>
+                <X size={15} /> End conversation</button>
+            </div>
+            <div className="mono faint" style={{ fontSize: 10 }}>voice · {voiceLang} · browser speech (Sarvam-ready)</div>
           </div>
         </div>
       )}

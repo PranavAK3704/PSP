@@ -70,6 +70,9 @@ export default function CaptainPanel() {
   const [heard, setHeard] = useState("");          // live transcript of the captain
   const convoRef = useRef(false);
   const convIdRef = useRef(null);   // live conversation_id (voice loop closures freeze `active`, so we can't read it there)
+  const levelRef = useRef(0);       // 0..1 live mic amplitude → the reactive orb + field
+  const audioRef = useRef(null);    // { stream, ctx, stop } for the analyser
+  const fieldRef = useRef(null);    // the ambient ring DOM node (scaled per-frame from levelRef)
   const [attachments, setAttachments] = useState([]);
   const [railOpen, setRailOpen] = useState(true);
   const [cases, setCases] = useState([]);
@@ -223,17 +226,42 @@ export default function CaptainPanel() {
     recRef.current = rec;
     try { rec.start(); } catch (_) { /* already running */ }
   }
+  // Tap the mic → 0..1 amplitude into levelRef, so the orb + field react to the captain's voice.
+  async function startMicMeter() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      const src = ctx.createMediaStreamSource(stream);
+      const an = ctx.createAnalyser(); an.fftSize = 512;
+      src.connect(an);
+      const buf = new Uint8Array(an.frequencyBinCount);
+      let raf;
+      const tick = () => {
+        an.getByteTimeDomainData(buf);
+        let sum = 0; for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
+        levelRef.current = Math.min(1, Math.sqrt(sum / buf.length) * 3.2);
+        raf = requestAnimationFrame(tick);
+      };
+      tick();
+      audioRef.current = { stop: () => { cancelAnimationFrame(raf); stream.getTracks().forEach((t) => t.stop()); ctx.close().catch(() => {}); } };
+    } catch (_) { /* meter is optional — the orb still animates from its state */ }
+  }
+  function stopMicMeter() { try { audioRef.current?.stop?.(); } catch (_) { /* noop */ } audioRef.current = null; levelRef.current = 0; }
+
   function startConvo() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { alert("Conversation mode needs Chrome or Edge (Web Speech API)."); return; }
     window.speechSynthesis?.getVoices?.();             // warm the voice list
     setConvo(true); convoRef.current = true; setVstate("listening"); setHeard("");
+    startMicMeter();
     listen();
   }
   function stopConvo() {
     convoRef.current = false; setConvo(false); setVstate("idle"); setHeard("");
     try { recRef.current?.stop(); } catch (_) { /* noop */ }
     window.speechSynthesis?.cancel();
+    stopMicMeter();
   }
   function interruptBot() {   // tap the orb while it's TALKING → cut off + listen; ignore taps mid-think
     if (vstate !== "speaking") return;
@@ -241,6 +269,18 @@ export default function CaptainPanel() {
     if (convoRef.current) listen();
   }
   useEffect(() => () => stopConvo(), []);   // clean up on unmount
+  // drive the ambient ring from the live amplitude while in conversation mode
+  useEffect(() => {
+    if (!convo) return;
+    let raf;
+    const loop = () => {
+      const el = fieldRef.current;
+      if (el) { const l = levelRef.current || 0; el.style.transform = `scale(${1 + l * 0.55})`; el.style.opacity = String(0.3 + l * 0.55); }
+      raf = requestAnimationFrame(loop);
+    };
+    loop();
+    return () => cancelAnimationFrame(raf);
+  }, [convo]);
 
   const openCases = cases.filter((c) => c.status === "open").length;
   const _cq = caseQ.trim().toLowerCase();
@@ -464,22 +504,30 @@ export default function CaptainPanel() {
         </div>
       )}
 
-      {/* ── Conversation mode: full-screen orb visualizer (GPT/Claude voice-mode feel) ── */}
+      {/* ── Conversation mode: reactive audio field (the orb comes alive to the captain's voice) ── */}
       {convo && (
         <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "grid", placeItems: "center",
-          background: "rgba(6,14,32,0.92)", backdropFilter: "blur(10px)" }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20, textAlign: "center", padding: 24, maxWidth: 560 }}>
-            <div onClick={interruptBot} style={{ cursor: "pointer" }}
+          background: "radial-gradient(120% 120% at 50% 38%, rgba(23,31,51,0.96), rgba(6,14,32,0.985))",
+          backdropFilter: "blur(14px)" }}>
+          {/* amplitude-driven glow field (scaled/brightened per-frame from levelRef via the rAF above) */}
+          <div ref={fieldRef} style={{ position: "absolute", width: 460, height: 460, borderRadius: "50%",
+            background: `radial-gradient(circle, ${vstate === "speaking" ? "var(--good-soft)" : "var(--signal-soft)"}, transparent 68%)`,
+            filter: "blur(28px)", pointerEvents: "none", willChange: "transform, opacity" }} />
+          <div style={{ position: "absolute", width: 300, height: 300, borderRadius: "50%",
+            border: `1px solid ${vstate === "speaking" ? "var(--good)" : "var(--signal-line)"}`, opacity: 0.22, pointerEvents: "none" }} />
+          <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 22, textAlign: "center", padding: 24, maxWidth: 600 }}>
+            <div onClick={interruptBot} style={{ cursor: vstate === "speaking" ? "pointer" : "default" }}
               title={vstate === "speaking" ? "Tap to interrupt" : ""}>
-              <DecisionCore size={220} state={vstate === "speaking" ? "resolved" : vstate === "idle" ? "idle" : "thinking"} />
+              <DecisionCore size={240} levelRef={levelRef}
+                state={vstate === "listening" ? "listening" : vstate === "speaking" ? "speaking" : vstate === "thinking" ? "thinking" : "idle"} />
             </div>
-            <div className="mono" style={{ fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase",
+            <div className="mono" style={{ fontSize: 12, letterSpacing: ".14em", textTransform: "uppercase",
               color: vstate === "speaking" ? "var(--good)" : "var(--signal)" }}>
               {vstate === "listening" ? "● Sun raha hoon… boliye"
                 : vstate === "thinking" ? "◍ Ek second, check kar raha hoon…"
-                : vstate === "speaking" ? "◎ Bol raha hoon" : "idle"}
+                : vstate === "speaking" ? "◎ Bol raha hoon" : "…"}
             </div>
-            <div style={{ minHeight: 48, fontSize: 16, lineHeight: 1.5, color: "var(--text)", maxWidth: 480 }}>
+            <div style={{ minHeight: 52, fontSize: 17, lineHeight: 1.5, color: "var(--text)", maxWidth: 520 }}>
               {vstate === "listening"
                 ? (heard ? `"${heard}"` : <span style={{ color: "var(--text-faint)" }}>Apni problem boliye — Hindi, Hinglish ya English mein.</span>)
                 : vstate === "speaking"

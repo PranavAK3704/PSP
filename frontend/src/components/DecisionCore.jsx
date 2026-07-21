@@ -11,12 +11,16 @@ import React, { useEffect, useRef } from "react";
 // boundary, unmounts the whole app to a black screen. Context creation + render are also guarded
 // so GPU/context exhaustion degrades silently instead of crashing.
 const CFG = {
-  idle:     { color: 0x4d8eff, emissive: 0.5, base: 1.0 },
-  thinking: { color: 0x4d8eff, emissive: 1.0, base: 2.8 },
-  resolved: { color: 0x4edea3, emissive: 0.8, base: 1.4 },
+  idle:      { color: 0x4d8eff, emissive: 0.5, base: 1.0 },
+  thinking:  { color: 0x4d8eff, emissive: 1.0, base: 2.8 },
+  resolved:  { color: 0x4edea3, emissive: 0.8, base: 1.4 },
+  listening: { color: 0x4d8eff, emissive: 0.7, base: 1.15, reactive: true },  // deforms to live mic amplitude
+  speaking:  { color: 0x4edea3, emissive: 1.0, base: 1.6, pulse: true },       // rhythmic bloom while it talks
 };
 
-export default function DecisionCore({ size = 220, state = "idle" }) {
+// levelRef (optional): a ref whose .current is a 0..1 audio amplitude. When the state is
+// "listening", the orb deforms/spins/brightens with it — the reactive audio field.
+export default function DecisionCore({ size = 220, state = "idle", levelRef = null }) {
   const ref = useRef(null);
   const boost = useRef(1);
   const hover = useRef(false);
@@ -99,13 +103,21 @@ export default function DecisionCore({ size = 220, state = "idle" }) {
         if (lost) return;
         raf = requestAnimationFrame(animate);
         const c = cfgRef.current;
+        const t = Date.now();
+        // live mic amplitude (0..1) when a reactive state (listening) provides a levelRef
+        const lvl = (c.reactive && levelRef && typeof levelRef.current === "number")
+          ? Math.min(1, Math.max(0, levelRef.current)) : 0;
         const target = hover.current ? 3.4 : 1;
         boost.current += (target - boost.current) * 0.06;          // decay toward hover/1
-        const m = c.base * boost.current;
+        const react = 1 + lvl * 2.2;                               // spin up on louder input
+        const m = c.base * boost.current * react;
         core.rotation.x += 0.005 * m; core.rotation.y += 0.008 * m;
         shell.rotation.x -= 0.003 * m; shell.rotation.y -= 0.002 * m;
-        const amp = 0.05 + (boost.current - 1) * 0.05 + (c.base - 1) * 0.03;
-        const s = 1 + Math.sin(Date.now() * 0.002) * amp; core.scale.set(s, s, s);
+        const pulse = c.pulse ? (0.13 + 0.10 * Math.sin(t * 0.012)) : 0;   // speaking bloom cadence
+        const amp = 0.05 + (boost.current - 1) * 0.05 + (c.base - 1) * 0.03 + lvl * 0.30 + pulse;
+        const s = 1 + Math.sin(t * 0.002) * amp + lvl * 0.18; core.scale.set(s, s, s);
+        shell.scale.setScalar(1 + lvl * 0.12 + pulse * 0.5);       // shell breathes with voice / speech
+        coreMat.emissiveIntensity = c.emissive + lvl * 0.9 + pulse * 0.6;  // brightens with input
         try { renderer.render(scene, camera); } catch (_) { cancelAnimationFrame(raf); }
       };
 

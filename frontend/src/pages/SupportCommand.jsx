@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { getInsights, getAudit, getKt, submitKt, reviewKt, compileSopStream, getLedger,
+import { getInsights, getAudit, getKt, submitKt, reviewKt, compileSopStream, getLedger, checkSopConformance,
   approveSop, saveSopDraft, deleteSop, extractSop, compileBlueprintStream, getBlueprints, saveBlueprint, approveBlueprint,
   getConcernTrace, exportLedger, getAuditRubric, saveAuditRubric, runAudit, runAuditBatch, getAuditScores,
   getFramework, saveFramework, uploadFramework, approveFramework } from "../lib/api.js";
@@ -123,8 +123,18 @@ function GapChip({ gap }) {
   );
 }
 // Collect the gaps that point at a given path prefix (e.g. "signals", "decision[1]").
+// A bracket-less section prefix ("checks", "decision") must NOT swallow its indexed
+// children ("checks[0]") — those render per-row, so counting them at the section head
+// too double-renders the same chip (finding #10). An explicit indexed prefix still matches.
 const gapsFor = (gaps, ...prefixes) =>
-  (gaps || []).filter((g) => prefixes.some((p) => (g.where || "").startsWith(p)));
+  (gaps || []).filter((g) => {
+    const where = g.where || "";
+    return prefixes.some((p) => {
+      if (!where.startsWith(p)) return false;
+      if (!p.includes("[") && where.charAt(p.length) === "[") return false;  // indexed child → its own row
+      return true;
+    });
+  });
 
 // Inline editable field / row primitives (kept minimal + consistent with the app).
 function Field({ value, onChange, placeholder, mono = true, className = "" }) {
@@ -224,6 +234,7 @@ function BlueprintEditor({ bp, gaps, onChange }) {
             <span className="text-[10px] text-on-surface-variant">fetch</span>
             <Field value={(l.fetch || []).join(", ")} onChange={(v) => setArr("lookups", i, { fetch: v.split(",").map((x) => x.trim()).filter(Boolean) })} placeholder="fields (comma-sep)" className="flex-1 min-w-[120px]" />
             <Field value={l.from} onChange={(v) => setArr("lookups", i, { from: v })} placeholder="from" className="w-24" />
+            {gapsFor(gaps, `lookups[${i}]`).map((gg, k) => <GapChip key={k} gap={gg} />)}
           </RowCard>
         ))}
         <AddRow label="lookup" onClick={() => add("lookups", { when_have: "", fetch: [], from: "" })} />
@@ -369,6 +380,7 @@ export function AuthoringStudio() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);   // edited Blueprint or Policy
   const [gaps, setGaps] = useState([]);
+  const [conformance, setConformance] = useState(null);      // governance verdict for the compiled SOP
   const [existingBrain, setExistingBrain] = useState(null);  // dedup: a brain already exists for this domain
   const [similarSops, setSimilarSops] = useState([]);        // dedup: compiled SOPs this one resembles
   const [helpOpen, setHelpOpen] = useState(false);           // "How this works" modal
@@ -386,7 +398,7 @@ export function AuthoringStudio() {
   function compile() {
     if (!raw.trim() || busy) return;
     setBusy(true); setResult(null); setGaps([]); setStageData({}); setCurrent("understand");
-    setExistingBrain(null); setSimilarSops([]);
+    setExistingBrain(null); setSimilarSops([]); setConformance(null);
     if (mode === "brain") {
       compileBlueprintStream(raw, domain,           // domain may be "" → the machine infers it
         (ev) => {
@@ -406,6 +418,7 @@ export function AuthoringStudio() {
           if (st === "done") {
             setResult(ev.policy); setGaps(ev.gaps || []);
             setSimilarSops(ev.similar_sops || []);
+            setConformance(ev.conformance || null);
             setBusy(false);
           } else if (st !== "understand") setStageData((d) => ({ ...d, [st]: ev.data }));
         }, () => setBusy(false));
@@ -416,7 +429,7 @@ export function AuthoringStudio() {
   // for the next SOP — the just-approved one now lives in the Authored library below).
   function resetEditor() {
     setRaw(""); setResult(null); setGaps([]); setStageData({}); setCurrent(null);
-    setSimilarSops([]); setExistingBrain(null); setSrcFile(null);
+    setSimilarSops([]); setExistingBrain(null); setSrcFile(null); setConformance(null);
   }
 
   // Upload a real ops artifact → extract its content → prefill the editor. The author then
@@ -446,7 +459,7 @@ export function AuthoringStudio() {
       setGaps(r.gaps || []); flash("Queued as draft. Approve to make the engine follow it.");
     } else {
       const r = await saveSopDraft(result);
-      if (r?.ok) flash("Saved as a draft — it's in the Authored library below. Approve & go live when ready.");
+      if (r?.ok) { setConformance(r.conformance || conformance); flash("Saved as a draft — it's in the Authored library below. Approve & go live when ready."); }
     }
     loadLibrary();
   }
@@ -457,6 +470,16 @@ export function AuthoringStudio() {
       const r = await approveBlueprint(result.domain);
       if (r.ok) flash(`Live. The resolution engine now follows the ${result.label || result.domain} brain — it's in the library below.`);
     } else {
+      // Governance gate: re-score the CURRENT policy (the author may have just fixed issues in the
+      // editor), then a HIGH-severity violation gets an explicit confirm before it goes live
+      // (advisory — the author can still override with a reason of record).
+      let conf = conformance;
+      try { const cr = await checkSopConformance(result); if (cr?.conformance) { conf = cr.conformance; setConformance(conf); } }
+      catch { /* conformance is advisory — never block approval on a check failure */ }
+      const highs = (conf?.findings || []).filter((f) => f.severity === "high");
+      if (highs.length && !window.confirm(
+        `This SOP has ${highs.length} governance issue(s) to resolve before it goes live:\n\n` +
+        highs.map((f) => `• ${f.message}`).join("\n\n") + `\n\nApprove and go live anyway?`)) return;
       const r = await approveSop(result);
       if (r.ok) flash("Live. This SOP is in the retrieval corpus and the library below — the engine follows it now.");
     }
@@ -470,7 +493,7 @@ export function AuthoringStudio() {
   }
   function loadSop(k) {
     setMode("sop"); setResult(k.policy || {}); setGaps([]); setStageData({}); setCurrent("done");
-    setExistingBrain(null); setSimilarSops([]);
+    setExistingBrain(null); setSimilarSops([]); setConformance(k.conformance || null);
   }
   // dedup banner → open the existing brain (full object from the loaded library) into the editor
   function openExistingBrain(dom) {
@@ -1865,8 +1888,13 @@ export function KnowledgeBase() {
                          : await saveSopDraft(edit.data, "kb-editor", edit.id);
         if (r?.ok) flash(goLive ? "SOP approved — live in the engine." : "SOP saved as a draft.");
       } else {
-        await saveBlueprint(edit.data, "domain-owner");
-        if (goLive) await approveBlueprint(edit.data.domain);
+        // A Brain is keyed by its domain — that IS its identity. Editing here must not
+        // silently orphan the original and mint a duplicate under a changed key
+        // (finding #9). Pin the saved domain to the one it was opened as; a genuinely
+        // different-domain brain is authored fresh in the Studio, not renamed here.
+        const data = { ...edit.data, domain: edit.id };
+        await saveBlueprint(data, "domain-owner");
+        if (goLive) await approveBlueprint(data.domain);
         flash(goLive ? "Brain approved — the engine follows it now." : "Brain saved as a draft.");
       }
       setEdit(null); load();

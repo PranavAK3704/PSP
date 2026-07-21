@@ -47,10 +47,6 @@ def _init() -> bool:
     return _url is not None
 
 
-def enabled() -> bool:
-    return _init()
-
-
 def _fetch(name: str) -> tuple[bool, str | None]:
     """(ok, value): ok=False on transport error; value None means the key is genuinely absent.
     Successful results are cached; transport errors are NOT cached (so we retry next time and

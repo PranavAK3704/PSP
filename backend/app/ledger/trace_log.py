@@ -102,9 +102,3 @@ def get(concern_id: str) -> dict | None:
     if not concern_id:
         return None
     return _load().get(concern_id)
-
-
-def all_meta() -> dict:
-    """Lightweight counts for dashboards / diagnostics."""
-    store = _load()
-    return {"count": len(store), "concern_ids": list(store.keys())}

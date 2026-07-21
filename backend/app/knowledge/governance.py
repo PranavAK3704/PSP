@@ -15,6 +15,7 @@ mechanism the SOP compiler uses (for_node("sop_compile"), json_mode, _parse_json
 from __future__ import annotations
 
 import json
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -252,6 +253,117 @@ def approve() -> dict:
         fw["updated_at"] = _now()
         _write(fw)
         return fw
+
+
+# ── SOP ↔ Governance CONFORMANCE (the self-sustaining loop) ───────────────────
+# The Framework doesn't just describe how to prioritise problems — it mandates HOW a
+# resolution must be governed: an accountable owner, binding partner rights, a money
+# ceiling, idempotent money moves, and a priority band. check_conformance() scores a
+# compiled ExecutablePolicy against those mandates so the Authoring Studio can gate
+# approval on governance — turning "author an SOP and hope it's safe" into "the SOP is
+# checked against the org's own governance model before it goes live". Advisory by design
+# (findings, not a hard block) — parity with detect_policy_gaps / detect_fidelity_gaps.
+#
+# INFRA NOTE: the rules below are framework-derived but intentionally conservative; the
+# Valmo governance team will fine-tune thresholds/severities as their framework matures.
+# "Moves money" must be an actual money-MOVING verb, not a mention — the verb list is deliberately
+# specific (reverse/refund/credit/compensate/…) so it does NOT fire on "explain the payout timeline"
+# ("payout" is a noun and doesn't match `pay\s+out`). We intentionally DON'T suppress on a leading
+# informational verb: "Confirm the damage and reimburse the seller" still moves money, and for a
+# money GUARDRAIL a false-positive (an info SOP asked to set a cap) is far safer than a false-negative
+# (an unbounded automated payout certified conformant). Fine-tune the verb list as the framework matures.
+_MONEY_MOVE_RE = re.compile(
+    r"(?i)\b(revers\w*|refund\w*|credit\w*|compensat\w*|waiv\w*|reimburs\w*|"
+    r"adjust\w*|settle\w*|disburse\w*|pay\s+(?:out|the|back|₹|rs))\b")
+
+
+def _moves_money(res: dict) -> bool:
+    """True when the RESOLUTION disburses/reverses money — a declared ₹ cap, or a money-moving verb
+    anywhere in the action (a leading info verb must NOT hide a later money verb)."""
+    res = res or {}
+    if res.get("cap_inr") is not None:
+        return True
+    return bool(_MONEY_MOVE_RE.search(str(res.get("action", "") or "")))
+
+
+def _band_labels(fw: dict) -> list[str]:
+    return [str(b.get("label", "")).strip() for b in (fw.get("bands") or []) if str(b.get("label", "")).strip()]
+
+
+def classify_band(policy: dict, fw: dict | None = None) -> dict:
+    """Best-effort map an SOP to a Framework band. An explicit policy.priority that matches a
+    framework band wins; otherwise infer from severity signals (moves money / hard-stops the
+    partner). Returns {band, action (the framework's mandate for that band), inferred}."""
+    fw = fw or get()
+    labels = _band_labels(fw)
+    up = {b.upper(): b for b in labels}
+    explicit = str(policy.get("priority", "") or "").strip().upper()
+    band = up.get(explicit, "")
+    inferred = not band
+    if inferred and labels:
+        res = policy.get("resolution", {}) or {}
+        blob = json.dumps(policy, ensure_ascii=False).lower()
+        money = _moves_money(res)
+        hardstop = any(t in blob for t in ("hardstop", "hard stop", "deactivat", "block", "fe id", "fe-id", "codb"))
+        band = labels[0] if (money or hardstop) else labels[min(1, len(labels) - 1)]
+    action = ""
+    for b in (fw.get("bands") or []):
+        if str(b.get("label", "")).strip().upper() == band.upper():
+            action = str(b.get("action", "") or "")
+            break
+    return {"band": band, "action": action, "inferred": inferred}
+
+
+def check_conformance(policy: dict, fw: dict | None = None) -> dict:
+    """Score a compiled ExecutablePolicy against the approved Governance Framework's mandates.
+    Returns {band, band_action, conformant, findings, mandates}. `conformant` is False only if a
+    HIGH-severity mandate is violated (unowned, or unbounded money) — warns/info don't block."""
+    fw = fw or get()
+    p = policy or {}
+    res = p.get("resolution", {}) or {}
+    esc = p.get("escalation", {}) or {}
+    params = res.get("params", {}) or {}
+    moves_money = _moves_money(res)
+    cls = classify_band(p, fw)
+    acc = fw.get("accountability") or {}
+    findings: list[dict] = []
+
+    # 1) Accountable owner — the framework assigns an owner to every problem (accountability.owners_by).
+    if not str(esc.get("team", "") or "").strip():
+        findings.append({"severity": "high", "rule": "accountability.owner",
+                         "message": "No accountable owner/team on the escalation route — the framework mandates "
+                                    "every problem has an owner. Set escalation.team."})
+    # 2) A money action with no ₹ cap is an unbounded automated money move — a governance red flag.
+    if moves_money and res.get("cap_inr") is None:
+        findings.append({"severity": "high", "rule": "resolution.cap_inr",
+                         "message": "This resolution moves money but declares no ₹ cap. Unbounded automated money "
+                                    "actions aren't allowed — set resolution.cap_inr to the ceiling this SOP may auto-clear."})
+    # 3) Binding partner right (guardrail) — each conformant SOP names the right that protects the partner.
+    if not (p.get("partner_rights") or []):
+        findings.append({"severity": "warn", "rule": "partner_rights",
+                         "message": "No binding Partner-Constitution right cited. The framework mandates each resolution "
+                                    "names the guardrail that protects the partner (e.g. right to a reason, to escalate)."})
+    # 4) Idempotency on money moves — a retry must not double-pay.
+    if moves_money and not params.get("idempotent"):
+        findings.append({"severity": "warn", "rule": "resolution.idempotent",
+                         "message": "Money action isn't marked idempotent — a retry/duplicate could double-pay. "
+                                    "Set resolution.params.idempotent = true."})
+    # 5) Priority band — accountability + SLA hang off the band; confirm it rather than leaving it inferred.
+    if cls.get("inferred") and _band_labels(fw):
+        findings.append({"severity": "info", "rule": "band",
+                         "message": f"No explicit priority band — inferred {cls['band'] or 'none'} from severity signals. "
+                                    "Confirm the band so the right owner + SLA apply."})
+
+    conformant = not any(f["severity"] == "high" for f in findings)
+    return {
+        "band": cls.get("band"), "band_action": cls.get("action"),
+        "conformant": conformant, "findings": findings,
+        "mandates": {
+            "owners_by": acc.get("owners_by", ""), "sla_hours": acc.get("sla_hours", 0),
+            "framework": fw.get("name"), "framework_version": fw.get("version"),
+            "framework_status": fw.get("status"),
+        },
+    }
 
 
 # ── STRUCTURE-FROM-TEXT (the upload brain) ────────────────────────────────────

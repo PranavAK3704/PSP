@@ -141,7 +141,7 @@ export const resolveL3 = (concern_id, resolution_note) => apiPost("/api/l3/resol
 export const getInsights = () => apiGet("/api/insights");
 export const getAudit = () => apiGet("/api/audit");
 export const getKt = () => apiGet("/api/kt");
-export const getSopGaps = () => apiGet("/api/sop/gaps");
+export const checkSopConformance = (policy) => apiPost("/api/sop/conformance", { policy });
 export const submitNuance = (payload) => apiPost("/api/sop/nuance", payload);
 export const submitKt = (text, contributor) => apiPost("/api/kt/submit", { text, contributor });
 export const reviewKt = (kt_id, approve, reviewer) => apiPost("/api/kt/review", { kt_id, approve, reviewer });

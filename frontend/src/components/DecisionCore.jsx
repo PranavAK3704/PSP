@@ -18,8 +18,10 @@ const CFG = {
   speaking:  { color: 0x4edea3, emissive: 1.0, base: 1.6, pulse: true },       // rhythmic bloom while it talks
 };
 
-// levelRef (optional): a ref whose .current is a 0..1 audio amplitude. When the state is
-// "listening", the orb deforms/spins/brightens with it — the reactive audio field.
+// levelRef (optional): a ref whose .current is a 0..1 signal. Pass one and the orb deforms /
+// spins up / brightens with it — the reactive field. The signal is generic: mic amplitude in
+// voice mode, live event cadence on the Monitor, resolution energy anywhere else. No levelRef
+// → the orb keeps its calm state-driven motion (unchanged for every non-reactive caller).
 export default function DecisionCore({ size = 220, state = "idle", levelRef = null }) {
   const ref = useRef(null);
   const boost = useRef(1);
@@ -104,8 +106,9 @@ export default function DecisionCore({ size = 220, state = "idle", levelRef = nu
         raf = requestAnimationFrame(animate);
         const c = cfgRef.current;
         const t = Date.now();
-        // live mic amplitude (0..1) when a reactive state (listening) provides a levelRef
-        const lvl = (c.reactive && levelRef && typeof levelRef.current === "number")
+        // generic 0..1 signal (mic amplitude, live event cadence, …) — reacts whenever a
+        // caller opts in by passing a levelRef, regardless of state.
+        const lvl = (levelRef && typeof levelRef.current === "number")
           ? Math.min(1, Math.max(0, levelRef.current)) : 0;
         const target = hover.current ? 3.4 : 1;
         boost.current += (target - boost.current) * 0.06;          // decay toward hover/1

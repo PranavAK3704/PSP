@@ -5,7 +5,6 @@ gateway by default) using requests only — no SDK dependency — mirroring
 GeminiProvider. Implements the interface the pipeline expects:
 
   - _generate()      single-shot completion (JSON mode supported)
-  - generate_json()  convenience JSON parse
   - chat()           one turn of the tool-using agent loop. The engine speaks
                      Gemini's function-calling shape (contents with `parts` /
                      `functionCall` / `functionResponse`); this translates that
@@ -165,10 +164,6 @@ class OpenAIProvider(LLMProvider):
         u = data.get("usage", {})
         usage = {"input": u.get("prompt_tokens", 0), "output": u.get("completion_tokens", 0)}
         return text, usage, data
-
-    def generate_json(self, prompt: str, *, model: str, node: str, system: Optional[str] = None):
-        res = self.generate(prompt, model=model, node=node, system=system, json_mode=True)
-        return _parse_json(res.text), res
 
     # ── tool-using agent loop ───────────────────────────────────────────────
     def chat(self, contents: list, *, model: str, system: Optional[str] = None,

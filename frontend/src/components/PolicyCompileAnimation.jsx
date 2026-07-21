@@ -15,6 +15,7 @@ const STAGES = [
   ["resolution", "Resolution", "payments"],
   ["escalation", "Escalation", "diversity_3"],
   ["partner_rights", "Rights", "gavel"],
+  ["conformance", "Governance", "verified_user"],
 ];
 
 const Chip = ({ children, tone = "cyan" }) => {
@@ -134,6 +135,32 @@ export default function PolicyCompileAnimation({ data, current, policy, busy }) 
 
         <Section show={has("partner_rights")} icon="gavel" title="Partner-Constitution rights">
           {(d.partner_rights?.partner_rights || []).map((r, i) => <Chip key={i} tone="green">{r}</Chip>)}
+        </Section>
+
+        {/* Governance conformance — scored against the org's approved Framework before approval. */}
+        <Section show={has("conformance")} icon="verified_user" title="Governance conformance">
+          <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 7 }}>
+            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+              {d.conformance?.band && <Chip tone={d.conformance?.conformant ? "green" : "amber"}>band · {d.conformance.band}</Chip>}
+              <Chip tone={d.conformance?.conformant ? "green" : "amber"}>
+                {d.conformance?.conformant ? "conforms to framework" : "resolve before going live"}
+              </Chip>
+            </div>
+            {(d.conformance?.findings || []).map((f, i) => {
+              const col = f.severity === "high" ? "var(--bad)" : f.severity === "warn" ? "var(--warn)" : "var(--signal)";
+              return (
+                <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}
+                  style={{ display: "flex", gap: 7, fontSize: 11, color: "var(--text)", lineHeight: 1.45 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 13, color: col, flex: "none" }}>
+                    {f.severity === "high" ? "error" : f.severity === "warn" ? "warning" : "info"}</span>
+                  <span><b style={{ fontFamily: "var(--mono)", color: col }}>{f.rule}</b> — {f.message}</span>
+                </motion.div>
+              );
+            })}
+            {(d.conformance?.findings || []).length === 0 && (
+              <span style={{ fontSize: 11, color: "var(--good)" }}>All governance mandates met.</span>
+            )}
+          </div>
         </Section>
       </div>
     </div>

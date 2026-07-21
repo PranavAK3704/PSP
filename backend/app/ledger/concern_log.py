@@ -49,15 +49,19 @@ def all_concerns() -> list[dict]:
 
 def stats() -> dict:
     log = _load()
-    resolved = [c for c in log if c.get("action_taken") in {"reverse_debit", "clear_pendency", "respond"}]
-    escalated = [c for c in log if c.get("action_taken") == "escalate"]
-    money = sum(c.get("amount_inr", 0) or 0 for c in log if c.get("action_taken") == "reverse_debit")
+    # Synthetic L3 follow-ups (they carry resolves_concern_id and action_taken=resolved_by_l3)
+    # are NOT captain concerns — they shadow an original. Exclude them so total /
+    # by_disposition don't double-count every resolved case (finding #31).
+    real = [c for c in log if not c.get("resolves_concern_id")]
+    resolved = [c for c in real if c.get("action_taken") in {"reverse_debit", "clear_pendency", "respond"}]
+    escalated = [c for c in real if c.get("action_taken") == "escalate"]
+    money = sum(c.get("amount_inr", 0) or 0 for c in real if c.get("action_taken") == "reverse_debit")
     by_disp: dict[str, int] = {}
-    for c in log:
+    for c in real:
         d = c.get("disposition", "unknown")
         by_disp[d] = by_disp.get(d, 0) + 1
     return {
-        "total": len(log),
+        "total": len(real),
         "resolved_in_conversation": len(resolved),
         "escalated": len(escalated),
         "money_recovered_for_partners_inr": money,

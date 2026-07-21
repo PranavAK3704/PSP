@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Pipeline from "../components/Pipeline.jsx";
 import DecisionCore from "../components/DecisionCore.jsx";
 import PulseNet from "../components/PulseNet.jsx";
@@ -11,12 +11,26 @@ export default function Monitor() {
   const [events, setEvents] = useState([]);
   const [busy, setBusy] = useState(false);
   const nav = useNav();
+  const levelRef = useRef(0);   // live event cadence → the always-on orb pulses as the stream ticks
 
   useEffect(() => { getCaptains().then((d) => setCaptains(d.captains || [])); }, []);
+
+  // Smoothly decay the event-cadence signal every frame so each incoming event reads as a
+  // discrete pulse that fades — the orb "breathes" with the live stream, then settles.
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => { levelRef.current *= 0.9; raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   async function run() {
     setEvents([]); setBusy(true);
     await stream({ url: `/api/monitor/${captainId}`, method: "GET" },
-      (ev) => setEvents((p) => [...p, ev]), () => setBusy(false));
+      (ev) => {
+        levelRef.current = Math.min(1, levelRef.current + 0.4);   // pulse on each event consumed
+        setEvents((p) => [...p, ev]);
+      }, () => setBusy(false));
   }
 
   return (
@@ -25,7 +39,9 @@ export default function Monitor() {
       <div className="glass-card rounded-xl border-l-4 border-l-secondary-container/60 relative overflow-hidden">
         <div className="absolute inset-0 opacity-40 pointer-events-none"><PulseNet height={260} nodes={40} /></div>
         <div className="relative p-lg flex items-center gap-lg">
-        <div className="hidden md:block"><DecisionCore size={120} /></div>
+        <div className="hidden md:block">
+          <DecisionCore size={120} state={busy ? "thinking" : "idle"} levelRef={levelRef} />
+        </div>
         <div>
           <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.1em] text-secondary-container">
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>dns</span> Backend service · always-on

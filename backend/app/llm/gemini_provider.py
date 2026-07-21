@@ -69,11 +69,6 @@ class GeminiProvider(LLMProvider):
         usage = {"input": um.get("promptTokenCount", 0), "output": um.get("candidatesTokenCount", 0)}
         return content, usage
 
-    def generate_json(self, prompt: str, *, model: str, node: str, system: Optional[str] = None):
-        """Convenience: generate in JSON mode and parse. Falls back to brace-extraction."""
-        res = self.generate(prompt, model=model, node=node, system=system, json_mode=True)
-        return _parse_json(res.text), res
-
 
 def _parse_json(text: str):
     text = (text or "").strip()

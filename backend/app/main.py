@@ -288,7 +288,8 @@ def save_sop(body: SopApproveIn):
     """Save a compiled SOP as a DRAFT (author-or-approver) so it is never lost — it shows in
     the library and can be approved later. sop_id set → edit in place. Returns {ok, id, gaps}."""
     entry = sop_compiler.save_sop_draft(body.policy, body.contributor, body.sop_id)
-    return {"ok": True, "id": entry["id"], "gaps": sop_compiler.detect_policy_gaps(body.policy)}
+    return {"ok": True, "id": entry["id"], "gaps": sop_compiler.detect_policy_gaps(body.policy),
+            "conformance": entry.get("conformance")}
 
 
 @app.post("/api/sop/approve", dependencies=[_approver])
@@ -296,7 +297,15 @@ def approve_sop(body: SopApproveIn):
     """A reviewed structured SOP enters the retrieval corpus (with reload) so the engine
     follows it. sop_id set → update the existing SOP in place. Returns {ok, id, gaps}."""
     entry = sop_compiler.approve_sop(body.policy, body.contributor, body.sop_id)
-    return {"ok": True, "id": entry["id"], "gaps": sop_compiler.detect_policy_gaps(body.policy)}
+    return {"ok": True, "id": entry["id"], "gaps": sop_compiler.detect_policy_gaps(body.policy),
+            "conformance": entry.get("conformance")}
+
+
+@app.post("/api/sop/conformance", dependencies=[_author])
+def sop_conformance(body: SopApproveIn):
+    """Score a policy against the approved Governance Framework on demand (owner, money cap,
+    partner rights, idempotency, band) — the studio re-checks after an edit before approving."""
+    return {"ok": True, "conformance": governance.check_conformance(body.policy)}
 
 
 @app.post("/api/sop/delete", dependencies=[_approver])

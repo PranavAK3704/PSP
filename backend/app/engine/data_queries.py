@@ -7,8 +7,6 @@ This is how "where is my shipment / truck timing / payout status" is answered.
 """
 from __future__ import annotations
 
-from ..llm import registry as llm_registry
-from ..llm.gemini_provider import _parse_json
 from ..substrate import captain_context as ctx
 
 # Named, whitelisted queries. New data need = a new entry here (or emitted by the
@@ -47,26 +45,3 @@ def _run(name: str, params: dict, context: dict) -> list[dict]:
         return [{"cod_pendency_inr": cash.get("cod_pendency_inr", 0),
                  "deposits": cash.get("deposits", [])}]
     return []
-
-
-_SELECT_SYS = ("You route a captain's data question to ONE named query. You never write SQL. "
-               "Pick the single best query and any params (e.g. awb) from the message.")
-
-
-def select_query(message: str, entities: dict) -> dict:
-    provider, model = llm_registry.for_node("classify")
-    menu = "\n".join(f"- {k}: {v}" for k, v in QUERIES.items())
-    prompt = (f"Available queries:\n{menu}\n\nCaptain message: \"{message}\"\n"
-              f"Known entities: {entities}\n\n"
-              f'Return ONLY JSON: {{"query": "<one query name or none>", "params": {{"awb": "<or null>"}}}}')
-    res = provider.generate(prompt, model=model, node="classify", system=_SELECT_SYS, json_mode=True)
-    sel = _parse_json(res.text)
-    return {"query": sel.get("query", "none"), "params": sel.get("params", {}),
-            "model": res.model, "menu": list(QUERIES.keys())}
-
-
-def run_selected(message: str, entities: dict, context: dict) -> dict:
-    sel = select_query(message, entities)
-    name = sel["query"]
-    rows = _run(name, sel.get("params", {}), context) if name in QUERIES else []
-    return {"query": name, "params": sel.get("params", {}), "rows": rows, "model": sel["model"]}

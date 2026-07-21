@@ -55,11 +55,6 @@ class ClaudeProvider(LLMProvider):
         usage = {"input": msg.usage.input_tokens, "output": msg.usage.output_tokens}
         return text, usage, msg
 
-    def generate_json(self, prompt: str, *, model: str, node: str, system: Optional[str] = None):
-        from .gemini_provider import _parse_json  # shared, forgiving JSON extractor
-        res = self.generate(prompt, model=model, node=node, system=system, json_mode=True)
-        return _parse_json(res.text), res
-
     # ── tool-using agent loop ───────────────────────────────────────────────
     def chat(self, contents: list, *, model: str, system: Optional[str] = None,
              tools: Optional[list] = None):

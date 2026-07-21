@@ -252,13 +252,26 @@ def compile_sop_streamed(sop_text: str):
     yield _stage("partner_rights", "Binding Partner-Constitution rights",
                  {"partner_rights": policy.get("partner_rights", [])})
 
+    # GOVERNANCE: score the compiled policy against the org's approved Governance Framework
+    # (owner, money cap, partner rights, idempotency, band) so the author sees conformance
+    # BEFORE approving — the self-sustaining loop. Defensive: never break the compile stream.
+    try:
+        from . import governance
+        conformance = governance.check_conformance(policy)
+    except Exception:  # noqa: BLE001
+        conformance = None
+    if conformance:
+        yield _stage("conformance", "Checking governance conformance",
+                     {"band": conformance.get("band"), "conformant": conformance.get("conformant"),
+                      "findings": conformance.get("findings", [])})
+
     # DEDUP guardrail: surface already-compiled SOPs this one overlaps (non-blocking warning).
     similar = find_similar_sops(policy.get("title") or policy.get("disposition") or "", sop_text)
     # gaps = missing decision-logic + FIDELITY (specifics the compiler dropped vs the source text)
     gaps = detect_policy_gaps(policy) + detect_fidelity_gaps(sop_text, policy)
     yield {"stage": "done", "label": "Executable Policy compiled",
            "policy": policy, "gaps": gaps, "meta": meta,
-           "similar_sops": similar}
+           "similar_sops": similar, "conformance": conformance}
 
 
 def _sop_entry(p: dict, contributor: str, status: str) -> dict:
@@ -303,6 +316,13 @@ def _sop_entry(p: dict, contributor: str, status: str) -> dict:
         "type": "policy", "status": status, "compiled_sop": True,
         "policy": p, "submitted_at": now,
     }
+    # Stamp governance conformance on the stored SOP so the Knowledge Base can show its band +
+    # whether it conforms (advisory — never blocks the write). Lazy import; never fatal.
+    try:
+        from . import governance
+        entry["conformance"] = governance.check_conformance(p)
+    except Exception:  # noqa: BLE001
+        pass
     if status == "approved":
         entry["reviewed_by"] = contributor
         entry["reviewed_at"] = now

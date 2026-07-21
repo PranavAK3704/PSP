@@ -190,17 +190,23 @@ def _persist_trace(conversation_id: str, captain_id: str, trace: list[dict], hol
     failure (or a turn with no concern_id) is swallowed silently — the live turn
     already completed streaming by the time this runs."""
     try:
-        # concern_id preferentially from the terminal concern, else the reply event's data.
-        concern_id = holder.get("concern_id")
-        if not concern_id:
+        # every concern created this turn (multi-intent turns create more than one), else
+        # the reply event's concern_id. The same worked trace attaches to each.
+        ids = list(holder.get("concern_ids") or [])
+        if holder.get("concern_id") and holder["concern_id"] not in ids:
+            ids.append(holder["concern_id"])
+        if not ids:
             for ev in reversed(trace):
                 if ev.get("node") == "reply":
-                    concern_id = (ev.get("data") or {}).get("concern_id")
+                    cid = (ev.get("data") or {}).get("concern_id")
+                    if cid:
+                        ids.append(cid)
                     break
-        if not concern_id:
+        if not ids:
             return   # informational turns with no concern — skip silently
         from ..ledger import trace_log
-        trace_log.save(concern_id, captain_id, conversation_id, trace)
+        for cid in dict.fromkeys(ids):   # dedupe, preserve order
+            trace_log.save(cid, captain_id, conversation_id, trace)
     except Exception:  # noqa: BLE001 — a trace-save failure must NEVER break the turn
         pass
 
@@ -267,6 +273,8 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
             concern = terminal_concern or _log_info_concern(conversation_id, captain_id, message,
                                                             reply, channel)
             holder["concern_id"] = concern["id"]
+            if concern.get("id"):
+                holder.setdefault("concern_ids", []).append(concern["id"])
             yield _y({"node": "reply", "label": "Reply", "status": "done", "detail": reply,
                    "data": {"reply": reply, "decision_action": terminal_action,
                             "concern_id": concern["id"]}})
@@ -289,6 +297,8 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
             if concern is not None:
                 terminal_concern, terminal_action = concern, action
                 holder["concern_id"] = concern.get("id")
+                if concern.get("id"):   # a turn can create >1 concern (multi-intent) — keep them all
+                    holder.setdefault("concern_ids", []).append(concern["id"])
             resp_parts.append({"functionResponse": {"name": name, "response": result}})
         sess.contents.append({"role": "user", "parts": resp_parts})
 

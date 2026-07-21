@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getL3, resolveL3, submitNuance } from "../lib/api.js";
 
-const sev = (s) => (s === "high" ? "text-error" : s === "medium" ? "text-warn" : "text-tertiary");
 const sevBg = (s) => (s === "high" ? "bg-error/10 text-error border border-error/30" : s === "medium" ? "bg-warn/10 text-warn border border-warn/30" : "bg-tertiary/10 text-tertiary border border-tertiary/30");
 const shortTeam = (t) => (t || "").replace(/\s*\(.*\)/, "");
 

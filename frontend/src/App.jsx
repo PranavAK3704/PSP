@@ -32,6 +32,14 @@ const ROLE_TONE = {
   author: "text-secondary-container bg-secondary-container/10 border-secondary-container/30",
   viewer: "text-on-surface-variant bg-surface-variant/40 border-on-primary-fixed-variant/20",
 };
+// Plain-language labels for the operator role model — leadership shouldn't have to parse
+// "approver/author/viewer". Backend role values are unchanged; this is display only.
+const ROLE_LABEL = { approver: "Admin", author: "Editor", viewer: "Viewer" };
+const ROLE_HINT = {
+  approver: "Full access — sees everything, approves go-lives, and manages the team. Use this for leadership who need admin rights.",
+  author: "Can draft and queue knowledge (SOPs, brains); cannot make things go live.",
+  viewer: "Read-only — sees every dashboard, metric, and audit; changes nothing. Good for leadership who only observe.",
+};
 
 // Wrap the whole app in the auth gate: no valid session → Login; otherwise the shell.
 export default function App() {
@@ -107,7 +115,7 @@ function Login() {
           {busy ? "Signing in…" : "Sign in"}
         </button>
         <p className="text-[10px] text-on-surface-variant/70 mt-md text-center leading-relaxed">
-          Access is role-based. Ask an approver on your team to create your account.
+          Access is role-based. Ask an admin on your team to create your account.
         </p>
       </form>
     </div>
@@ -120,22 +128,36 @@ function Login() {
 const ADMIN_ROLES = ["viewer", "author", "approver"];
 function TeamAdmin({ onClose }) {
   const [users, setUsers] = useState([]);
-  const [form, setForm] = useState({ email: "", name: "", role: "author", password: "" });
+  const [form, setForm] = useState({ email: "", name: "", role: "approver", password: "" });
   const [err, setErr] = useState("");
-  const [ok, setOk] = useState("");
+  const [created, setCreated] = useState(null);   // { email, password, role } to hand over
   const [busy, setBusy] = useState(false);
 
   const load = () => listUsers().then((d) => setUsers(d.users || [])).catch(() => {});
   useEffect(() => { load(); }, []);
 
+  // Strong, unambiguous temp password (no 0/O/1/l/I) so onboarding a leader is one click.
+  const genPassword = () => {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+    const arr = new Uint32Array(14);
+    (window.crypto || {}).getRandomValues?.(arr);
+    const pw = arr.length && arr[0] !== undefined
+      ? Array.from(arr, (n) => chars[n % chars.length]).join("")
+      : Math.random().toString(36).slice(2, 12) + "Aa9";
+    setForm((f) => ({ ...f, password: pw }));
+  };
+
   async function add(e) {
     e.preventDefault();
     if (busy || !form.email.trim() || !form.password) return;
-    setBusy(true); setErr(""); setOk("");
+    setBusy(true); setErr(""); setCreated(null);
     try {
       const r = await createUser({ ...form, email: form.email.trim() });
-      if (r.ok) { setOk(`Added ${r.user.email} (${r.user.role}).`); setForm({ email: "", name: "", role: "author", password: "" }); load(); }
-      else setErr(r.detail || "Could not create user");
+      if (r.ok) {
+        setCreated({ email: r.user.email, password: form.password, role: r.user.role });
+        setForm((f) => ({ email: "", name: "", role: f.role, password: "" }));   // keep the role for adding several
+        load();
+      } else setErr(r.detail || "Could not create user");
     } catch (ex) { setErr(ex.message || "Could not create user"); }
     finally { setBusy(false); }
   }
@@ -165,7 +187,7 @@ function TeamAdmin({ onClose }) {
                     <div className="text-sm font-semibold truncate">{u.name || u.email}</div>
                     <div className="text-[10px] text-on-surface-variant truncate" style={{ fontFamily: "JetBrains Mono" }}>{u.email}</div>
                   </div>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${ROLE_TONE[u.role] || ROLE_TONE.viewer}`}>{u.role}</span>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${ROLE_TONE[u.role] || ROLE_TONE.viewer}`}>{ROLE_LABEL[u.role] || u.role}</span>
                 </div>
               ))}
             </div>
@@ -179,21 +201,48 @@ function TeamAdmin({ onClose }) {
                 className="bg-surface-container-lowest border border-on-primary-fixed-variant/20 rounded-lg px-sm py-1.5 text-[13px] focus:outline-none focus:border-secondary-container placeholder:text-on-surface-variant/40" />
               <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="name"
                 className="bg-surface-container-lowest border border-on-primary-fixed-variant/20 rounded-lg px-sm py-1.5 text-[13px] focus:outline-none focus:border-secondary-container placeholder:text-on-surface-variant/40" />
-              <input value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="temp password" type="text"
-                className="bg-surface-container-lowest border border-on-primary-fixed-variant/20 rounded-lg px-sm py-1.5 text-[13px] focus:outline-none focus:border-secondary-container placeholder:text-on-surface-variant/40" />
+              <div className="flex gap-1.5">
+                <input value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="temp password" type="text"
+                  className="flex-1 min-w-0 bg-surface-container-lowest border border-on-primary-fixed-variant/20 rounded-lg px-sm py-1.5 text-[13px] focus:outline-none focus:border-secondary-container placeholder:text-on-surface-variant/40" />
+                <button type="button" onClick={genPassword} title="Generate a strong temp password"
+                  className="flex-none px-2 rounded-lg border border-on-primary-fixed-variant/20 text-on-surface-variant hover:text-secondary-container hover:border-secondary-container/40">
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>casino</span>
+                </button>
+              </div>
               <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}
-                className="bg-surface-container-lowest border border-on-primary-fixed-variant/20 rounded-lg px-sm py-1.5 text-[13px] focus:outline-none focus:border-secondary-container" style={{ fontFamily: "JetBrains Mono" }}>
-                {ADMIN_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                className="bg-surface-container-lowest border border-on-primary-fixed-variant/20 rounded-lg px-sm py-1.5 text-[13px] focus:outline-none focus:border-secondary-container">
+                {ADMIN_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r] || r}</option>)}
               </select>
             </div>
+            <p className="text-[10px] text-on-surface-variant/70 mb-sm leading-relaxed">{ROLE_HINT[form.role]}</p>
             {err && <div className="text-xs text-error mb-sm flex items-center gap-1"><span className="material-symbols-outlined" style={{ fontSize: 15 }}>error</span>{err}</div>}
-            {ok && <div className="text-xs text-tertiary mb-sm flex items-center gap-1"><span className="material-symbols-outlined" style={{ fontSize: 15 }}>check_circle</span>{ok}</div>}
+            {created && (
+              <div className="mb-sm rounded-lg border border-tertiary/30 bg-tertiary/10 p-md">
+                <div className="text-[11px] font-bold text-tertiary flex items-center gap-1 mb-1">
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>check_circle</span>
+                  {ROLE_LABEL[created.role] || created.role} account created — share these credentials
+                </div>
+                <div className="text-[12px] leading-relaxed" style={{ fontFamily: "JetBrains Mono" }}>
+                  <div>{created.email}</div>
+                  <div>{created.password}</div>
+                </div>
+                <div className="flex gap-2 mt-2">
+                  <button type="button"
+                    onClick={() => navigator.clipboard?.writeText(`Valmo Advocate login\nURL: ${window.location.origin}\nEmail: ${created.email}\nTemp password: ${created.password}\n(You'll be asked to change it — please do.)`)}
+                    className="text-[11px] px-2 py-1 rounded border border-tertiary/30 text-tertiary hover:bg-tertiary/10 flex items-center gap-1">
+                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>content_copy</span>Copy invite
+                  </button>
+                  <button type="button" onClick={() => setCreated(null)}
+                    className="text-[11px] px-2 py-1 rounded border border-on-primary-fixed-variant/20 text-on-surface-variant hover:text-error">Dismiss</button>
+                </div>
+              </div>
+            )}
             <button type="submit" disabled={busy || !form.email.trim() || !form.password}
               className="bg-secondary-container text-on-secondary px-lg py-sm rounded-lg font-bold text-sm flex items-center gap-2 hover:brightness-110 disabled:opacity-50 transition-all">
               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>person_add</span>Add member
             </button>
             <p className="text-[10px] text-on-surface-variant/70 mt-sm leading-relaxed">
-              Roles: <b>viewer</b> reads only · <b>author</b> can draft/queue knowledge · <b>approver</b> can make things go live and manage the team.
+              <b>Admin</b> = full access + manage the team (use for leadership who need control) · <b>Editor</b> = draft/queue knowledge · <b>Viewer</b> = read-only (leadership who only observe).
             </p>
           </form>
         </div>
@@ -257,7 +306,7 @@ function Shell() {
                     whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 128 }}
                     title={user.name || user.email}>{user.name || user.email}</div>
                   <span className={`inline-block mt-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${ROLE_TONE[user.role] || ROLE_TONE.viewer}`}>
-                    {user.role}</span>
+                    {ROLE_LABEL[user.role] || user.role}</span>
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
                   {isApprover && (

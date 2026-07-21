@@ -137,6 +137,7 @@ def retrieve(query: str, k: int = 6, queue: str | None = None, tags: list[str] |
         out.append({
             "id": c["id"], "kind": c["kind"], "title": c["title"],
             "text": c["text"][:500], "queue": c.get("queue", ""),
+            "disposition": c.get("disposition", ""),   # carry the SOP's concern category for routing
             "knowledge_type": c.get("knowledge_type", "procedure"),  # policy | procedure
             "source_repo": c["source_repo"], "score": round(score, 1),
         })

@@ -9,6 +9,7 @@ from __future__ import annotations
 import difflib
 import json
 import re
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,7 @@ from ..durable_state import durable_path
 # the SAME store the KT engine and retrieval corpus use (state_paths lists kt_queue as durable
 # state). Locally $PSP_STATE_DIR is unset so this resolves to backend/data, unchanged.
 _KT_STORE = durable_path("kt_queue.json")
+_lock = threading.Lock()   # serialize read-modify-write of the shared kt_queue (parity w/ other stores)
 
 _SYSTEM = """You are the SOP Compiler for Valmo's partner-support resolution engine.
 You convert a plain-language Standard Operating Procedure into a strict, executable
@@ -251,7 +253,7 @@ def compile_sop_streamed(sop_text: str):
                  {"partner_rights": policy.get("partner_rights", [])})
 
     # DEDUP guardrail: surface already-compiled SOPs this one overlaps (non-blocking warning).
-    similar = find_similar_sops(policy.get("disposition", "") or "", sop_text)
+    similar = find_similar_sops(policy.get("title") or policy.get("disposition") or "", sop_text)
     # gaps = missing decision-logic + FIDELITY (specifics the compiler dropped vs the source text)
     gaps = detect_policy_gaps(policy) + detect_fidelity_gaps(sop_text, policy)
     yield {"stage": "done", "label": "Executable Policy compiled",
@@ -314,24 +316,27 @@ def _persist_sop(policy: dict, contributor: str, status: str, sop_id: str = "") 
     dropped so drafts don't pile up and a queued draft becomes its approved form cleanly. Approved
     SOPs reload the retrieval corpus so the engine follows them immediately (parity with kt.review)."""
     p = policy or {}
-    # Ensure the first-run seed is planted before we touch the store, so writing an SOP can
-    # never pre-empt the seed (which would otherwise be skipped once the file is non-empty).
+    # Plant the seed before touching the store (so a write can't pre-empt it once the file is non-empty).
     from ..kt import engine as _kt
+    from ..durable_state import read_confirmed
     _kt.ensure_seeded()
     entry = _sop_entry(p, contributor, status)
     if sop_id:
         entry["id"] = sop_id                       # keep the same id when editing in place
-    items = json.loads(_KT_STORE.read_text()) if _KT_STORE.exists() else []
     disp = str(p.get("disposition") or "").strip().lower()
-    items = [e for e in items
-             if e.get("id") != sop_id                                    # drop the edited entry
-             and not (not sop_id and e.get("compiled_sop") and e.get("status") == "draft"
-                      and disp and str((e.get("policy") or {}).get("disposition", "")).strip().lower() == disp)]
-    items.append(entry)
-    _KT_STORE.write_text(json.dumps(items, indent=1))
-    if status == "approved":
-        from . import store
-        store.reload()
+    with _lock:                                    # atomic read-modify-write
+        ok, items = read_confirmed("kt_queue.json")
+        if not ok:                                 # store unreadable → refuse to write (would clobber authored SOPs)
+            raise RuntimeError("knowledge store temporarily unavailable — please retry")
+        items = items or []
+        items = [e for e in items
+                 if e.get("id") != sop_id                                    # drop the edited entry
+                 and not (not sop_id and e.get("compiled_sop") and e.get("status") == "draft"
+                          and disp and str((e.get("policy") or {}).get("disposition", "")).strip().lower() == disp)]
+        items.append(entry)
+        _KT_STORE.write_text(json.dumps(items, indent=1))
+    from . import store
+    store.reload()                                 # always reload — a demote-to-draft must drop the stale approved chunk too
     return entry
 
 
@@ -353,12 +358,17 @@ def delete_sop(sop_id: str) -> bool:
     if not sop_id:
         return False
     from ..kt import engine as _kt
+    from ..durable_state import read_confirmed
     _kt.ensure_seeded()
-    items = json.loads(_KT_STORE.read_text()) if _KT_STORE.exists() else []
-    kept = [e for e in items if e.get("id") != sop_id]
-    if len(kept) == len(items):
-        return False
-    _KT_STORE.write_text(json.dumps(kept, indent=1))
+    with _lock:
+        ok, items = read_confirmed("kt_queue.json")
+        if not ok:
+            raise RuntimeError("knowledge store temporarily unavailable — please retry")
+        items = items or []
+        kept = [e for e in items if e.get("id") != sop_id]
+        if len(kept) == len(items):
+            return False
+        _KT_STORE.write_text(json.dumps(kept, indent=1))
     from . import store
     store.reload()
     return True

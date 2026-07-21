@@ -141,3 +141,33 @@ def read_json(name: str, default):
 
 def write_json(name: str, obj) -> None:
     _DurablePath(name).write_text(json.dumps(obj, indent=1))
+
+
+def read_confirmed(name: str):
+    """(ok, parsed_or_None). ok=False means a durable read was ATTEMPTED but FAILED (transport
+    error) — the caller must NOT overwrite the store, because it can't know the real state and a
+    write would clobber durable truth with whatever the wiped local cache holds. ok=True means the
+    state is known (value, or None if genuinely absent). With durable off, the local file is truth."""
+    if not _init():
+        p = Path(state_path(name))
+        if p.exists():
+            try:
+                return (True, json.loads(p.read_text()))
+            except Exception:  # noqa: BLE001
+                return (True, None)
+        return (True, None)
+    ok, v = _fetch(name)
+    if not ok:
+        return (False, None)                 # transport error — state unknown; do not write
+    if v is None:
+        p = Path(state_path(name))            # durable confirms absent; honor an unmigrated local file
+        if p.exists():
+            try:
+                return (True, json.loads(p.read_text()))
+            except Exception:  # noqa: BLE001
+                return (True, None)
+        return (True, None)
+    try:
+        return (True, json.loads(v))
+    except Exception:  # noqa: BLE001
+        return (True, None)

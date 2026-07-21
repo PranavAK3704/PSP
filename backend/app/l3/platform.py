@@ -11,9 +11,12 @@ the product owner — a stub scorer is wired so the shape is real and swappable.
 """
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timezone
 
 from ..ledger import concern_log
+
+_resolve_lock = threading.Lock()   # make resolve()'s check-then-append atomic (no double-resolve)
 
 # Per-team SLA (hours) + escalation ladder. Config, not code (BRD §15.2).
 TEAM_SLA = {
@@ -99,22 +102,23 @@ def resolve(concern_id: str, note: str = "", resolver: str = "L3") -> dict:
     append-only) that (a) drops the case from the active inbox and (b) becomes the
     captain-facing follow-up. Idempotent: a second call for an already-resolved case no-ops."""
     import uuid
-    all_concerns = concern_log.all_concerns()
-    orig = next((c for c in all_concerns if c.get("id") == concern_id), None)
-    if not orig:
-        return {"error": "concern not found"}
-    if any(c.get("resolves_concern_id") == concern_id for c in all_concerns):
-        return {"ok": True, "already_resolved": True, "resolved_concern_id": concern_id}
-    followup = concern_log.append({
-        "id": "CNC-" + uuid.uuid4().hex[:8].upper(),
-        "captain_id": orig.get("captain_id"), "channel": "l3",
-        "intent": f"Resolved: {orig.get('intent', '')}"[:80],
-        "disposition": orig.get("disposition"), "action_taken": "resolved_by_l3",
-        "amount_inr": orig.get("amount_inr"), "outcome": "l3_resolved",
-        "resolves_concern_id": concern_id, "resolution_note": note, "resolver": resolver,
-        "reply": note or "Your escalated case has been resolved by the team.",
-        "evidence_trail": orig.get("evidence_trail", []),
-    })
+    with _resolve_lock:   # check-then-append must be atomic, else two clicks double-resolve one case
+        all_concerns = concern_log.all_concerns()
+        orig = next((c for c in all_concerns if c.get("id") == concern_id), None)
+        if not orig:
+            return {"error": "concern not found"}
+        if any(c.get("resolves_concern_id") == concern_id for c in all_concerns):
+            return {"ok": True, "already_resolved": True, "resolved_concern_id": concern_id}
+        followup = concern_log.append({
+            "id": "CNC-" + uuid.uuid4().hex[:8].upper(),
+            "captain_id": orig.get("captain_id"), "channel": "l3",
+            "intent": f"Resolved: {orig.get('intent', '')}"[:80],
+            "disposition": orig.get("disposition"), "action_taken": "resolved_by_l3",
+            "amount_inr": orig.get("amount_inr"), "outcome": "l3_resolved",
+            "resolves_concern_id": concern_id, "resolution_note": note, "resolver": resolver,
+            "reply": note or "Your escalated case has been resolved by the team.",
+            "evidence_trail": orig.get("evidence_trail", []),
+        })
     return {"ok": True, "followup": followup, "resolved_concern_id": concern_id}
 
 

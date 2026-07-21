@@ -147,7 +147,9 @@ def _coerce_result(parsed: dict, rubric: dict) -> dict:
     raw = (parsed or {}).get("per_dimension") or {}
     per_dimension: dict = {}
     for d in rubric.get("dimensions", []):
-        entry = raw.get(d["key"]) or {}
+        entry = raw.get(d["key"])
+        if not isinstance(entry, dict):   # LLM sometimes emits a bare number/string per dimension
+            entry = {}
         try:
             score = float(entry.get("score", 0) or 0)
         except (TypeError, ValueError):

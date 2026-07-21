@@ -63,12 +63,12 @@ def verify(token: str) -> dict | None:
     """Return the payload dict if the signature is valid AND not expired, else None."""
     if not token or "." not in token:
         return None
-    body, _, sig = token.partition(".")
-    if not hmac.compare_digest(sig, _sig(body)):
-        return None
     try:
+        body, _, sig = token.partition(".")
+        if not hmac.compare_digest(sig, _sig(body)):   # non-ASCII sig/body would raise here
+            return None
         payload = json.loads(_b64u_decode(body))
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 — malformed / non-ASCII token → invalid (401), never a 500
         return None
     exp = payload.get("exp") if isinstance(payload, dict) else None
     if not isinstance(exp, (int, float)) or time.time() > exp:

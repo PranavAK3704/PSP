@@ -8,6 +8,7 @@ for the partner-support team to action (new SOP / KT / data gap).
 from __future__ import annotations
 
 import json
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,7 @@ from ..durable_state import durable_path
 
 # MUTABLE store → durable state dir (survives redeploys); default backend/data.
 _STORE = durable_path("cpd_log.json")
+_lock = threading.Lock()
 
 
 def _load() -> list[dict]:
@@ -31,7 +33,6 @@ def _load() -> list[dict]:
 
 def record_satisfaction(concern_id: str, captain_id: str, satisfied: bool, note: str = "") -> dict:
     """Log a satisfaction outcome. Dissatisfaction → a CPD item."""
-    items = _load()
     entry = {
         "id": "CPD-" + uuid.uuid4().hex[:6].upper(),
         "concern_id": concern_id, "captain_id": captain_id,
@@ -39,8 +40,10 @@ def record_satisfaction(concern_id: str, captain_id: str, satisfied: bool, note:
         "is_cpd": not satisfied, "status": "open" if not satisfied else "closed",
         "at": datetime.now(timezone.utc).isoformat(),
     }
-    items.append(entry)
-    _STORE.write_text(json.dumps(items, indent=1))
+    with _lock:                       # atomic read-modify-write (parity with the other ledger stores)
+        items = _load()
+        items.append(entry)
+        _STORE.write_text(json.dumps(items, indent=1))
     return entry
 
 

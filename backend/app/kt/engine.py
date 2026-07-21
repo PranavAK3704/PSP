@@ -62,15 +62,6 @@ ATTACHMENTS (summaries, if any):
 """
 
 
-def _read() -> list[dict]:
-    if _STORE.exists():
-        try:
-            return json.loads(_STORE.read_text())
-        except Exception:  # noqa: BLE001
-            return []
-    return []
-
-
 def _load() -> list[dict]:
     """Read the store and reconcile it with the baked seed SOPs (matched by stable id):
       • a seed id not in the store   → added,
@@ -80,7 +71,16 @@ def _load() -> list[dict]:
       • anything the team authored → left untouched.
     Nothing is ever duplicated; user edits always win. Baked in code, so seeds survive an
     ephemeral-state reset."""
-    items = _read()
+    from ..durable_state import read_confirmed
+    ok, items = read_confirmed("kt_queue.json")
+    if not ok:
+        # DURABLE READ FAILED (transient Turso error) and the local cache may be wiped (free tier).
+        # Reconciling now would _save() seeds-only and CLOBBER every authored/approved SOP. Instead
+        # serve the baked seeds in-memory for this call and write NOTHING — the next call re-reads
+        # once Turso recovers, and the durable truth is preserved.
+        ts = datetime.now(timezone.utc).isoformat()
+        return [_policy_to_entry(p, ts) for p in _seed_policies()]
+    items = items or []
     seeds = {p.get("id"): p for p in _seed_policies()}
     ts = datetime.now(timezone.utc).isoformat()
     out, seen, changed = [], set(), False

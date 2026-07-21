@@ -529,6 +529,8 @@ def _extract_text(raw: bytes, content_type: str, filename: str) -> str:
     structure it. Handles: PDF (pypdf), Excel .xlsx (openpyxl), Word .docx (python-docx),
     and utf-8 text/csv/markdown/plain. Tables are flattened to readable rows so the LLM
     keeps the structure. Raises 400 on empty/unreadable content."""
+    if raw and len(raw) > 12_000_000:   # ~12MB cap — a huge upload read fully into memory could OOM
+        raise HTTPException(status_code=413, detail="File too large — please upload under ~12MB.")
     import io as _io
     ctype = (content_type or "").lower()
     name = (filename or "").lower()

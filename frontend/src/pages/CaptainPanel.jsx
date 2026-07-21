@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Send, Mic, MicOff, Cpu, Radio, Plus, ThumbsUp, ThumbsDown, Paperclip, X,
-  ChevronDown, ChevronRight, Clock, CheckCircle2, MessageSquare, FolderOpen, Trash2 } from "lucide-react";
+import { Send, Mic, MicOff, Cpu, Radio, ThumbsUp, ThumbsDown, Paperclip, X,
+  ChevronRight, Clock, CheckCircle2, MessageSquare, FolderOpen, Trash2 } from "lucide-react";
 
 // Indic voice-input languages (Web Speech API BCP-47 codes). North = Hindi/English;
 // South + Maharashtra need their own — captains are across all regions.
@@ -12,11 +12,11 @@ import Pipeline from "../components/Pipeline.jsx";
 import DecisionCore from "../components/DecisionCore.jsx";
 import { stream, getCaptains, sendSatisfaction, getCaptainCases } from "../lib/api.js";
 import { useChatStore } from "../lib/chatStore.jsx";
-import { setLastTrace } from "../lib/traceStore.js";
 
 // tiny, safe markdown → HTML for bot replies (bold, bullets, links, breaks).
 function mdToHtml(s) {
-  let h = (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  let h = (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");   // escape quotes too — else a URL with a quote breaks out of href=""
   h = h.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   h = h.replace(/(https?:\/\/\S+)/g,
     '<a href="$1" target="_blank" rel="noreferrer" style="color:var(--signal);word-break:break-all">$1</a>');
@@ -69,6 +69,7 @@ export default function CaptainPanel() {
   const [vstate, setVstate] = useState("idle");    // idle | listening | thinking | speaking
   const [heard, setHeard] = useState("");          // live transcript of the captain
   const convoRef = useRef(false);
+  const convIdRef = useRef(null);   // live conversation_id (voice loop closures freeze `active`, so we can't read it there)
   const [attachments, setAttachments] = useState([]);
   const [railOpen, setRailOpen] = useState(true);
   const [cases, setCases] = useState([]);
@@ -87,12 +88,10 @@ export default function CaptainPanel() {
   const active = store.getActive(captainId);
   const messages = active.messages;
   const setMessages = (updater) => store.setMessages(captainId, updater);
+  useEffect(() => { convIdRef.current = active.convId || null; }, [active.convId]);   // keep the ref current
 
   useEffect(() => { getCaptains().then((d) => setCaptains(d.captains || [])); }, []);
   useEffect(() => { scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight); }, [messages]);
-  // Additive: mirror the live trace into a shared store so the standalone Resolution
-  // Trace view can render the latest resolution. Does not touch this panel's own rail.
-  useEffect(() => { setLastTrace(events, phase); }, [events, phase]);
 
   // Poll "My Cases" so an L3 resolution appears live (without a refresh). Reset baseline per captain.
   useEffect(() => {
@@ -125,8 +124,8 @@ export default function CaptainPanel() {
     setEvents([]);
     setBusy(true); setPhase("thinking");
     if (convoRef.current) setVstate("thinking");
-    let cid = active.convId;
-    if (!cid) { cid = crypto.randomUUID(); store.setConvId(captainId, cid); }
+    let cid = convIdRef.current;   // ref, not the frozen `active` — so the hands-free loop reuses one conversation
+    if (!cid) { cid = crypto.randomUUID(); convIdRef.current = cid; store.setConvId(captainId, cid); }
     await stream(
       { url: "/api/chat", method: "POST",
         body: { captain_id: captainId, message: msg, conversation_id: cid,
@@ -236,7 +235,8 @@ export default function CaptainPanel() {
     try { recRef.current?.stop(); } catch (_) { /* noop */ }
     window.speechSynthesis?.cancel();
   }
-  function interruptBot() {   // tap the orb while it's talking → cut off + listen now
+  function interruptBot() {   // tap the orb while it's TALKING → cut off + listen; ignore taps mid-think
+    if (vstate !== "speaking") return;
     window.speechSynthesis?.cancel();
     if (convoRef.current) listen();
   }

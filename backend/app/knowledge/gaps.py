@@ -15,8 +15,9 @@ import re
 from pathlib import Path
 
 from . import store
+from ..durable_state import durable_path
 
-_KT = Path(__file__).resolve().parents[2] / "data" / "kt_queue.json"
+_KT = durable_path("kt_queue.json")   # durable store (was a hardcoded backend/data path → wrong in prod)
 _SCENARIO = re.compile(r"_(HS|SL|CON|FNF|PAY|ORD|COD|INV|SH|RVP)_\d+", re.I)
 _HAS_REQ = re.compile(r"required (from|input|inputs|of the (captain|partner))", re.I)
 _SKIP_THEMES = {"kt_notes", "domain", ""}

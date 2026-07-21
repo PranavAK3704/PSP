@@ -272,9 +272,15 @@ def _apply_policy(args: dict, captain_id: str, context: dict, channel: str, atta
         events.append(_evt("act", "ACT — idempotent write", detail=act["detail"], data=act))
         action = decision["action"]
         outcome = "resolved_in_conversation"
+        relay_reason = decision["reason"]
     else:
         action = "escalate"
         team = (decision.get("policy") or {}).get("escalation", {}).get("team", "Functional team (L2/L3)")
+        # Do NOT relay the (unexecuted) resolution reason on escalation — it says "this debit is
+        # reversed", which would tell the captain money moved when nothing was written and the case
+        # only went to L2. Relay an escalation-truthful line instead.
+        relay_reason = (f"I couldn't confirm a fix from the records, so I've routed this to {team} "
+                        f"for review — you'll be updated with the outcome.")
         events.append(_evt("escalate", "Escalate — worked case",
                            detail=f"Routed to {team}",
                            data={"team": team, "worked_case": {
@@ -299,7 +305,7 @@ def _apply_policy(args: dict, captain_id: str, context: dict, channel: str, atta
     stored = concern_log.append(concern)
 
     result = {"action": action, "outcome": outcome, "amount_inr": decision.get("amount_inr"),
-              "reason": decision["reason"], "gate_passed": verdict["passed"],
+              "reason": relay_reason, "gate_passed": verdict["passed"],
               "verifier_agrees": verifier_agrees, "concern_id": stored["id"],
               "evidence": [f"{e['label']}: {e['value']}" for e in decision.get("evidence_trail", [])],
               "escalation_team": (decision.get("policy") or {}).get("escalation", {}).get("team")

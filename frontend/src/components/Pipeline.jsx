@@ -4,7 +4,7 @@ import DecisionCore from "./DecisionCore.jsx";
 import {
   Mic, Search, Database, GitBranch, ShieldCheck, Scale, Swords,
   Zap, MessageSquareHeart, Archive, AlertTriangle, CheckCircle2, XCircle,
-  CircleDot, Sparkles, Cpu, BookOpen, HelpCircle, Clock,
+  CircleDot, Sparkles, BookOpen, HelpCircle, Clock,
 } from "lucide-react";
 
 const ICONS = {

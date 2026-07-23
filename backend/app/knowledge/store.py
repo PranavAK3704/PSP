@@ -13,7 +13,6 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from ..state_paths import state_path
 from ..durable_state import durable_path
 
 _DATA = Path(__file__).resolve().parents[2] / "data" / "knowledge"

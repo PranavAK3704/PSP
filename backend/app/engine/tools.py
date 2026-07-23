@@ -13,7 +13,6 @@ import uuid
 
 from ..knowledge import store
 from ..ledger import concern_log
-from ..substrate import captain_context as ctx_svc
 from ..trust import gate as trust_gate
 from ..trust import verifier
 from . import data_queries, policy_exec

@@ -295,23 +295,3 @@ def _balance_tool_calls(messages: list) -> list:
             continue
         i += 1
     return out
-
-
-def _parse_json(text: str):
-    text = (text or "").strip()
-    if not text:
-        return {}
-    if text.startswith("```"):
-        text = text.split("```", 2)[1] if text.count("```") >= 2 else text.strip("`")
-        if text.lstrip().startswith("json"):
-            text = text.lstrip()[4:]
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        start, end = text.find("{"), text.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            try:
-                return json.loads(text[start:end + 1])
-            except json.JSONDecodeError:
-                pass
-    return {}

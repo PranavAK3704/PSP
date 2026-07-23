@@ -2,11 +2,12 @@
 
 This deploys the Valmo Partner Support Platform as **one Docker web service** on
 Render: FastAPI serves the built React SPA at `/` and the API at `/api/*`
-(same-origin, SSE included). A **persistent disk** keeps authored config across
-redeploys. Secrets are set in the Render dashboard — never committed.
+(same-origin, SSE included). Authored config (SOPs, brains, the governance
+framework, users) is persisted to **Turso** — durable across redeploys, since the
+free tier has no disk. Secrets are set in the Render dashboard — never committed.
 
 > This is the production path. Local dev is unchanged: `./run.sh` (Vite :5190 +
-> uvicorn :8077). The `_deploy_archive/` nginx flow is unrelated to this.
+> uvicorn :8077).
 
 ## What ships
 - `Dockerfile` — multi-stage: node builds the SPA → python serves it + the API.

@@ -12,11 +12,9 @@ import re
 import threading
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
 from ..llm import registry as llm_registry
 from ..llm.gemini_provider import _parse_json
-from ..state_paths import state_path
 from ..durable_state import durable_path
 
 # Compiled SOPs live as APPROVED KT (tagged compiled_sop) in the durable-state kt_queue —

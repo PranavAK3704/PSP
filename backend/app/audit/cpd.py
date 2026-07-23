@@ -11,10 +11,8 @@ import json
 import threading
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
 from ..ledger import concern_log
-from ..state_paths import state_path
 from ..durable_state import durable_path
 
 # MUTABLE store → durable state dir (survives redeploys); default backend/data.

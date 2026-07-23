@@ -16,16 +16,16 @@ was designed so the swap is a config/connector change, not a rewrite (BRD §15.2
 
 | # | Area | Demo build | Production (per BRD) | Where to swap |
 |---|------|-----------|----------------------|---------------|
-| 1 | **Reasoning model** | Gemini `2.5-flash` (conversation + tool loop) + `2.5-pro` (money reasoning + verifier) | Claude tiers — **and a free/cheap tool-capable model on the ~70% conversation tier** (Groq Llama 3.3 / OSS), premium only for the money path (§10) | `config/models.yaml` → `provider` + per-node tier; `app/llm/claude_provider.py` written |
+| 1 | **Reasoning model** | **OpenAI `gpt-5.5` on every tier** via the gateway (fast == deep today); the fast/deep split + Claude/Gemini are config-swappable | Claude tiers — **and a free/cheap tool-capable model on the ~70% conversation tier** (Groq Llama 3.3 / OSS), premium only for the money path (§10) | `config/models.yaml` → `provider` + per-node tier; `app/llm/claude_provider.py` written |
 | 2 | **Data substrate** | `DemoDataProvider` returns canned **Metabase-shaped query results** from seed (`app/substrate/seed.py`) | `MetabaseProvider` runs **parameterized queries against Meesho DB root** (via Metabase), assembled by the Captain Context service (§6.1–6.2) | `app/substrate/captain_context.py::_provider` → `MetabaseProvider`; set `METABASE_*` env |
 | 3 | **Disposition retrieval** | Lexical/keyword scorer over the corpus (`app/knowledge/store.py`) | Voyage AI (or self-hosted BGE/E5) embeddings + pgvector (§10, §12) | `store.retrieve()` — contract unchanged |
-| 4 | **Datastore** | Append-only **JSON files** (`data/concern_log.json`, `data/knowledge/`) | Postgres (Concern Log, decisions, audit) + pgvector (§8, §12) | `app/ledger/concern_log.py`, `app/knowledge/*` persistence |
+| 4 | **Datastore** | Append-only **JSON**, now written through to **Turso** (durable across free-tier restarts — no disk) via `durable_state.py` | Postgres (Concern Log, decisions, audit) + pgvector (§8, §12) | `app/ledger/concern_log.py`, `app/knowledge/*` persistence |
 | 5 | **Event stream** | Monitor scans a captain on demand (button) | Kafka / managed pub/sub, always-on consumer fleet (§5, §12, §14) | `app/monitor/` — subscribe to the stream instead of on-demand scan |
-| 6 | **Voice (ASR/TTS)** | Browser Web Speech API (input) — free, live | Whisper (Groq) ASR + Sarvam Indic TTS (§10) | frontend `CaptainPanel.toggleMic`; add server ASR/TTS nodes |
+| 6 | **Voice (ASR/TTS)** | **Full in-app conversation mode** — browser Web Speech STT+TTS, hands-free loop, reactive orb | Whisper (Groq) ASR + Sarvam Indic TTS (§10) | frontend `CaptainPanel` voice; add server ASR/TTS nodes |
 | 7 | **Money "write"** | `_act()` records an idempotent write (nothing real moves) | Real financial write-back with idempotency keys + exactly-once (§13) | `app/engine/pipeline.py::_act` → real payments API |
 | 8 | **SOP source** | Knowledge **ingested from your 3 repos** (snapshot) | Live SOP authoring tool → SOP Compiler → Executable Policies (§4.3) | `config/sources.yaml` → new paths, re-run `scripts/ingest_knowledge.py` |
 | 9 | **Adversarial verifier** | Second Gemini call (deep tier) | Second Claude model (Opus for high-value) (§11) | same registry node `adversarial_verify` |
-| 10 | **Auth / identity** | None — captain picked from a dropdown | Login-scoped Captain Panel handoff + RBAC (§13) | frontend + a session layer |
+| 10 | **Auth / identity** | **Built** — signed-token login + server-enforced RBAC (Admin/Editor/Viewer) + team management; the *captain* is still picked from a dropdown for the demo | Login-scoped Captain Panel handoff + full RBAC/SSO (§13) | `app/auth/*` done; captain SSO handoff pending |
 | 11 | **Calibrated confidence** | Fixed threshold `0.80` with model-reported confidence | Continuously **recalibrated** probability so 90%-confident ≈ 90% right (§11) | `app/trust/gate.py::CONFIDENCE_THRESHOLD` + a calibration job |
 | 12 | **Frontend home** | Standalone React demo UI | Embedded React widget/iframe **inside the Captain Panel** (§12) | frontend embed |
 
@@ -185,9 +185,12 @@ All live now on the demo backend (`:8077`). "Stub" = shape is correct, swap the 
 | `/api/sop/compile` | POST | **real** | Plain SOP → Executable Policy |
 | `/api/captains` `/api/captain/{id}` `/api/ledger` `/api/dispositions` `/api/policies` `/api/constitution` `/api/knowledge/search` | GET | **real** | Read models |
 
-**Governance API** — ⬜ not built. `l3.platform._governance_placeholder` returns a stub
-severity; the real severity/recoverability/scalability scorer + its endpoint are pending
-(per product owner: placeholder for now).
+**Governance** — 🟡 mostly built. The editable **Governance Framework** (dimensions / bands /
+metrics / accountability, or structured from an uploaded doc) and the **SOP conformance loop**
+(`governance.classify_band` / `check_conformance` → a compile-stream stage + `/api/sop/conformance`
++ an approve-time gate on high-severity violations) are live. What's still a placeholder: the seed
+framework *content* (a clearly-labelled example — swap in Valmo's real bands) and the
+`l3.platform._governance_placeholder` severity scorer.
 
 ## H. Feasibility deltas (what genuinely cannot run in this environment)
 
@@ -248,17 +251,22 @@ tower (frontend `Insights`). All read from the Concern Log.
 ₹4–8 Cr/yr range). Data-access adds no LLM cost; add a §14 line for DB read
 replica/Metabase + Captain-Context cache (~₹15–40k/mo).
 
-**Dead code to prune (superseded by the agent loop):** `app/engine/{intent,answer,explain,
-pipeline}.py` are no longer on the hot path.
+**Dead code pruned.** `app/engine/{intent,answer,explain,pipeline}.py` (superseded by the agent
+loop) are gone. A later verified sweep removed ~50 more dead items: unused imports across ~12
+modules, the orphaned `/api/sop/gaps` endpoint + `knowledge/gaps.py`, `openai_provider._parse_json`,
+the unused `Check` dataclass, dead CSS blocks, and stale build artifacts (`dist/`, `.agent-memory/`).
+Intentional future seams (the swappable Claude/Gemini providers, the Metabase/Log10/WhatsApp
+adapters, the tiered `models.yaml` nodes) were explicitly kept. See §M.
 
 ---
 
 ## K. LLM gateway + credential deltas (hackathon Bifrost gateway)
 
 The demo runs on the hackathon **Bifrost gateway** (`gateway-buildathon.ltl.sh`,
-OpenAI-compatible) with models `gpt-4o` (conversational/fast tier) and `gpt-5.5` (money
-judgement + adversarial verify / deep tier). Getting a server-side app onto it surfaced
-several gateway-specific realities, all handled in `app/llm/openai_provider.py`:
+OpenAI-compatible). The active config runs **`gpt-5.5` on every tier** (fast == deep today);
+the fast/deep split is wired so a cheaper conversational model can slot in without a pipeline
+change. Getting a server-side app onto it surfaced several gateway-specific realities, all
+handled in `app/llm/openai_provider.py`:
 
 - **Edge WAF blocks by client fingerprint.** The gateway sits behind an Akamai WAF that
   403s "Access Denied" to non-browser clients. A `User-Agent` alone is insufficient — the
@@ -343,3 +351,35 @@ categories escalate because their SOP-specific evidence (e.g. shortage evidence-
 in this export. Production refresh = the same query via the **Metabase API key** (not a session
 token) on a schedule, or a warehouse read-replica. Still needed from ops: the **COD-pendency**
 and **payout** queries + a sample export to extend the same pattern to those disputes.
+
+---
+
+## M. This build cycle (v5.0 deltas)
+
+Shipped since §J, all deployed on Render (Docker) with Turso durability:
+
+- **Durable state (Turso).** All authored content (SOPs, brains, the governance framework, user
+  accounts) is written through to **Turso** over HTTP, with a local-file fallback and clobber-safe
+  reads (`read_confirmed`) so a transport blip never lets a baked seed overwrite authored data.
+  This closes the free-tier "JSON lost on redeploy" gap (Render's free tier has no disk).
+- **Auth / RBAC / team access.** Signed-token login, pbkdf2-hashed passwords, server-enforced
+  roles (author / approver / viewer, shown as **Admin / Editor / Viewer**), an approver-only team
+  panel with a strong-password generator + one-click credential handoff, and initial-admin seeding.
+- **Governance framework + SOP conformance loop.** An editable Governance Framework (or one
+  structured from an uploaded document) plus a conformance check that scores every compiled SOP
+  against the framework's mandates — accountable owner, ₹-cap on money moves, a cited partner
+  right, idempotency, priority band. Surfaced in the compile stream, stamped on each stored SOP,
+  exposed at `/api/sop/conformance`, and gated at approve-time on high-severity violations.
+- **Three-level knowledge model.** SOP scenario *name* (title) separated from concern *category*
+  (disposition); disposition routing wired end-to-end; the taxonomy stays emergent.
+- **In-app voice / conversation mode.** Hands-free browser Web Speech STT/TTS with a reactive
+  visualiser; Sarvam-ready swap for production Indic voice.
+- **Reliability hardening.** A 32-finding adversarial audit fixed the high/medium issues (an XSS
+  escape gap, a durable-store data-loss race, a false money-resolution reply on escalate, a
+  token-parse 500, disposition routing that never fired, unlocked concurrent writes, and more).
+- **Dead-code sweep.** ~50 verified-dead items removed (details in §J), zero regressions —
+  backend compiles + imports, frontend builds, container boots (health 200), 69 SOPs intact.
+- **Leadership documentation.** A code-grounded system document (DOCX + PDF) generated for review.
+
+**Model note (supersedes §A #1 / §K):** the active reasoning model is **OpenAI `gpt-5.5` on every
+tier** via the gateway; Claude and Gemini remain config-swappable with no pipeline change.

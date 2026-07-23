@@ -19,21 +19,13 @@ _STORE = Path(__file__).resolve().parents[2] / "data" / "knowledge" / "policies.
 
 
 @dataclass
-class Check:
-    id: str
-    description: str          # human-readable ("loss attributable to partner?")
-    reads: list[str]          # grounded-data fields this check consults (evidence)
-    expect: str               # short statement of the passing condition
-
-
-@dataclass
 class ExecutablePolicy:
     id: str
     disposition: str          # disposition/theme this applies to
     version: str
     trigger: dict             # {keywords[], preconditions[]}
     required_evidence: list[str]   # source rows the SYSTEM fetches via queries
-    checks: list[dict]        # list of Check dicts
+    checks: list[dict]        # each: {id, description, reads[], expect}
     resolution: dict          # {action, params, cap_inr}
     escalation: dict          # {team, handover}
     partner_rights: list[str] # guardrails from the Partner Constitution

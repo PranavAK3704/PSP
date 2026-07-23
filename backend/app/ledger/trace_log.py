@@ -15,9 +15,7 @@ from __future__ import annotations
 import json
 import threading
 from datetime import datetime, timezone
-from pathlib import Path
 
-from ..state_paths import state_path
 from ..durable_state import durable_path
 
 # MUTABLE store → durable state dir (survives redeploys); default backend/data.

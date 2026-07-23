@@ -18,12 +18,10 @@ import json
 import threading
 from collections import defaultdict
 from datetime import datetime, timezone
-from pathlib import Path
 
 from ..llm import registry as llm_registry
 from ..llm.gemini_provider import _parse_json
 from ..ledger import concern_log, trace_log
-from ..state_paths import state_path
 from ..durable_state import durable_path
 from . import rubric as rubric_mod
 

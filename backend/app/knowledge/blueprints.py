@@ -20,11 +20,9 @@ from __future__ import annotations
 import json
 import threading
 from datetime import datetime, timezone
-from pathlib import Path
 
 from ..llm import registry as llm_registry
 from ..llm.gemini_provider import _parse_json
-from ..state_paths import state_path
 from ..durable_state import durable_path
 
 # MUTABLE authored content → durable state dir (survives redeploys); default backend/data.

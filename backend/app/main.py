@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -58,7 +58,6 @@ def _seed_users():
     COD Shortfall SOP) so the library is populated on boot regardless of request order."""
     auth_store.seed_initial()
     try:
-        from .kt import engine as kt_engine
         kt_engine.ensure_seeded()
         blueprints.load()   # seeds the Losses brain if the store is empty
     except Exception:  # noqa: BLE001 — never let seeding block startup
@@ -470,15 +469,7 @@ def kt_review(body: KtReviewIn):
     return res or {"error": "kt not found"}
 
 
-# ── SOP required-data gaps + non-tech nuance authoring ──────────────────────
-@app.get("/api/sop/gaps", dependencies=[_authed])
-def sop_gaps():
-    """SOPs the engine can't fully act on because it doesn't know what to ask the captain,
-    plus auto-captured gaps from escalations. Powers the Support Console authoring panel."""
-    from .knowledge import gaps
-    return gaps.detect()
-
-
+# ── non-tech nuance authoring ───────────────────────────────────────────────
 @app.post("/api/sop/nuance", dependencies=[_author])
 def sop_nuance(body: NuanceIn):
     """A non-tech author fills a gap / adds a correction. Enters the KT approval queue;

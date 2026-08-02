@@ -28,6 +28,7 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 from .audit import cpd                                 # noqa: E402
 from .audit import rubric as audit_rubric              # noqa: E402
 from .audit import runner as audit_runner             # noqa: E402
+from .audit import kapture, kapture_rubric            # noqa: E402
 from .auth import store as auth_store                  # noqa: E402
 from .auth import tokens as auth_tokens                # noqa: E402
 from .auth.deps import current_user, require_role      # noqa: E402
@@ -156,6 +157,19 @@ class AuditRunIn(BaseModel):
 
 class AuditBatchIn(BaseModel):
     limit: int = 10
+
+
+class KaptureRubricIn(BaseModel):
+    dimensions: list[dict]
+
+
+class KaptureEstimateIn(BaseModel):
+    rows: list[dict]
+
+
+class KaptureRunIn(BaseModel):
+    run_id: str = ""
+    rows: list[dict]
 
 
 class LoginIn(BaseModel):
@@ -520,6 +534,76 @@ def audit_run_batch(body: AuditBatchIn):
 def audit_scores():
     """Audit history + aggregates (avg composite, per-dimension avg, trend, by disposition)."""
     return audit_runner.scores()
+
+
+# ── Kapture-ticket Auditing: dedicated rubric + SOP coverage/adherence + batch ──
+@app.get("/api/kapture/rubric", dependencies=[_authed])
+def kapture_rubric_get():
+    """The dedicated (versioned) Kapture-audit rubric the judge scores tickets against."""
+    return kapture_rubric.get_rubric()
+
+
+@app.post("/api/kapture/rubric", dependencies=[_author])
+def kapture_rubric_save(body: KaptureRubricIn):
+    """Save an edited Kapture rubric → bumps version. Authoring write."""
+    return kapture_rubric.save_rubric(body.dimensions)
+
+
+@app.post("/api/kapture/rubric/upload", dependencies=[_author])
+async def kapture_rubric_upload(file: UploadFile = File(...)):
+    """Upload a QA-guidelines document → the LLM structures it into a DRAFT rubric (weighted
+    factors + descriptions) for review before saving. Mirrors /api/framework/upload."""
+    raw = await file.read()
+    text = _extract_text(raw, file.content_type, file.filename)
+    return {"rubric": kapture_rubric.structure_rubric_from_text(text), "source_name": file.filename}
+
+
+@app.post("/api/kapture/upload", dependencies=[_author])
+async def kapture_upload(file: UploadFile = File(...)):
+    """Upload a CSV of ticket_number + conversation_history → parse rows + a cost estimate.
+    Rows are returned to the client; transcripts are NOT persisted server-side (PII)."""
+    import uuid as _uuid
+    raw = await file.read()
+    if len(raw) > 12_000_000:
+        raise HTTPException(status_code=413, detail="File too large — please upload under ~12MB.")
+    try:
+        rows = kapture._parse_csv(raw)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not rows:
+        raise HTTPException(status_code=400, detail="No valid ticket rows found in the CSV.")
+    return {"run_id": "KAP-" + _uuid.uuid4().hex[:8].upper(), "count": len(rows),
+            "rows": rows, "estimate": kapture.estimate_cost(rows)}
+
+
+@app.post("/api/kapture/estimate", dependencies=[_authed])
+def kapture_estimate(body: KaptureEstimateIn):
+    """Re-estimate the token/₹ cost for a set of rows (post-dedupe against already-audited)."""
+    return kapture.estimate_cost(body.rows)
+
+
+@app.post("/api/kapture/run", dependencies=[_author])
+def kapture_run(body: KaptureRunIn):
+    """Stream a batch audit — one SSE event per ticket, then a done summary. Resumable:
+    re-running the same rows skips already-audited tickets."""
+    import uuid as _uuid
+    run_id = body.run_id or ("KAP-" + _uuid.uuid4().hex[:8].upper())
+    return EventSourceResponse(_sse(kapture.audit_batch_streamed(body.rows, run_id)))
+
+
+@app.get("/api/kapture/scores", dependencies=[_authed])
+def kapture_scores():
+    """Kapture audit dashboard — coverage %, adherence %, composite, per-dimension + by-disposition."""
+    return kapture.scores()
+
+
+@app.get("/api/kapture/export", dependencies=[_authed])
+def kapture_export(run_id: str = ""):
+    """Download the Kapture audit scores as CSV (optionally scoped to one run)."""
+    csv_text = kapture.export_csv(run_id or None)
+    fname = f"kapture_audit_{run_id or 'all'}.csv"
+    return Response(content=csv_text, media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 # ── Auditing Studio: dynamic, editable Governance Framework ──────────────────

@@ -23,6 +23,7 @@ nodes:
   explain:             fast   # warm, grounded reply
   monitor_compose:     fast   # compose a proactive nudge
   sop_compile:         deep   # plain SOP -> Executable Policy (authoring)
+  audit_judge:         deep   # Kapture-ticket QA judge — flip to `fast` for cheaper large-batch runs
 
 # Tier -> concrete model id, per provider.
 tiers:

@@ -2,7 +2,9 @@ import React, { useEffect, useState } from "react";
 import { getInsights, getAudit, getKt, submitKt, reviewKt, compileSopStream, getLedger, checkSopConformance,
   approveSop, saveSopDraft, deleteSop, extractSop, compileBlueprintStream, getBlueprints, saveBlueprint, approveBlueprint,
   getConcernTrace, exportLedger, getAuditRubric, saveAuditRubric, runAudit, runAuditBatch, getAuditScores,
-  getFramework, saveFramework, uploadFramework, approveFramework } from "../lib/api.js";
+  getFramework, saveFramework, uploadFramework, approveFramework,
+  getKaptureRubric, saveKaptureRubric, uploadKaptureRubric, uploadKaptureCsv, estimateKapture,
+  streamKaptureRun, getKaptureScores, exportKaptureScores } from "../lib/api.js";
 import PolicyCompileAnimation from "../components/PolicyCompileAnimation.jsx";
 import BlueprintCompileAnimation from "../components/BlueprintCompileAnimation.jsx";
 import { useAuth } from "../lib/auth.jsx";
@@ -1113,6 +1115,7 @@ export function AuditingStudio() {
   // scores / trail / learning only.
   const SUBS = [
     ["scores", "Scores & Rubric", "insights"],
+    ["kapture", "Kapture Audit", "support_agent"],
     ["trail", "Audit Trail & CPD", "policy"],
     ["learning", "Learning Queue", "school"],
   ];
@@ -1129,8 +1132,300 @@ export function AuditingStudio() {
         ))}
       </div>
       {sub === "scores" && <AuditScores />}
+      {sub === "kapture" && <KaptureAudit />}
       {sub === "trail" && <Audit />}
       {sub === "learning" && <LearningQueue />}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   KAPTURE AUDIT — audit external Kapture ticket resolutions against a dedicated
+   QA rubric + measure SOP coverage/adherence. Upload a QA doc to set the factors,
+   upload a CSV of {ticket_number, conversation_history}, run a streamed batch, and
+   export scores as CSV.
+   ══════════════════════════════════════════════════════════════════════════ */
+function KaptureAudit() {
+  const [rubric, setRubric] = useState(null);
+  const [dims, setDims] = useState([]);
+  const [scores, setScores] = useState(null);
+  const [uploaded, setUploaded] = useState(null);   // {run_id, count, rows, estimate}
+  const [running, setRunning] = useState(false);
+  const [prog, setProg] = useState(null);           // {done,total,avg_composite,coverage_pct,adherence_pct}
+  const [live, setLive] = useState([]);             // streamed per-ticket results
+  const [openRow, setOpenRow] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState(null);
+  const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 4600); };
+
+  const loadRubric = () => getKaptureRubric().then((r) => { setRubric(r); setDims((r.dimensions || []).map((d) => ({ ...d }))); });
+  const loadScores = () => getKaptureScores().then(setScores);
+  useEffect(() => { loadRubric(); loadScores(); }, []);
+
+  const totalWeight = dims.reduce((s, d) => s + (Number(d.weight) || 0), 0) || 1;
+  const setDim = (i, patch) => setDims(dims.map((d, j) => (j === i ? { ...d, ...patch } : d)));
+  const addDim = () => setDims([...dims, { key: "", label: "", description: "", weight: 0.1 }]);
+  const removeDim = (i) => setDims(dims.filter((_, j) => j !== i));
+  const dimLabel = (k) => (rubric?.dimensions || []).find((d) => d.key === k)?.label || k;
+
+  async function saveRubric() {
+    const r = await saveKaptureRubric(dims);
+    setRubric(r); setDims((r.dimensions || []).map((d) => ({ ...d })));
+    flash(`Kapture rubric saved — now version ${r.version}. New audits score against it.`);
+  }
+  async function onRubricDoc(file) {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const r = await uploadKaptureRubric(file);
+      setDims((r.rubric?.dimensions || []).map((d) => ({ ...d })));
+      flash(`Structured ${r.rubric?.dimensions?.length || 0} factors from "${r.source_name}" — review the weights, then Save.`);
+    } catch (e) { flash(e.message || "Could not read that document."); }
+    finally { setBusy(false); }
+  }
+  async function onCsv(file) {
+    if (!file) return;
+    setBusy(true); setUploaded(null); setLive([]); setProg(null);
+    try {
+      const r = await uploadKaptureCsv(file);
+      setUploaded(r);
+      flash(`Loaded ${r.count} ticket${r.count === 1 ? "" : "s"} · ${r.estimate.to_audit} to audit (~₹${r.estimate.est_cost_inr}).`);
+    } catch (e) { flash(e.message || "Could not parse that CSV."); }
+    finally { setBusy(false); }
+  }
+  function runBatch() {
+    if (!uploaded || running) return;
+    setRunning(true); setLive([]); setProg({ done: 0, total: uploaded.estimate.to_audit });
+    streamKaptureRun(
+      { run_id: uploaded.run_id, rows: uploaded.rows },
+      (ev) => {
+        if (ev.stage === "start") setProg({ done: 0, total: ev.to_audit });
+        else if (ev.stage === "ticket" && !ev.error) setLive((p) => [{ ...ev }, ...p].slice(0, 40));
+        else if (ev.stage === "progress") setProg({ done: ev.done, total: ev.total, avg_composite: ev.avg_composite, coverage_pct: ev.coverage_pct, adherence_pct: ev.adherence_pct });
+        else if (ev.stage === "done") { setProg((p) => ({ ...(p || {}), done: ev.summary.count, total: ev.summary.count, ...ev.summary })); }
+      },
+      () => { setRunning(false); loadScores(); flash("Batch audit complete — scores updated. Export the CSV below."); }
+    );
+  }
+
+  const kpi = (label, val, suffix, tone) => (
+    <div className="rounded-xl border border-on-primary-fixed-variant/15 bg-surface-container-lowest/60 p-md">
+      <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{label}</div>
+      <div className="flex items-baseline gap-1 mt-sm">
+        <span className={`text-[40px] font-bold leading-none ${tone}`} style={{ fontVariantNumeric: "tabular-nums" }}>{val ?? "—"}</span>
+        {val != null && <span className="text-sm text-on-surface-variant">{suffix}</span>}
+      </div>
+    </div>
+  );
+  const compColor = (c) => (c == null ? "text-on-surface-variant" : c >= 80 ? "text-tertiary" : c >= 55 ? "text-secondary-container" : "text-error");
+  const covColor = (c) => (c == null ? "text-on-surface-variant" : c >= 70 ? "text-tertiary" : c >= 40 ? "text-warn" : "text-error");
+
+  return (
+    <div className="flex flex-col gap-gutter">
+      {toast && (
+        <div className="glass-card rounded-lg px-md py-sm flex items-center gap-2 text-sm border border-tertiary/40 text-tertiary">
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>check_circle</span>{toast}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between flex-wrap gap-sm">
+        <div>
+          <div className="text-[15px] font-bold text-on-surface flex items-center gap-2">
+            <span className="material-symbols-outlined text-secondary-container" style={{ fontSize: 20 }}>support_agent</span>
+            Kapture Ticket Audit</div>
+          <p className="text-xs text-on-surface-variant mt-0.5 max-w-[640px]">
+            Audit how Kapture tickets were resolved against a QA rubric, and measure SOP coverage +
+            per-check adherence against our SOP base. Upload a QA doc to set the factors, a CSV of
+            ticket + conversation to score in bulk, and export the results.</p>
+        </div>
+        {rubric && <span className="text-[11px] font-bold px-2.5 py-1 rounded bg-secondary-container/10 text-secondary-container" style={{ fontFamily: "JetBrains Mono" }}>rubric v{rubric.version}</span>}
+      </div>
+
+      {/* KPI row */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-gutter">
+        {kpi("Avg composite", scores?.avg_composite, "/100", compColor(scores?.avg_composite))}
+        {kpi("SOP coverage", scores?.coverage_pct, "%", covColor(scores?.coverage_pct))}
+        {kpi("SOP adherence", scores?.adherence_pct, "%", covColor(scores?.adherence_pct))}
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-gutter items-start">
+        {/* ── RUBRIC EDITOR + doc upload ── */}
+        <div className="glass-card rounded-xl p-lg flex flex-col">
+          <div className="flex items-center justify-between mb-sm gap-sm flex-wrap">
+            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-secondary-container">QA rubric · weighted factors</div>
+            <label className="cursor-pointer border border-secondary-container text-secondary-container px-md py-1 rounded-lg font-bold text-[11px] flex items-center gap-1.5 hover:bg-secondary-container/10 transition-all">
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{busy ? "hourglass_top" : "upload_file"}</span>
+              {busy ? "Reading…" : "Upload QA doc"}
+              <input type="file" accept=".pdf,.docx,.xlsx,.csv,.txt,.md" className="hidden" onChange={(e) => onRubricDoc(e.target.files?.[0])} />
+            </label>
+          </div>
+          <p className="text-xs text-on-surface-variant mb-md">Weights need not sum to 1 — normalized at scoring. Upload a QA doc to auto-set factors + weights, then Save (bumps version). Σ {totalWeight.toFixed(2)}.</p>
+          <div className="space-y-sm max-h-[440px] overflow-y-auto custom-scrollbar pr-1">
+            {dims.map((d, i) => (
+              <div key={i} className="bg-surface-container-lowest border border-on-primary-fixed-variant/15 rounded-lg p-md">
+                <div className="flex items-center gap-sm mb-1.5">
+                  <input value={d.label} onChange={(e) => setDim(i, { label: e.target.value })} placeholder="Factor label"
+                    className="flex-1 bg-surface-container-highest border border-on-primary-fixed-variant/20 rounded px-sm py-1 text-[13px] font-semibold focus:outline-none focus:border-secondary-container" />
+                  {d.key && <span className="text-[9px] px-1.5 py-0.5 rounded bg-secondary-container/10 text-secondary-container" style={{ fontFamily: "JetBrains Mono" }}>{d.key}</span>}
+                  <button onClick={() => removeDim(i)} className="w-7 h-7 grid place-items-center rounded-lg border border-error/40 text-error hover:bg-error/10 flex-none">
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span></button>
+                </div>
+                <textarea value={d.description} onChange={(e) => setDim(i, { description: e.target.value })} placeholder="What this factor grades"
+                  className="w-full bg-surface-container-highest border border-on-primary-fixed-variant/20 rounded px-sm py-1 text-[12px] focus:outline-none focus:border-secondary-container resize-y min-h-[40px] placeholder:text-on-surface-variant/40" />
+                <div className="flex items-center gap-sm mt-1.5">
+                  <span className="text-[10px] text-on-surface-variant">weight</span>
+                  <input type="number" step="0.05" min="0" value={d.weight} onChange={(e) => setDim(i, { weight: e.target.value })}
+                    className="w-20 bg-surface-container-highest border border-on-primary-fixed-variant/20 rounded px-sm py-1 text-[12px] focus:outline-none focus:border-secondary-container" style={{ fontFamily: "JetBrains Mono" }} />
+                  <div className="flex-1 h-1.5 rounded-full bg-surface-variant/40 overflow-hidden">
+                    <div className="h-full bg-secondary-container" style={{ width: `${Math.round(100 * (Number(d.weight) || 0) / totalWeight)}%` }} />
+                  </div>
+                  <span className="text-[10px] text-on-surface-variant w-9 text-right" style={{ fontFamily: "JetBrains Mono" }}>{Math.round(100 * (Number(d.weight) || 0) / totalWeight)}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-sm mt-md pt-md border-t border-on-primary-fixed-variant/15">
+            <button onClick={addDim} className="flex items-center gap-1.5 text-[12px] font-bold text-secondary-container hover:brightness-110">
+              <span className="material-symbols-outlined" style={{ fontSize: 17 }}>add</span>Add factor</button>
+            <button onClick={saveRubric}
+              className="ml-auto bg-secondary-container text-on-secondary px-lg py-sm rounded-lg font-bold text-sm flex items-center gap-2 hover:brightness-110 transition-all">
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>save</span>Save rubric</button>
+          </div>
+        </div>
+
+        {/* ── CSV upload + run ── */}
+        <div className="glass-card rounded-xl p-lg flex flex-col">
+          <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-secondary-container mb-sm">Batch audit · upload tickets CSV</div>
+          <p className="text-xs text-on-surface-variant mb-md">CSV with a <b>ticket_number</b> column and a <b>conversation_history</b> column (transcript per cell). Re-uploading skips already-audited tickets.</p>
+          <label className="cursor-pointer border border-dashed border-secondary-container/50 text-secondary-container rounded-lg py-lg grid place-items-center gap-1 hover:bg-secondary-container/5 transition-all">
+            <span className="material-symbols-outlined" style={{ fontSize: 26 }}>{busy ? "hourglass_top" : "upload_file"}</span>
+            <span className="text-[12px] font-bold">{busy ? "Parsing…" : "Choose a tickets CSV"}</span>
+            <input type="file" accept=".csv,.txt" className="hidden" onChange={(e) => onCsv(e.target.files?.[0])} />
+          </label>
+
+          {uploaded && (
+            <div className="mt-md rounded-lg border border-on-primary-fixed-variant/15 bg-surface-container-lowest p-md">
+              <div className="grid grid-cols-3 gap-sm text-center mb-md">
+                <div><div className="text-[20px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{uploaded.count}</div><div className="text-[9px] uppercase tracking-wide text-on-surface-variant">in file</div></div>
+                <div><div className="text-[20px] font-bold text-secondary-container" style={{ fontVariantNumeric: "tabular-nums" }}>{uploaded.estimate.to_audit}</div><div className="text-[9px] uppercase tracking-wide text-on-surface-variant">to audit</div></div>
+                <div><div className="text-[20px] font-bold text-warn" style={{ fontVariantNumeric: "tabular-nums" }}>~₹{uploaded.estimate.est_cost_inr}</div><div className="text-[9px] uppercase tracking-wide text-on-surface-variant">est. cost</div></div>
+              </div>
+              <div className="text-[10px] text-on-surface-variant mb-md" style={{ fontFamily: "JetBrains Mono" }}>
+                {uploaded.estimate.already_audited} already audited (skipped) · model {uploaded.estimate.model} · run {uploaded.run_id}</div>
+              <button onClick={runBatch} disabled={running || uploaded.estimate.to_audit === 0}
+                className="w-full bg-tertiary text-on-tertiary px-lg py-sm rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:brightness-110 disabled:opacity-40 transition-all">
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{running ? "hourglass_top" : "play_arrow"}</span>
+                {running ? "Auditing…" : uploaded.estimate.to_audit === 0 ? "Nothing new to audit" : `Run audit (${uploaded.estimate.to_audit})`}</button>
+            </div>
+          )}
+
+          {prog && (
+            <div className="mt-md">
+              <div className="flex justify-between text-[11px] text-on-surface-variant mb-1" style={{ fontFamily: "JetBrains Mono" }}>
+                <span>{prog.done} / {prog.total}</span>
+                <span>{prog.avg_composite != null ? `avg ${prog.avg_composite}` : ""} {prog.coverage_pct != null ? `· cov ${prog.coverage_pct}%` : ""} {prog.adherence_pct != null ? `· adh ${prog.adherence_pct}%` : ""}</span>
+              </div>
+              <div className="h-2 rounded-full bg-surface-variant/40 overflow-hidden">
+                <div className="h-full bg-tertiary transition-all" style={{ width: `${prog.total ? Math.round(100 * prog.done / prog.total) : 0}%` }} />
+              </div>
+              <div className="space-y-1 mt-md max-h-[220px] overflow-y-auto custom-scrollbar">
+                {live.map((t, i) => (
+                  <div key={t.ticket_number + i} className="grid grid-cols-[1fr_auto_auto_auto] gap-sm items-center text-[11px] bg-surface-container-lowest border border-on-primary-fixed-variant/10 rounded px-sm py-1">
+                    <span className="truncate" style={{ fontFamily: "JetBrains Mono" }}>{t.ticket_number}</span>
+                    <span className={`px-1.5 rounded ${t.covered ? "text-tertiary" : "text-warn"}`}>{t.covered ? t.disposition : "NOVEL"}</span>
+                    <span className="text-on-surface-variant">{t.adherence != null ? `adh ${t.adherence}` : "—"}</span>
+                    <span className={`font-bold ${compTone(t.composite)} px-1.5 rounded`} style={{ fontVariantNumeric: "tabular-nums" }}>{t.composite}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── per-dimension + by-disposition + export + history ── */}
+      <div className="glass-card rounded-xl p-lg">
+        <div className="flex items-center justify-between flex-wrap gap-sm mb-md">
+          <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-secondary-container">Results · {scores?.count || 0} ticket{scores?.count === 1 ? "" : "s"} audited</div>
+          <button onClick={() => exportKaptureScores("")} disabled={!scores?.count}
+            className="border border-secondary-container text-secondary-container px-md py-1.5 rounded-lg font-bold text-[12px] flex items-center gap-1.5 hover:bg-secondary-container/10 disabled:opacity-40 transition-all">
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>download</span>Download scores CSV</button>
+        </div>
+
+        {scores?.per_dimension_avg && Object.keys(scores.per_dimension_avg).length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-lg gap-y-sm mb-lg">
+            {Object.entries(scores.per_dimension_avg).map(([k, v]) => (
+              <div key={k}>
+                <div className="flex justify-between text-[11px] mb-0.5"><span className="text-on-surface-variant">{dimLabel(k)}</span>
+                  <span style={{ fontFamily: "JetBrains Mono", fontVariantNumeric: "tabular-nums" }}>{Math.round(v * 100)}</span></div>
+                <div className="h-2 rounded-full bg-surface-variant/40 overflow-hidden"><div className="h-full bg-secondary-container" style={{ width: `${Math.round(v * 100)}%` }} /></div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {scores?.by_disposition && Object.keys(scores.by_disposition).length > 0 && (
+          <div className="mb-lg">
+            <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-sm">By disposition · coverage / adherence / composite</div>
+            <div className="flex flex-wrap gap-xs">
+              {Object.entries(scores.by_disposition).map(([disp, s]) => (
+                <span key={disp} className="text-[10px] px-2.5 py-0.5 rounded-full bg-surface-variant text-on-surface-variant border border-on-primary-fixed-variant/20" style={{ fontFamily: "JetBrains Mono", fontVariantNumeric: "tabular-nums" }}>
+                  {disp}: cov {s.coverage_pct}% · adh {s.adherence ?? "—"} · {s.avg_composite} ({s.count})</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-sm max-h-[520px] overflow-y-auto custom-scrollbar">
+          {(scores?.history || []).length === 0 && <div className="text-on-surface-variant text-sm">No Kapture audits yet — upload a tickets CSV above.</div>}
+          {(scores?.history || []).map((a, i) => (
+            <div key={a.ticket_number + i} className="bg-surface-container-lowest border border-on-primary-fixed-variant/15 rounded-lg overflow-hidden">
+              <button onClick={() => setOpenRow(openRow === a.ticket_number + i ? null : a.ticket_number + i)}
+                className="w-full text-left grid grid-cols-[auto_1fr_auto_auto_auto] gap-md items-center px-md py-sm hover:bg-surface-variant/20 transition-all">
+                <span className="material-symbols-outlined text-on-surface-variant transition-transform" style={{ fontSize: 16, transform: openRow === a.ticket_number + i ? "rotate(90deg)" : "none" }}>chevron_right</span>
+                <div className="min-w-0">
+                  <div className="text-[12px] font-semibold" style={{ fontFamily: "JetBrains Mono" }}>{a.ticket_number}</div>
+                  <div className="text-[10px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>
+                    {a.covered ? a.disposition : "NOVEL · uncovered"} · rubric v{a.rubric_version}</div>
+                </div>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${a.covered ? "bg-tertiary/15 text-tertiary" : "bg-warn/15 text-warn"}`}>{a.covered ? `adh ${a.adherence ?? "—"}` : "no SOP"}</span>
+                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${compTone(a.composite)}`} style={{ fontVariantNumeric: "tabular-nums" }}>{a.composite}</span>
+                <span className="text-[9px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{(a.audited_at || "").slice(0, 10)}</span>
+              </button>
+              {openRow === a.ticket_number + i && (
+                <div className="px-md pb-md border-t border-on-primary-fixed-variant/10 pt-sm">
+                  {a.overall_rationale && <div className="text-[11px] text-on-surface/85 italic mb-sm bg-surface-variant/20 rounded px-2 py-1">{a.overall_rationale}</div>}
+                  <div className="space-y-1.5 mb-sm">
+                    {Object.entries(a.per_dimension || {}).map(([k, v]) => (
+                      <div key={k} className="grid grid-cols-[160px_auto_1fr] gap-sm items-center">
+                        <span className="text-[11px] text-on-surface-variant">{dimLabel(k)}</span>
+                        <span className="text-[11px] font-bold w-8" style={{ fontFamily: "JetBrains Mono" }}>{Math.round((v.score || 0) * 100)}</span>
+                        <span className="text-[10px] text-on-surface-variant truncate" title={v.rationale}>{v.rationale}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {(a.per_check || []).length > 0 && (
+                    <div className="mt-sm">
+                      <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1">SOP checks {a.matched_sop_id ? `· ${a.matched_sop_id}` : ""}</div>
+                      {(a.per_check || []).map((c, j) => (
+                        <div key={j} className="grid grid-cols-[auto_1fr] gap-sm items-start text-[10.5px] py-0.5">
+                          <span className={`font-bold ${c.followed === "yes" ? "text-tertiary" : c.followed === "no" ? "text-error" : c.followed === "partial" ? "text-warn" : "text-on-surface-variant"}`}>{c.followed}</span>
+                          <span className="text-on-surface-variant"><b className="text-on-surface/80">{c.ref}</b> — {c.rationale}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {(a.key_findings || []).length > 0 && (
+                    <ul className="mt-sm list-disc pl-4 text-[10.5px] text-on-surface-variant space-y-0.5">
+                      {a.key_findings.map((f, j) => <li key={j}>{f}</li>)}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

@@ -136,6 +136,33 @@ export function uploadFramework(file) {
   return apiPostForm("/api/framework/upload", fd);
 }
 
+// ── Kapture-ticket Auditing: dedicated rubric + coverage/adherence + batch ──
+export const getKaptureRubric = () => apiGet("/api/kapture/rubric");
+export const saveKaptureRubric = (dimensions) => apiPost("/api/kapture/rubric", { dimensions });
+export function uploadKaptureRubric(file) {
+  const fd = new FormData(); fd.append("file", file);
+  return apiPostForm("/api/kapture/rubric/upload", fd);
+}
+export function uploadKaptureCsv(file) {
+  const fd = new FormData(); fd.append("file", file);
+  return apiPostForm("/api/kapture/upload", fd);
+}
+export const estimateKapture = (rows) => apiPost("/api/kapture/estimate", { rows });
+export const streamKaptureRun = ({ run_id, rows }, onTicket, onEnd) =>
+  stream({ url: "/api/kapture/run", method: "POST", body: { run_id, rows } }, onTicket, onEnd);
+export const getKaptureScores = () => apiGet("/api/kapture/scores");
+// Download the scored tickets as CSV (optionally scoped to one run_id).
+export async function exportKaptureScores(run_id = "") {
+  const res = guard(await fetch(`/api/kapture/export?run_id=${encodeURIComponent(run_id)}`, { headers: authHeaders() }));
+  if (!res.ok) return;
+  const blob = await res.blob();
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = href; a.download = `kapture_audit_${run_id || "all"}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(href);
+}
+
 export const getL3 = () => apiGet("/api/l3/inbox");
 export const resolveL3 = (concern_id, resolution_note) => apiPost("/api/l3/resolve", { concern_id, resolution_note });
 export const getInsights = () => apiGet("/api/insights");

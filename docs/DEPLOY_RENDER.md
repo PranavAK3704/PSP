@@ -6,8 +6,10 @@ Render: FastAPI serves the built React SPA at `/` and the API at `/api/*`
 framework, users) is persisted to **Turso** — durable across redeploys, since the
 free tier has no disk. Secrets are set in the Render dashboard — never committed.
 
-> This is the production path. Local dev is unchanged: `./run.sh` (Vite :5190 +
-> uvicorn :8077).
+> **This is the DEMO deploy, not production.** Render + Turso are explicitly *not*
+> Meesho-production-acceptable (see `PRODUCTION_DELTA.md`). The production path is the
+> **Meesho managed stack** — GKE via the standard CI/CD (Jenkins/Turbo-Turtle/Helm/ArgoCD),
+> Cloud SQL, Vault, SSO. This runbook is for the pilot/demo only. Local dev: `./run.sh`.
 
 ## What ships
 - `Dockerfile` — multi-stage: node builds the SPA → python serves it + the API.

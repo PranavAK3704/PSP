@@ -1,14 +1,66 @@
-# Production Delta — Demo vs. the BRD-grade build
+# Production Readiness — Meesho "Builders → Production"
 
-This is the honest ledger of **what the hackathon demo does differently from
-production** and **what is pending** to make it the real thing. Everything below
-was designed so the swap is a config/connector change, not a rewrite (BRD §15.2:
-"everything that changes is data/config, not code").
+The honest ledger of where this build stands against **Meesho's production checklist**, what has
+been done in-repo, and what still needs Meesho infra/POCs. Today it runs as a hackathon demo
+(single Docker image on **Render**, backed by **Turso**); the production target is the **Meesho
+managed stack**. Part 2 (further down) keeps the detailed demo-vs-production technical deltas.
+
+## Gap scorecard (vs the Meesho checklist)
+| Layer | Current | Required (Meesho) | Status |
+|---|---|---|---|
+| Hosting | Render free tier, personal GitHub, no CI/CD | GKE via GitHub→Jenkins/DevOps-Lib→Turbo-Turtle→Helm+ArgoCD | ❌ pending (Track B) |
+| Database | **Turso** (3rd-party) holds financial + PII + user accounts; JSON caches | Meesho **MySQL/Cloud SQL** only | ❌ pending (Track B) |
+| Vector/embeddings | designed Postgres + pgvector | MySQL/Cloud SQL — no pgvector → approved vector store | ❌ design corrected (Track B) |
+| Secrets | env + baked `data/*.txt`; **random per-process AUTH_SECRET when unset** (was a public constant — fixed) | **Vault/External-Secrets**, service-owned keys | 🟡 hardened; Vault pending (Track B) |
+| AuthN/Z | signed-token **RBAC** + pbkdf2 hashing (kept); default admin overridden by `INITIAL_ADMIN_*` | Meesho **SSO/OAuth** | 🟡 RBAC ready; SSO pending (Track B) |
+| Observability | `/api/health` + **structured request logging + correlation id** (added) | logs + metrics + dashboards + alerts + OTel + on-call | 🟡 logging in; full stack pending (Track B) |
+| Data access | Metabase-centric design | **PrismSDK** for Gold/Platinum | ❌ re-scoped (Track C) |
+| PII | loss build now **drops name/worker/image/remark columns** (was partial) | redact + classify + retention | 🟡 redaction in; classification pending |
+| CORS / deps | **CORS allowlist** (was `*`); `python-multipart` **bumped past CVE-2024-53981** | restricted CORS; reviewed deps | ✅ done |
+| External APIs | hackathon LLM gateway (WAF-evasion); WhatsApp/Log10 stubs | declared + reviewed; approved LLM path | ❌ pending (Track B) |
+
+**Kept — already production-shaped:** multi-stage Dockerfile; server-side RBAC enforcement; pbkdf2
+hashing; `/api/health`; the **no-LLM-SQL "select a whitelisted named query"** design; every
+integration behind a swappable adapter/config; the Kapture-audit redaction pattern; the
+reasoning/trust/governance IP.
+
+## Migration tracks
+- **Track A — in-repo hardening (done / doable without Meesho infra):** ✅ random AUTH_SECRET
+  fallback, CORS allowlist, structured logging + correlation id, PII-drop in the loss build,
+  multipart CVE bump. *Remaining safe items:* WhatsApp-webhook HMAC verification, full OTel spans,
+  and the SSO / Cloud-SQL / PrismSDK **swap seams** (documented below; the persistence, auth-deps,
+  and provider layers are already the seams).
+- **Track B — Meesho-infra migration (needs POCs/access):** GitHub-org + CI/CD onboarding; Cloud
+  SQL (decommission Turso); an approved vector store (drop pgvector); Vault; Meesho SSO; the
+  observability stack; the approved LLM path; GCS/Redis when needed.
+- **Track C — data layer re-scoped onto PrismSDK:** replace the Metabase design (§C/§L below are
+  now **superseded**) with **PrismSDK** for Gold/Platinum reads, keeping the "LLM never writes SQL,
+  selects a whitelisted named query" principle; land the scheduled sync in Cloud SQL (not Turso).
+
+## What we need from Meesho to complete the transition
+1. **Process:** GM/PL production-candidate approval (recorded); a **dev buddy**; a **DevOps POC** + **Security POC**.
+2. **Infra (Track B):** a **Meesho GitHub org** repo + CI/CD onboarding; a **Cloud SQL (MySQL)** instance
+   + creds; **Vault/External-Secrets** access; **Meesho SSO/OAuth** client registration; an **approved
+   enterprise LLM** endpoint + service key; the **observability** stack; (later) GCS + IAM, approved Redis.
+3. **Data (Track C):** **PrismSDK access + the actual PrismSDK docs** (auth + call shape) and the
+   **Gold/Platinum dataset scope** (loss, COD-pendency, payout) with a least-privilege read role.
+4. **Governance:** data-classification sign-off (losses/COD = financial + partner PII) + retention;
+   finance sign-off for real money-movement; functional-team owners for SOPs + the governance bands.
+
+Per the checklist's own point, **access latency — not code — is the critical path**: open items 2–3 now, in parallel.
+
+---
+
+# Part 2 — Demo-vs-production technical deltas
 
 > **v4.0 build note.** The reactive path is now an **LLM-driven bounded agentic
 > tool-use loop** (not a hardcoded state machine). The model runs the conversation;
 > deterministic code runs only as tools — `apply_policy` is the sole money path
 > (checks + gate + adversarial verifier). See §J for the full v4.0 deltas.
+>
+> **Data-access note (superseded):** §C and §L below describe a **Metabase**-centric data path.
+> Production is re-scoped onto **PrismSDK** (Meesho's sanctioned Gold/Platinum path) landing in
+> **Cloud SQL** — the named-query / no-LLM-SQL principle is unchanged; only the provider swaps.
 
 ---
 

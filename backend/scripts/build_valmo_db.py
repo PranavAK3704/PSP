@@ -46,6 +46,19 @@ KEEP = ["awb", "consolidation_awb", "created_date", "lost_date", "actual_lost_da
         "attribution_changed", "facility_inscan", "DC_Tenurity"]
 DROP_PII = {"transporter_or_FE_name", "accepted_by", "requested_by", "remarks"}
 
+# Enrichment tables (qc_fail / attribution) arrive with many more PII columns — FE/worker/party
+# names, evidence-image URLs, remarks, contact/entity ids. Drop any column matching these patterns
+# at load; the engine decides from reason/amount/signal fields and never needs identities.
+_PII_PATTERNS = ("name", "worker", "_fe", "fe_", "image", "img", "photo", "remark", "_by",
+                 "party", "phone", "mobile", "email", "contact", "address", "entity_id", "partner_id")
+
+
+def _is_pii_col(c: str) -> bool:
+    cl = (c or "").lower()
+    if cl in ("awb", "consolidation_awb", "awb_num"):   # never drop the join keys
+        return False
+    return any(p in cl for p in _PII_PATTERNS)
+
 # Rows kept per reason_l1. 0 = unlimited (load the FULL export so ANY real AWB resolves).
 # Set VALMO_CAP=2500 (etc.) to build a smaller subset for a lighter deploy image.
 CAP_PER_REASON = int(os.environ.get("VALMO_CAP", "0"))
@@ -143,7 +156,8 @@ def _load_csv_table(con, table: str, path: str, awb_col: str = "awb"):
     If the source keys on a different column (e.g. awb_num), a normalised `awb` column is added."""
     with open(path, newline="", encoding="utf-8", errors="replace") as f:
         r = csv.DictReader(f)
-        cols = list(r.fieldnames)
+        cols = [c for c in (r.fieldnames or []) if not _is_pii_col(c)]   # drop PII columns at load
+        _dropped = len(r.fieldnames or []) - len(cols)
         out = cols + (["awb"] if awb_col != "awb" else [])
         con.execute(f"DROP TABLE IF EXISTS {table}")
         con.execute(f"CREATE TABLE {table} (%s)" % ",".join(f'"{c}" TEXT' for c in out))
@@ -160,7 +174,7 @@ def _load_csv_table(con, table: str, path: str, awb_col: str = "awb"):
             con.executemany(f"INSERT INTO {table} VALUES (%s)" % ",".join("?" * len(out)), batch)
     con.execute(f"CREATE INDEX idx_{table}_awb ON {table}(awb)")
     con.commit()
-    print(f"  loaded {table}: {n} rows")
+    print(f"  loaded {table}: {n} rows ({_dropped} PII columns dropped)")
 
 
 def load_enrichment(con):

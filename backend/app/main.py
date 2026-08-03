@@ -12,7 +12,9 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 import os
+import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -44,7 +46,37 @@ from .substrate import captain_context as ctx            # noqa: E402
 from .trust import constitution                          # noqa: E402
 
 app = FastAPI(title="Valmo Partner Support Platform", version="demo-1.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# CORS restricted to a configurable allowlist. Production is same-origin (the API serves the SPA),
+# so this only matters for local Vite dev; set ALLOWED_ORIGINS (comma-separated) elsewhere.
+_ALLOWED_ORIGINS = [o.strip() for o in os.environ.get(
+    "ALLOWED_ORIGINS", "http://localhost:5190,http://localhost:5173").split(",") if o.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=_ALLOWED_ORIGINS,
+                   allow_methods=["*"], allow_headers=["*"])
+
+# ── Structured request logging + a correlation id — the infra-observability signal we can add
+# in-repo with no new deps. In production these lines ship to the Meesho logging/metrics stack. ──
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"),
+                    format="%(asctime)s %(levelname)s %(name)s %(message)s")
+_log = logging.getLogger("psp")
+
+
+@app.middleware("http")
+async def _request_log(request, call_next):
+    import time as _t
+    rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
+    start = _t.perf_counter()
+    try:
+        resp = await call_next(request)
+    except Exception:
+        _log.exception("request_error method=%s path=%s rid=%s",
+                       request.method, request.url.path, rid)
+        raise
+    resp.headers["X-Request-Id"] = rid
+    if request.url.path != "/api/health":   # don't spam on the health probe
+        _log.info("request method=%s path=%s status=%s dur_ms=%d rid=%s", request.method,
+                  request.url.path, resp.status_code, int((_t.perf_counter() - start) * 1000), rid)
+    return resp
 
 # Role gates (server-side; the client is never trusted for role). An approver
 # implicitly satisfies an author-level gate (approver ≥ author) — see auth/deps.py.

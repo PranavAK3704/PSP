@@ -2,7 +2,12 @@
 
 Captured from the product walkthrough. Goal: **a support system nobody has seen before.**
 This is the north star; the BRD is the engineering spine; `PRODUCTION_DELTA.md` is the
-build ledger. Status legend: ✅ built · 🟡 partial · ⬜ not yet.
+build + **Meesho production-readiness** ledger. Status legend: ✅ built · 🟡 partial · ⬜ not yet.
+
+> **Production target = the Meesho managed stack** (GKE via the standard CI/CD, Cloud SQL, Vault,
+> SSO, **PrismSDK** for Gold/Platinum data, the Meesho observability stack). Today's demo runs on
+> Render + Turso, which are *not* production-acceptable — see `PRODUCTION_DELTA.md` for the gap
+> scorecard, the migration tracks, and the "what we need from Meesho" list.
 
 > **Update — 23 Jul 2026.** Most of the revised vision has since shipped. The biggest
 > reframe in this doc — "go stateful" — is **done**: the engine is a stateful, LLM-driven

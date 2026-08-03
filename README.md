@@ -1,81 +1,72 @@
-# Valmo Partner Support Platform — hackathon demo
+# Valmo Partner Support Platform
 
-A runnable slice of the BRD's **resolution engine** (not a ticketing system): a
-captain chats by voice or text in Hinglish, and the issue is **resolved inside the
-conversation, in seconds** — grounded in real data, gated by a trust spine, with an
-adversarial verifier before any money moves. Plus proactive monitoring, the
-append-only Concern Log, and the SOP Compiler.
+An LLM-driven **resolution engine** (not a ticketing system): a delivery partner ("captain"
+or pilot) chats by voice or text in Hinglish and the issue is **resolved inside the
+conversation, in seconds** — grounded in real data, gated by a trust spine + an adversarial
+verifier before any money moves. Around that core: proactive monitoring, an append-only
+Concern Log, the SOP Compiler, an L3 escalation platform, audit/CPD + a governance-conformance
+loop, role-based access, and a Kapture-ticket auditing engine.
 
-> **Model note:** the active provider is **OpenAI via the gateway, running gpt-5.5
-> on every tier** (fast == deep today). The fast/deep tier split is wired so a
-> tiered provider can be swapped in without any pipeline change. **Claude and Gemini
-> are swappable alternatives** — flip the `provider:` key in
-> `backend/config/models.yaml` (no code change). See `PRODUCTION_DELTA.md §D`.
+> **Status: working demo, production-in-progress.** Today it runs as a single Docker image on
+> **Render**, backed by **Turso** — a hackathon deployment, *not* production-grade. The
+> production target is the **Meesho managed stack**: GKE via the standard CI/CD path, Cloud SQL,
+> Vault/External-Secrets, Meesho SSO, **PrismSDK** for Gold/Platinum data, and the Meesho
+> observability stack. The migration is tracked in **[`PRODUCTION_DELTA.md`](PRODUCTION_DELTA.md)** —
+> the gap scorecard against Meesho's "Builders → Production" checklist, what's done, and what's pending.
 
-## Run it
+## Production readiness (Meesho "Builders → Production")
+- **Done in-repo (no Meesho infra needed):** AUTH_SECRET signs with a random per-process secret
+  when unset (no forgeable public constant); CORS restricted to an allowlist (no wildcard);
+  structured request logging + a correlation id (`X-Request-Id`); PII columns dropped from the
+  loss-data build (names / worker IDs / evidence-image URLs / remarks); `python-multipart` bumped
+  past CVE-2024-53981. RBAC + pbkdf2 password hashing + `/api/health` were already in place.
+- **Pending — needs Meesho infra / POCs:** GKE + CI/CD (Jenkins/DevOps-Lib → Turbo-Turtle →
+  Helm/ArgoCD), **Cloud SQL** (replace Turso), **Vault/External-Secrets**, **Meesho SSO**, the
+  observability stack, an approved enterprise **LLM path** (replace the hackathon gateway), and
+  **PrismSDK** for Gold/Platinum data (replacing the Metabase design).
 
+The full scorecard, the three migration tracks, and the **"what we need from Meesho"** list are in
+[`PRODUCTION_DELTA.md`](PRODUCTION_DELTA.md).
+
+## Run it (local demo)
 ```bash
-./run.sh
+./run.sh      # backend :8077 + frontend :5190 (opens a browser)
 ```
-
-That boots the backend on **:8077** and the frontend on **:5190** (opens a browser).
-Or run the two halves manually:
-
+Or the two halves manually:
 ```bash
-# backend
-cd backend && python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-python scripts/ingest_knowledge.py      # snapshot knowledge from the source repos
+cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+python scripts/ingest_knowledge.py       # snapshot knowledge from the source repos
 uvicorn app.main:app --port 8077
-
-# frontend (new terminal)
+# new terminal
 cd frontend && npm install && npm run dev
 ```
+**Env:** set `AUTH_SECRET` (any strong string) + `INITIAL_ADMIN_EMAIL`/`INITIAL_ADMIN_PASSWORD`;
+the LLM key + `TURSO_*` come from `backend/data/*` or env (never committed — see `.gitignore`).
+In production these move to the platform secret store (Vault).
 
-**Env:** already set — `backend/.env` has a working OpenAI-gateway key. Nothing to create.
-
-## The demo flow (what to show judges)
-
-1. **Captain Panel** — click the Hinglish sample *"galat debit ₹1240, reversal karo…"*.
-   Watch the right panel: the engine extracts intent → grounds in the ledger + Log10
-   scans → locates the `hardstop_loss` disposition → runs the Executable Policy's
-   checks → passes the **trust gate** → the **adversarial verifier AGREES** → reverses
-   the debit idempotently → replies warmly in Hinglish, citing the evidence. No ticket.
-2. **Proactive Monitor** — run the monitor for the same captain: a cheap rule
-   first-pass fires one risk (a shipment about to breach D5), and only then does an
-   LLM compose a partner-protective nudge.
-3. **SOP Compiler** — paste a plain-language SOP; watch it compile into a strict
-   Executable Policy.
-4. **Concern Log** — every resolution is an immutable event; see stats + the ledger.
-5. **Architecture** — the six primitives, trust spine, Partner Constitution, and the
-   tiered model strategy (OpenAI gpt-5.5 today; Claude / Gemini swappable via config).
-
-## How the repos plug in (easy to replace)
-
-The **only** thing taken from `input-bot` / `valmo-l1-agent` is **knowledge/SOP
-data** — no Kapture, no Metabase, no scraping, no L1 code (Kapture is being replaced
-by this platform). The seam is one file:
-
-- `backend/config/sources.yaml` — points at the repos' knowledge files today.
-- When the new SOP/knowledge base ships, edit those paths and re-run
-  `python backend/scripts/ingest_knowledge.py`. Nothing else changes.
+## Model
+OpenAI **gpt-5.5** on every tier via the gateway (fast == deep today). Claude / Gemini are
+swappable — flip `provider:` in `backend/config/models.yaml`, no pipeline change. In production
+this becomes the **approved enterprise LLM path**.
 
 ## Layout
-
 ```
 backend/
   config/models.yaml      # tiered model routing — OpenAI active; provider swap seam
-  config/sources.yaml     # knowledge source repos — the repo swap seam
-  app/llm/                # provider interface (openai_provider active; gemini/claude swappable)
-  app/substrate/          # Layer 0: Captain Context + mock connectors (adapter pattern)
-  app/knowledge/          # Layer 3: store + SOP compiler + Executable Policies
-  app/engine/             # Layer 2: the resolution pipeline + dispositions
-  app/trust/              # trust spine: gate + adversarial verifier + Constitution
-  app/monitor/            # Layer 4: proactive monitoring
-  app/ledger/             # the Concern Log (append-only + problem graph)
-  scripts/ingest_knowledge.py
-frontend/                 # React/Vite captain panel + live pipeline visualizer
-PRODUCTION_DELTA.md       # exactly what's demo vs production, and what's pending
+  config/sources.yaml     # knowledge source repos — the ingest swap seam
+  app/llm/                # provider interface (openai active; gemini/claude swappable)
+  app/substrate/          # data layer: Captain Context + connectors (Metabase stub → PrismSDK)
+  app/knowledge/          # store + SOP compiler + governance framework/conformance
+  app/engine/             # the agentic resolution loop + tools + dispositions
+  app/trust/              # trust spine: gate + adversarial verifier + Partner Constitution
+  app/l3/                 # L3 functional-team escalation platform (SLA + breach ladder)
+  app/ledger/             # append-only Concern Log + per-concern trace
+  app/audit/              # Auditing Studio (rubric + judge) + Kapture-ticket audit engine
+  app/auth/               # signed-token RBAC (→ Meesho SSO in production)
+  app/monitor/            # proactive monitoring
+  scripts/                # knowledge ingest + the loss-data build/sync
+frontend/                 # React/Vite panels + live pipeline visualizer
 ```
 
-See **`PRODUCTION_DELTA.md`** for the full demo-vs-production ledger.
+See **[`PRODUCTION_DELTA.md`](PRODUCTION_DELTA.md)** (production readiness + demo-vs-prod ledger)
+and **[`PRODUCT_VISION.md`](PRODUCT_VISION.md)** (the north star).

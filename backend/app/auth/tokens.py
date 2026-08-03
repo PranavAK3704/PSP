@@ -4,8 +4,9 @@ token = b64url(json(payload)) + "." + b64url(hmac_sha256(SECRET, first_part))
 payload = {"email", "role", "exp"}   exp = now + 12h
 
 verify() returns the payload dict iff the signature matches AND exp is in the
-future, else None. SECRET comes from env AUTH_SECRET; if unset we fall back to a
-fixed dev string and warn ONCE on stderr (never for production — set AUTH_SECRET).
+future, else None. SECRET comes from env AUTH_SECRET; if unset we sign with a
+RANDOM per-process secret (so tokens can't be forged from source) and warn ONCE
+on stderr — production MUST set a stable AUTH_SECRET (Vault / platform secret store).
 """
 from __future__ import annotations
 
@@ -14,12 +15,15 @@ import hashlib
 import hmac
 import json
 import os
+import secrets
 import sys
 import time
 
 _TTL_SECONDS = 12 * 3600
-# Documented dev fallback — NOT a secret. Production MUST set AUTH_SECRET.
-_DEV_SECRET = "psp-dev-auth-secret-change-me"
+# If AUTH_SECRET is unset we sign with a RANDOM per-process secret (never a public constant), so
+# tokens can never be forged from source. Trade-off: sessions don't survive a restart in that mode —
+# production MUST set a stable AUTH_SECRET from the platform secret store.
+_FALLBACK_SECRET = secrets.token_hex(32)
 _warned = False
 
 
@@ -28,10 +32,11 @@ def _secret() -> bytes:
     s = os.environ.get("AUTH_SECRET")
     if not s:
         if not _warned:
-            print("WARNING: AUTH_SECRET is not set — using an insecure dev fallback. "
-                  "Set AUTH_SECRET in production so tokens can't be forged.", file=sys.stderr)
+            print("WARNING: AUTH_SECRET is not set — signing with a random per-process secret; "
+                  "sessions won't survive a restart. Set a stable AUTH_SECRET in production.",
+                  file=sys.stderr)
             _warned = True
-        s = _DEV_SECRET
+        s = _FALLBACK_SECRET
     return s.encode()
 
 

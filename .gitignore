@@ -27,3 +27,7 @@ backend/data/*.json
 !backend/data/knowledge_sources/*.json
 .claude/settings.local.json
 .agent-memory/
+
+# generated deliverable docs (regeneratable — not source)
+/Valmo_Advocate_*.docx
+/Valmo_Advocate_*.pdf

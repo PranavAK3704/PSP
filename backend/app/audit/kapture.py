@@ -268,7 +268,10 @@ def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: d
 # ── CSV parse (request-path) ──────────────────────────────────────────────────
 _TICKET_ALIASES = ("ticket_number", "ticket", "ticket_id", "ticket no", "ticketno", "case_id", "case", "id")
 _CONVO_ALIASES = ("conversation_history", "conversation", "transcript", "history", "chat",
-                  "messages", "conversation history", "chat_history")
+                  "messages", "conversation history", "chat_history",
+                  # Kapture "raw ticket report" exports carry the agent<->partner thread in a
+                  # "Ticket Remark" column — recognise it (last, so explicit names keep priority).
+                  "ticket remark", "ticket_remark", "remark", "remarks")
 
 
 def _parse_csv(raw: bytes) -> list[dict]:

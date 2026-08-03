@@ -427,7 +427,7 @@ def scores() -> dict:
                           "coverage_pct": round(100 * v["cov"] / v["count"]),
                           "adherence": round(sum(v["adh"]) / len(v["adh"])) if v["adh"] else None}
                       for k, v in bd.items()}
-    history = sorted(tickets, key=lambda t: t.get("audited_at", ""), reverse=True)[:200]
+    history = sorted(tickets, key=lambda t: t.get("audited_at", ""), reverse=True)[:500]
     return {
         "count": n,
         "avg_composite": round(sum(t.get("composite", 0) for t in tickets) / n),

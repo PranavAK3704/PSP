@@ -33,17 +33,30 @@ reasoning/trust/governance IP.
 - **Track B — Meesho-infra migration (needs POCs/access):** GitHub-org + CI/CD onboarding; Cloud
   SQL (decommission Turso); an approved vector store (drop pgvector); Vault; Meesho SSO; the
   observability stack; the approved LLM path; GCS/Redis when needed.
-- **Track C — data layer re-scoped onto PrismSDK:** replace the Metabase design (§C/§L below are
-  now **superseded**) with **PrismSDK** for Gold/Platinum reads, keeping the "LLM never writes SQL,
-  selects a whitelisted named query" principle; land the scheduled sync in Cloud SQL (not Turso).
+- **Track C — data layer re-scoped onto PrismSDK.** Replace the Metabase design (§C/§L below are now
+  **superseded**), keeping the "LLM never writes SQL, selects a whitelisted named query" principle.
+  Three distinct data paths (confirmed with the data team, Aug '26):
+  - **Reads (Gold) → PrismSDK** — *confirmed*; a "Data Fetching from Gold tables" section now exists in
+    the data-platform doc (pull the auth + call shape from it). Grounds captain context (loss /
+    COD-pendency / payout).
+  - **Instrumentation / frontend events → Meesholytics → silver** — the sanctioned analytics path for
+    usage events + resolution-outcome signals (not a custom pipeline).
+  - **Operational/transactional state → OPEN (the key question):** auth/user accounts, the live Concern
+    Log, and authored SOPs/rubrics/governance need a **low-latency transactional DB** (Cloud SQL / a
+    tech DB per the checklist) — a data-lake / silver-via-PrismSDK path cannot serve login or live-case
+    reads. Must confirm a Cloud SQL / tech DB for this, distinct from the silver/analytics path.
 
 ## What we need from Meesho to complete the transition
 1. **Process:** GM/PL production-candidate approval (recorded); a **dev buddy**; a **DevOps POC** + **Security POC**.
 2. **Infra (Track B):** a **Meesho GitHub org** repo + CI/CD onboarding; a **Cloud SQL (MySQL)** instance
    + creds; **Vault/External-Secrets** access; **Meesho SSO/OAuth** client registration; an **approved
    enterprise LLM** endpoint + service key; the **observability** stack; (later) GCS + IAM, approved Redis.
-3. **Data (Track C):** **PrismSDK access + the actual PrismSDK docs** (auth + call shape) and the
-   **Gold/Platinum dataset scope** (loss, COD-pendency, payout) with a least-privilege read role.
+3. **Data (Track C):** (a) **PrismSDK access + the Gold-tables doc section** (auth + call shape — now
+   added to the data-platform doc) + the **Gold dataset scope** (loss, COD-pendency, payout) with a
+   least-privilege read role; (b) **Meesholytics onboarding** for frontend events → silver; (c) the
+   **critical clarification** — a **transactional operational DB (Cloud SQL / tech DB)** for auth + the
+   live Concern Log + authored content, separate from silver (silver-via-PrismSDK is not a
+   transactional store, so it can't back login / live-case reads).
 4. **Governance:** data-classification sign-off (losses/COD = financial + partner PII) + retention;
    finance sign-off for real money-movement; functional-team owners for SOPs + the governance bands.
 

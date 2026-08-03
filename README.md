@@ -44,6 +44,9 @@ cd frontend && npm install && npm run dev
 the LLM key + `TURSO_*` come from `backend/data/*` or env (never committed — see `.gitignore`).
 In production these move to the platform secret store (Vault).
 
+**Deploy (demo only):** push to `main` → Render auto-builds the Docker image; env vars live in the
+Render dashboard. This is the demo path — production goes via the Meesho stack (see `PRODUCTION_DELTA.md`).
+
 ## Model
 OpenAI **gpt-5.5** on every tier via the gateway (fast == deep today). Claude / Gemini are
 swappable — flip `provider:` in `backend/config/models.yaml`, no pipeline change. In production
@@ -68,5 +71,5 @@ backend/
 frontend/                 # React/Vite panels + live pipeline visualizer
 ```
 
-See **[`PRODUCTION_DELTA.md`](PRODUCTION_DELTA.md)** (production readiness + demo-vs-prod ledger)
-and **[`PRODUCT_VISION.md`](PRODUCT_VISION.md)** (the north star).
+See **[`PRODUCTION_DELTA.md`](PRODUCTION_DELTA.md)** — the single source of truth: the
+production-readiness scorecard, the migration tracks, deployment, and the demo-vs-production ledger.

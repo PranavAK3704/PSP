@@ -32,25 +32,47 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# ── Seed rubric (version 1) — QA factors humans use to audit a Kapture ticket ──
+# ── Seed rubric (version 1) — the REAL "Email Audit Legends" sub-parameters + their failure-mode
+# reasons, across three criticality tiers: standard, ZT (zero-tolerance) and Fatal.
+# PENDING (weighting doc coming shortly): (1) the real WEIGHTS — the ones below are PROVISIONAL
+# placeholders (standard 1.0 / empathy 2.0 / ZT+Fatal 3.0); (2) the ZT/Fatal "AUTO-FAIL" scoring —
+# a ZT/Fatal violation should collapse the whole audit to 0, which the current weighted-mean judge
+# does NOT yet enforce (it only weighs heavier). Both land when the weights documentation arrives.
 _SEED_DIMENSIONS = [
-    {"key": "resolution_correctness", "label": "Resolution correctness", "weight": 0.25,
-     "description": "Was the issue actually resolved, correctly and completely, per policy? "
-                    "Right outcome, not just a polite reply."},
-    {"key": "sop_adherence", "label": "SOP adherence", "weight": 0.20,
-     "description": "Did the agent follow the applicable SOP — its required checks, the correct "
-                    "action, and the right escalation path when checks failed?"},
-    {"key": "accuracy_grounding", "label": "Accuracy & grounding", "weight": 0.15,
-     "description": "Facts stated were accurate and grounded in the partner's data — no guessing, "
-                    "no fabricated status, correct amounts/IDs."},
-    {"key": "partner_supportedness", "label": "Partner-supportedness", "weight": 0.15,
-     "description": "Partner-first — advocated for the partner, resolved rather than lazily "
-                    "deflecting/closing; did not push avoidable work back onto the partner."},
-    {"key": "tat_efficiency", "label": "TAT & efficiency", "weight": 0.15,
-     "description": "Resolved promptly with minimal back-and-forth; no needless re-asking or delay."},
-    {"key": "tone_empathy", "label": "Tone & empathy", "weight": 0.10,
-     "description": "Warm, respectful, clear tone in the partner's language; acknowledged the "
-                    "partner's frustration where warranted."},
+    {"key": "proper_opening_closing", "label": "Proper opening & closing", "weight": 1.0,
+     "description": "Proper email salutation in the opening; brand name + role present in the closing."},
+    {"key": "correct_email_format", "label": "Correct email format", "weight": 1.0,
+     "description": "Correct font size / alignment / paragraph formatting; no spacing, upper/lower-case, "
+                    "spelling or punctuation errors."},
+    {"key": "empathy_acknowledgement", "label": "Empathy / apology / reassurance / acknowledgement / rebuttal", "weight": 2.0,
+     "description": "Appropriate empathy; assurance/reassurance present and correct; acknowledgement or "
+                    "paraphrasing done; rebuttal statements used where warranted."},
+    {"key": "simple_language", "label": "Simple, easy to understand", "weight": 1.0,
+     "description": "Grammatically correct, simple language; no inappropriate jargon."},
+    {"key": "template_modification", "label": "Appropriate template modification", "weight": 1.0,
+     "description": "No unnecessary or inappropriate modification of the template."},
+    {"key": "email_flow", "label": "Adhered to email flow", "weight": 1.0,
+     "description": "The prescribed email flow was followed."},
+    {"key": "app_education", "label": "Educated to use the app", "weight": 1.0,
+     "description": "Self-help option offered; proactive information provided."},
+    {"key": "zt_language", "label": "ZT · Rude / sarcastic / abusive language", "weight": 3.0,
+     "description": "ZERO TOLERANCE — no casual, sarcastic, rude or abusive language. Violation = auto-fail (enforcement pending the weighting doc)."},
+    {"key": "zt_financial_loss", "label": "ZT · Action leading to financial loss", "weight": 3.0,
+     "description": "ZERO TOLERANCE — no incorrect validation or action causing financial loss. Violation = auto-fail (enforcement pending)."},
+    {"key": "fatal_crm_utilization", "label": "Fatal · Improper CRM utilization", "weight": 3.0,
+     "description": "FATAL — past ticket referred; correct notes/remarks in Kapture; correct email ID; "
+                    "duplicate tickets merged; mandatory details captured. Violation = auto-fail (pending)."},
+    {"key": "fatal_incorrect_reversal", "label": "Fatal · Incorrect reversal request", "weight": 3.0,
+     "description": "FATAL — no wrong reversal initiated; reversal raised when required. Violation = auto-fail (pending)."},
+    {"key": "fatal_tagging", "label": "Fatal · Incorrect / no tagging", "weight": 3.0,
+     "description": "FATAL — correct disposition/folder and correct ticket status. Violation = auto-fail (pending)."},
+    {"key": "fatal_assignment", "label": "Fatal · Incorrect ticket assignment / handling", "weight": 3.0,
+     "description": "FATAL — ticket assigned to the correct queue. Violation = auto-fail (pending)."},
+    {"key": "fatal_misleading_info", "label": "Fatal · Incorrect / misleading information", "weight": 3.0,
+     "description": "FATAL — correct TAT, resolution and expectations; correct template customization; "
+                    "necessary documents sent; no requesting of already-provided info. Violation = auto-fail (pending)."},
+    {"key": "fatal_incomplete_info", "label": "Fatal · Incomplete information", "weight": 3.0,
+     "description": "FATAL — all queries addressed; complete resolution provided. Violation = auto-fail (pending)."},
 ]
 
 

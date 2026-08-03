@@ -59,6 +59,12 @@ reasoning/trust/governance IP.
    transactional store, so it can't back login / live-case reads).
 4. **Governance:** data-classification sign-off (losses/COD = financial + partner PII) + retention;
    finance sign-off for real money-movement; functional-team owners for SOPs + the governance bands.
+5. **Kapture audit rubric (pending — doc coming shortly):** the real **Email-Audit weights** and the
+   **ZT / Fatal "auto-fail" scoring rule**. The sub-parameter legend + failure-mode reasons are already
+   captured and seeded into the Kapture rubric (`audit/kapture_rubric.py`, 15 factors across standard /
+   ZT / Fatal tiers) with **provisional** weights; the weighted-mean judge does **not** yet enforce
+   auto-fail on a ZT/Fatal violation — both land when the weighting doc arrives (or upload the weights
+   sheet via the Kapture Audit tab to set them now).
 
 Per the checklist's own point, **access latency — not code — is the critical path**: open items 2–3 now, in parallel.
 

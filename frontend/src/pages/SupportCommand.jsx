@@ -1179,8 +1179,11 @@ function KaptureAudit() {
     try {
       const r = await uploadKaptureRubric(file);
       setDims((r.rubric?.dimensions || []).map((d) => ({ ...d })));
-      flash(`Structured ${r.rubric?.dimensions?.length || 0} factors from "${r.source_name}" — review the weights, then Save.`);
-    } catch (e) { flash(e.message || "Could not read that document."); }
+      const n = r.rubric?.dimensions?.length || 0;
+      flash(r.mode === "sheet"
+        ? `Imported ${n} factor${n === 1 ? "" : "s"} from the sheet "${r.source_name}" — review the weights, then Save.`
+        : `Structured ${n} factor${n === 1 ? "" : "s"} from "${r.source_name}" — review, then Save.`);
+    } catch (e) { flash(e.message || "Could not read that file."); }
     finally { setBusy(false); }
   }
   async function onCsv(file) {
@@ -1255,11 +1258,11 @@ function KaptureAudit() {
             <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-secondary-container">QA rubric · weighted factors</div>
             <label className="cursor-pointer border border-secondary-container text-secondary-container px-md py-1 rounded-lg font-bold text-[11px] flex items-center gap-1.5 hover:bg-secondary-container/10 transition-all">
               <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{busy ? "hourglass_top" : "upload_file"}</span>
-              {busy ? "Reading…" : "Upload QA doc"}
-              <input type="file" accept=".pdf,.docx,.xlsx,.csv,.txt,.md" className="hidden" onChange={(e) => onRubricDoc(e.target.files?.[0])} />
+              {busy ? "Reading…" : "Upload doc / sheet"}
+              <input type="file" accept=".xlsx,.xlsm,.csv,.tsv,.pdf,.docx,.txt,.md" className="hidden" onChange={(e) => onRubricDoc(e.target.files?.[0])} />
             </label>
           </div>
-          <p className="text-xs text-on-surface-variant mb-md">Weights need not sum to 1 — normalized at scoring. Upload a QA doc to auto-set factors + weights, then Save (bumps version). Σ {totalWeight.toFixed(2)}.</p>
+          <p className="text-xs text-on-surface-variant mb-md">Weights need not sum to 1 — normalized at scoring. Upload a <b>priority-factors sheet</b> (Excel/CSV: factor · weight · description) or a QA doc to auto-set the factors + weights, then Save (bumps version). Σ {totalWeight.toFixed(2)}.</p>
           <div className="space-y-sm max-h-[440px] overflow-y-auto custom-scrollbar pr-1">
             {dims.map((d, i) => (
               <div key={i} className="bg-surface-container-lowest border border-on-primary-fixed-variant/15 rounded-lg p-md">

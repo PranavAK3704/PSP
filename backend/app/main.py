@@ -551,11 +551,17 @@ def kapture_rubric_save(body: KaptureRubricIn):
 
 @app.post("/api/kapture/rubric/upload", dependencies=[_author])
 async def kapture_rubric_upload(file: UploadFile = File(...)):
-    """Upload a QA-guidelines document → the LLM structures it into a DRAFT rubric (weighted
-    factors + descriptions) for review before saving. Mirrors /api/framework/upload."""
+    """Upload a QA-guidelines document OR a priority-factors SHEET → a DRAFT rubric for review.
+    A structured factors sheet (Excel/CSV with factor·weight·description columns) is parsed
+    DETERMINISTICALLY (exact weights); anything else is LLM-structured. Draft, never auto-saved."""
     raw = await file.read()
+    sheet_dims = kapture_rubric.dimensions_from_sheet(raw, file.filename or "")
+    if sheet_dims:
+        return {"rubric": kapture_rubric.draft_from_dimensions(sheet_dims),
+                "source_name": file.filename, "mode": "sheet"}
     text = _extract_text(raw, file.content_type, file.filename)
-    return {"rubric": kapture_rubric.structure_rubric_from_text(text), "source_name": file.filename}
+    return {"rubric": kapture_rubric.structure_rubric_from_text(text),
+            "source_name": file.filename, "mode": "structured"}
 
 
 @app.post("/api/kapture/upload", dependencies=[_author])

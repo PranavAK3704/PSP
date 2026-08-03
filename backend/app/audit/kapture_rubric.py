@@ -12,6 +12,8 @@ path cloned from knowledge/governance.py::structure_framework_from_text.
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import threading
 from datetime import datetime, timezone
@@ -96,6 +98,95 @@ def save_rubric(dimensions: list[dict]) -> dict:
         }
         _write(rubric)
         return rubric
+
+
+# ── IMPORT FROM A STRUCTURED SHEET (Excel / CSV of factor · weight · description) ──
+# Deterministic — no LLM. For a priority-factors SHEET the columns already are the rubric,
+# so parse them exactly (precise weights) instead of asking a model to interpret them.
+_LABEL_COLS = ("factor", "factors", "dimension", "dimensions", "label", "name", "criteria",
+               "criterion", "parameter", "attribute", "quality parameter")
+_WEIGHT_COLS = ("weight", "weightage", "weight %", "weight(%)", "priority", "importance",
+                "score", "points", "%", "percentage", "value")
+_DESC_COLS = ("description", "definition", "details", "detail", "notes", "note", "meaning",
+              "what it measures", "guidance", "how to score")
+
+
+def _rows_from_xlsx(raw: bytes) -> list[list[str]]:
+    from openpyxl import load_workbook
+    wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    ws = wb.active
+    rows = [["" if c is None else str(c).strip() for c in r] for r in ws.iter_rows(values_only=True)]
+    wb.close()
+    return rows
+
+
+def _rows_from_csv(raw: bytes, delim: str = ",") -> list[list[str]]:
+    text = raw.decode("utf-8-sig", errors="replace")
+    return [[c.strip() for c in row] for row in csv.reader(io.StringIO(text), delimiter=delim)]
+
+
+def dimensions_from_sheet(raw: bytes, filename: str) -> list[dict] | None:
+    """Parse a factor/weight/description spreadsheet into rubric dimensions, deterministically.
+    Returns dims (unnormalised weights — the judge sum-normalises) or None if the file isn't a
+    recognisable factors sheet (caller then falls back to the LLM structure-from-text path)."""
+    fn = (filename or "").lower()
+    try:
+        if fn.endswith((".xlsx", ".xlsm")):
+            rows = _rows_from_xlsx(raw)
+        elif fn.endswith(".tsv"):
+            rows = _rows_from_csv(raw, "\t")
+        elif fn.endswith((".csv", ".txt")):
+            rows = _rows_from_csv(raw)
+        else:
+            return None
+    except Exception:  # noqa: BLE001 — unreadable/binary → let the LLM path try
+        return None
+
+    # find the header row (one of the first ~10 rows containing a label-ish column)
+    label_i = weight_i = desc_i = None
+    header_idx = None
+    for i, row in enumerate(rows[:10]):
+        low = [c.lower() for c in row]
+        li = next((j for j, c in enumerate(low) if c in _LABEL_COLS), None)
+        if li is not None:
+            header_idx = i
+            label_i = li
+            weight_i = next((j for j, c in enumerate(low) if c in _WEIGHT_COLS), None)
+            desc_i = next((j for j, c in enumerate(low) if c in _DESC_COLS), None)
+            break
+    if header_idx is None:
+        return None
+
+    dims: list[dict] = []
+    for row in rows[header_idx + 1:]:
+        if label_i >= len(row):
+            continue
+        label = row[label_i].strip()
+        if not label:
+            continue
+        weight = 1.0
+        if weight_i is not None and weight_i < len(row):
+            w = row[weight_i].replace("%", "").replace(",", "").strip()
+            try:
+                weight = float(w)
+            except (TypeError, ValueError):
+                weight = 1.0
+        desc = row[desc_i].strip() if (desc_i is not None and desc_i < len(row)) else ""
+        dims.append({"label": label, "weight": weight, "description": desc})
+    return dims or None
+
+
+def draft_from_dimensions(dims: list[dict]) -> dict:
+    """Wrap sheet-parsed dimensions into a DRAFT rubric for review (never auto-saved)."""
+    cleaned = _clean_dimensions(dims)
+    if not cleaned:
+        cleaned = [dict(d) for d in _SEED_DIMENSIONS]
+    current = _load() or _seed()
+    return {
+        "version": int(current.get("version", 1) or 1),
+        "dimensions": cleaned, "status": "draft", "updated_at": _now(),
+        "note": "Imported from your priority-factors sheet — review the weights, then Save.",
+    }
 
 
 # ── STRUCTURE-FROM-TEXT (upload a QA-guidelines doc → weighted factors) ────────

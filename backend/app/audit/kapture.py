@@ -249,6 +249,8 @@ def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: d
         "disposition": cov["disposition"],
         "coverage_score": cov["coverage_score"],
         "matched_sop_id": cov["matched_sop_id"],
+        "sop_title": (cov.get("sop") or {}).get("title"),          # what the ticket was audited against
+        "coverage_candidates": cov.get("supporting") or [],        # top-3 near-matches — surfaces a wrong/NOVEL match
         "adherence": adh["adherence"],
         "per_check": adh["per_check"],
         "resolution_action_followed": adh["resolution_action_followed"],

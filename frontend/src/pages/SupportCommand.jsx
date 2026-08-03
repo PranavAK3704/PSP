@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { getInsights, getAudit, getKt, submitKt, reviewKt, compileSopStream, getLedger, checkSopConformance,
   approveSop, saveSopDraft, deleteSop, extractSop, compileBlueprintStream, getBlueprints, saveBlueprint, approveBlueprint,
   getConcernTrace, exportLedger, getAuditRubric, saveAuditRubric, runAudit, runAuditBatch, getAuditScores,
@@ -1154,13 +1154,30 @@ function KaptureAudit() {
   const [prog, setProg] = useState(null);           // {done,total,avg_composite,coverage_pct,adherence_pct}
   const [live, setLive] = useState([]);             // streamed per-ticket results
   const [openRow, setOpenRow] = useState(null);
+  const [detail, setDetail] = useState(null);       // a full audit row → end-to-end drill-down modal
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 4600); };
 
+  // Transcripts are NOT persisted server-side (PII). Keep this session's uploaded transcripts
+  // in-memory so the drill-down can show the exact input the judge saw for a ticket audited now.
+  const txByTicket = useMemo(() => {
+    const m = {};
+    for (const r of uploaded?.rows || []) m[String(r.ticket_number)] = r.conversation_history;
+    return m;
+  }, [uploaded]);
+  const dimMeta = (k) => (rubric?.dimensions || []).find((d) => d.key === k) || {};
+  const tierOf = (k) => (k?.startsWith("zt_") ? "zt" : k?.startsWith("fatal_") ? "fatal" : "std");
+
   const loadRubric = () => getKaptureRubric().then((r) => { setRubric(r); setDims((r.dimensions || []).map((d) => ({ ...d }))); });
   const loadScores = () => getKaptureScores().then(setScores);
   useEffect(() => { loadRubric(); loadScores(); }, []);
+  useEffect(() => {
+    if (!detail) return;
+    const onKey = (e) => { if (e.key === "Escape") setDetail(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [detail]);
 
   const totalWeight = dims.reduce((s, d) => s + (Number(d.weight) || 0), 0) || 1;
   const setDim = (i, patch) => setDims(dims.map((d, j) => (j === i ? { ...d, ...patch } : d)));
@@ -1383,8 +1400,9 @@ function KaptureAudit() {
           {(scores?.history || []).length === 0 && <div className="text-on-surface-variant text-sm">No Kapture audits yet — upload a tickets CSV above.</div>}
           {(scores?.history || []).map((a, i) => (
             <div key={a.ticket_number + i} className="bg-surface-container-lowest border border-on-primary-fixed-variant/15 rounded-lg overflow-hidden">
+              <div className="flex items-stretch">
               <button onClick={() => setOpenRow(openRow === a.ticket_number + i ? null : a.ticket_number + i)}
-                className="w-full text-left grid grid-cols-[auto_1fr_auto_auto_auto] gap-md items-center px-md py-sm hover:bg-surface-variant/20 transition-all">
+                className="flex-1 min-w-0 text-left grid grid-cols-[auto_1fr_auto_auto_auto] gap-md items-center px-md py-sm hover:bg-surface-variant/20 transition-all">
                 <span className="material-symbols-outlined text-on-surface-variant transition-transform" style={{ fontSize: 16, transform: openRow === a.ticket_number + i ? "rotate(90deg)" : "none" }}>chevron_right</span>
                 <div className="min-w-0">
                   <div className="text-[12px] font-semibold" style={{ fontFamily: "JetBrains Mono" }}>{a.ticket_number}</div>
@@ -1395,6 +1413,11 @@ function KaptureAudit() {
                 <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${compTone(a.composite)}`} style={{ fontVariantNumeric: "tabular-nums" }}>{a.composite}</span>
                 <span className="text-[9px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{(a.audited_at || "").slice(0, 10)}</span>
               </button>
+              <button onClick={() => setDetail(a)} title="Open the full end-to-end audit"
+                className="px-3 grid place-items-center border-l border-on-primary-fixed-variant/10 text-on-surface-variant hover:text-secondary-container hover:bg-surface-variant/20 transition-all">
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>open_in_full</span>
+              </button>
+              </div>
               {openRow === a.ticket_number + i && (
                 <div className="px-md pb-md border-t border-on-primary-fixed-variant/10 pt-sm">
                   {a.overall_rationale && <div className="text-[11px] text-on-surface/85 italic mb-sm bg-surface-variant/20 rounded px-2 py-1">{a.overall_rationale}</div>}
@@ -1429,6 +1452,164 @@ function KaptureAudit() {
           ))}
         </div>
       </div>
+
+      {detail && (() => {
+        const a = detail;
+        const tx = txByTicket[String(a.ticket_number)];
+        const entries = Object.entries(a.per_dimension || {});
+        const pct = (v) => Math.round((v?.score || 0) * 100);
+        const pctTone = (p) => (p >= 80 ? "text-tertiary" : p >= 55 ? "text-secondary-container" : "text-error");
+        const barTone = (p) => (p >= 80 ? "bg-tertiary" : p >= 55 ? "bg-secondary-container" : "bg-error");
+        const tiers = [
+          { id: "fatal", title: "Fatal parameters", border: "border-l-error", chip: "bg-error/15 text-error" },
+          { id: "zt", title: "Zero-tolerance parameters", border: "border-l-warn", chip: "bg-warn/15 text-warn" },
+          { id: "std", title: "Quality parameters", border: "border-l-on-primary-fixed-variant/25", chip: "bg-surface-variant text-on-surface-variant" },
+        ];
+        const critMiss = entries.some(([k, v]) => tierOf(k) !== "std" && pct(v) < 55);
+        const Step = ({ icon, label, val, tone }) => (
+          <div className="flex-1 min-w-0 rounded-lg border border-on-primary-fixed-variant/15 bg-surface-container-lowest/70 px-sm py-2 grid place-items-center text-center gap-0.5">
+            <span className={`material-symbols-outlined ${tone}`} style={{ fontSize: 18 }}>{icon}</span>
+            <span className="text-[8.5px] uppercase tracking-[0.1em] text-on-surface-variant">{label}</span>
+            <span className={`text-[11px] font-bold truncate max-w-full ${tone}`} style={{ fontFamily: "JetBrains Mono" }}>{val}</span>
+          </div>
+        );
+        const Head = ({ n, title, meta }) => (
+          <div className="flex items-baseline gap-sm mt-lg mb-sm">
+            <span className="text-[10px] font-bold text-on-tertiary bg-tertiary rounded-full w-5 h-5 grid place-items-center leading-none">{n}</span>
+            <span className="text-[12px] font-bold uppercase tracking-[0.1em] text-secondary-container">{title}</span>
+            {meta && <span className="text-[10px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{meta}</span>}
+          </div>
+        );
+        return (
+          <div onClick={() => setDetail(null)} className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm grid place-items-center p-md">
+            <div onClick={(e) => e.stopPropagation()}
+              className="bg-surface-container border border-on-primary-fixed-variant/20 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+              {/* header */}
+              <div className="sticky top-0 z-10 bg-surface-container/95 backdrop-blur border-b border-on-primary-fixed-variant/15 px-lg py-md flex items-start justify-between gap-md">
+                <div className="min-w-0">
+                  <div className="text-[9px] uppercase tracking-[0.14em] text-on-surface-variant">End-to-end audit trace</div>
+                  <div className="text-[15px] font-bold truncate" style={{ fontFamily: "JetBrains Mono" }}>{a.ticket_number}</div>
+                  <div className="text-[10px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>
+                    rubric v{a.rubric_version} · {(a.audited_at || "").slice(0, 19).replace("T", " ")}</div>
+                </div>
+                <div className="flex items-center gap-md">
+                  <div className="text-right">
+                    <div className={`text-[34px] font-bold leading-none ${compColor(a.composite)}`} style={{ fontVariantNumeric: "tabular-nums" }}>{a.composite}</div>
+                    <div className="text-[9px] uppercase tracking-wide text-on-surface-variant">composite</div>
+                  </div>
+                  <button onClick={() => setDetail(null)} className="text-on-surface-variant hover:text-on-surface p-1 rounded-lg hover:bg-surface-variant/30 transition-all">
+                    <span className="material-symbols-outlined" style={{ fontSize: 22 }}>close</span></button>
+                </div>
+              </div>
+
+              <div className="px-lg pb-lg">
+                {/* pipeline overview */}
+                <div className="flex items-center gap-xs mt-md">
+                  <Step icon="description" label="Transcript" val={tx ? `${tx.length} chars` : "not stored"} tone={tx ? "text-on-surface" : "text-on-surface-variant"} />
+                  <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: 16 }}>chevron_right</span>
+                  <Step icon="policy" label="Coverage" val={a.covered ? a.disposition : "NOVEL"} tone={a.covered ? "text-tertiary" : "text-warn"} />
+                  <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: 16 }}>chevron_right</span>
+                  <Step icon="grading" label="Rubric" val={a.composite} tone={compColor(a.composite)} />
+                  <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: 16 }}>chevron_right</span>
+                  <Step icon="rule" label="Adherence" val={a.covered ? (a.adherence ?? "—") : "n/a"} tone={a.covered ? compColor(a.adherence) : "text-on-surface-variant"} />
+                </div>
+
+                {/* 1 · transcript */}
+                <Head n={1} title="Transcript audited" meta={tx ? "this session" : ""} />
+                {tx ? (
+                  <>
+                    <pre className="text-[11px] leading-relaxed whitespace-pre-wrap bg-surface-container-lowest border border-on-primary-fixed-variant/12 rounded-lg p-md max-h-64 overflow-y-auto custom-scrollbar text-on-surface/90">{tx}</pre>
+                    <div className="text-[10px] text-on-surface-variant mt-1">Shown from this session's upload — transcripts are never stored server-side (PII-safe).</div>
+                  </>
+                ) : (
+                  <div className="text-[11px] text-on-surface-variant bg-surface-container-lowest border border-on-primary-fixed-variant/12 rounded-lg p-md">
+                    The transcript isn't stored server-side (PII-safe). To inspect the exact input here, re-upload this ticket's CSV in this session, then reopen the audit.</div>
+                )}
+
+                {/* 2 · coverage */}
+                <Head n={2} title="Coverage" meta={`score ${a.coverage_score ?? "—"}`} />
+                {a.covered ? (
+                  <div className="text-[12px] bg-surface-container-lowest border border-on-primary-fixed-variant/12 rounded-lg p-md space-y-1">
+                    <div><span className="text-on-surface-variant">Matched SOP </span><b style={{ fontFamily: "JetBrains Mono" }}>{a.matched_sop_id || "—"}</b>{a.sop_title ? <span className="text-on-surface"> — {a.sop_title}</span> : null}</div>
+                    <div><span className="text-on-surface-variant">Disposition </span><b>{a.disposition}</b></div>
+                  </div>
+                ) : (
+                  <div className="text-[12px] text-warn bg-warn/8 border border-warn/25 rounded-lg p-md">
+                    No SOP scored above the coverage threshold — treated as <b>NOVEL / uncovered</b>. Quality parameters are still scored; SOP-adherence is skipped. A genuinely novel issue here is a signal the SOP set has a gap.</div>
+                )}
+                {(a.coverage_candidates || []).length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1 mt-sm">
+                    <span className="text-[10px] uppercase tracking-wide text-on-surface-variant mr-1">nearest SOPs</span>
+                    {a.coverage_candidates.map((c, j) => (
+                      <span key={j} className="text-[10px] px-2 py-0.5 rounded-full bg-surface-variant text-on-surface-variant border border-on-primary-fixed-variant/20">{c}</span>
+                    ))}
+                  </div>
+                )}
+
+                {/* 3 · rubric scoring */}
+                <Head n={3} title="Rubric scoring" meta={`composite ${a.composite}`} />
+                {a.overall_rationale && <div className="text-[11.5px] text-on-surface/90 italic bg-surface-variant/20 rounded-lg px-md py-2 mb-sm">{a.overall_rationale}</div>}
+                {critMiss && (
+                  <div className="text-[10.5px] text-warn bg-warn/8 border border-warn/25 rounded-lg px-md py-2 mb-sm flex gap-1.5">
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>warning</span>
+                    <span>A zero-tolerance / fatal parameter scored low. <b>Auto-fail is pending the weighting doc</b> — a breach here does not yet collapse the composite to 0, so read the composite alongside these flags.</span>
+                  </div>
+                )}
+                {tiers.map((t) => {
+                  const rows = entries.filter(([k]) => tierOf(k) === t.id);
+                  if (!rows.length) return null;
+                  return (
+                    <div key={t.id} className={`border-l-2 ${t.border} pl-md mb-md`}>
+                      <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t.title}</div>
+                      {rows.map(([k, v]) => {
+                        const p = pct(v);
+                        return (
+                          <div key={k} className="py-1.5 border-b border-on-primary-fixed-variant/8 last:border-0">
+                            <div className="flex items-center justify-between gap-sm">
+                              <span className="text-[12px] text-on-surface">{dimMeta(k).label || k}
+                                {t.id !== "std" && p < 55 && <span className={`ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full ${t.chip}`}>flag</span>}</span>
+                              <span className="text-[10px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>w{dimMeta(k).weight ?? "—"} · <b className={pctTone(p)}>{p}</b></span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-surface-variant/40 overflow-hidden my-1"><div className={`h-full ${barTone(p)}`} style={{ width: `${p}%` }} /></div>
+                            {v?.rationale && <div className="text-[11px] text-on-surface-variant">{v.rationale}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+
+                {/* 4 · SOP adherence */}
+                <Head n={4} title="SOP adherence" meta={a.covered ? `${a.adherence ?? "—"} · action ${a.resolution_action_followed || "unknown"}` : ""} />
+                {!a.covered ? (
+                  <div className="text-[11px] text-on-surface-variant bg-surface-container-lowest border border-on-primary-fixed-variant/12 rounded-lg p-md">Skipped — no SOP matched, so there were no resolution steps to check against.</div>
+                ) : (a.per_check || []).length === 0 ? (
+                  <div className="text-[11px] text-on-surface-variant bg-surface-container-lowest border border-on-primary-fixed-variant/12 rounded-lg p-md">The judge returned no per-step checks for this ticket.</div>
+                ) : (
+                  <div className="space-y-1">
+                    {(a.per_check || []).map((c, j) => (
+                      <div key={j} className="grid grid-cols-[54px_1fr] gap-sm items-start text-[11px] bg-surface-container-lowest border border-on-primary-fixed-variant/10 rounded px-sm py-1.5">
+                        <span className={`font-bold text-[10px] uppercase ${c.followed === "yes" ? "text-tertiary" : c.followed === "no" ? "text-error" : c.followed === "partial" ? "text-warn" : "text-on-surface-variant"}`}>{c.followed}</span>
+                        <span className="text-on-surface-variant"><b className="text-on-surface/85">{c.ref}</b> — {c.rationale}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* key findings */}
+                {(a.key_findings || []).length > 0 && (
+                  <>
+                    <Head n={5} title="Key findings" meta="" />
+                    <ul className="list-disc pl-5 text-[11.5px] text-on-surface-variant space-y-1">
+                      {a.key_findings.map((f, j) => <li key={j}>{f}</li>)}
+                    </ul>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

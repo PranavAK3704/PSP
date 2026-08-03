@@ -102,6 +102,14 @@ def get_rubric() -> dict:
         if rubric is None:
             rubric = _seed()
             _write(rubric)
+            return rubric
+        # Auto-refresh a NEVER-EDITED (version 1) rubric if the seed's factor set has changed —
+        # e.g. the real Email-Audit legend replaced the earlier placeholders. save_rubric bumps the
+        # version, so this never overwrites a rubric an author has actually edited/saved.
+        if int(rubric.get("version", 1) or 1) == 1:
+            if {d.get("key") for d in rubric.get("dimensions", [])} != {d["key"] for d in _SEED_DIMENSIONS}:
+                rubric = _seed()
+                _write(rubric)
         return rubric
 
 

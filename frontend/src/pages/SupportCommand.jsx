@@ -1769,6 +1769,7 @@ function KaptureAudit() {
                       <li>Correct <b>reversal / ticket assignment / CRM notes</b> — backend actions</li>
                       <li>Whether a quoted <b>TAT / policy / amount</b> was actually right — needs the SOP + order data</li>
                       <li>These correctness/process <b>fatals need the data integration</b> (roadmap); text alone can't verify them</li>
+                      <li><b>Opening/closing & email flow on this export</b> — the signature block isn't captured (only 21% of cells have a closing), so they're marked NA; a full-email export restores them</li>
                     </ul>
                   </div>
                 </div>

@@ -327,6 +327,10 @@ def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: d
         except Exception:  # noqa: BLE001
             parsed = {}
     parsed = parsed if isinstance(parsed, dict) else {}
+    if not parsed.get("per_dimension"):
+        # FAIL LOUD: with no judge response, coercion would fabricate a plausible-looking row
+        # (quality→NA, gates→pass). A gateway outage must surface as an error, not a verdict.
+        raise RuntimeError("audit judge unavailable — no valid response from the LLM gateway")
 
     per_dimension = _coerce_dims(parsed, rubric)
     sc = _score_audit(per_dimension, rubric)

@@ -44,9 +44,12 @@ def _now() -> str:
 _SEED_DIMENSIONS = [
     # ── QUALITY (Pass/Fail, points sum to 100) ──
     {"key": "proper_opening_closing", "label": "Proper opening & closing", "weight": 4.0,
-     "description": "PASS if the email opens with any reasonable salutation (e.g. \"Dear Partner,\" / "
-                    "\"Hi Partner,\") AND ends with a closing that names the brand/role (e.g. \"Thank you, "
-                    "Valmo Partner Support\"). Both present = pass. Do NOT fail for minor stylistic wording."},
+     "description": "HYBRID — first decide the reply style. If the reply is a NOTES-TAB reply (no email "
+                    "signature block at the end — the system sends it without one), mark NA: this parameter "
+                    "does not apply. If the reply IS in full email format (it carries a closing/signature "
+                    "block), judge it: PASS if it opens with a reasonable salutation (\"Dear Partner,\" / "
+                    "\"Hi Partner,\") AND closes naming the brand/role (\"Thank you, Valmo Partner Support\"); "
+                    "FAIL if either is missing or improper. Do NOT fail for minor stylistic wording."},
     {"key": "correct_email_format", "label": "Correct email format", "weight": 6.0,
      "description": "Correct font / size / alignment and paragraph formatting (Arial/Times/Calibri 10, "
                     "left-aligned); no spacing, case, spelling or punctuation errors."},
@@ -61,9 +64,11 @@ _SEED_DIMENSIONS = [
                     "customizing it correctly, is a PASS. Being generic or un-personalised is NOT a fail. "
                     "FAIL only for a harmful/inappropriate modification that damages the response."},
     {"key": "email_flow", "label": "Adhered to email flow", "weight": 12.5,
-     "description": "Judge STRUCTURE/order only: does the email broadly follow greeting → acknowledgement → "
-                    "response → assistance line → closing? If that shape is present, PASS. Do NOT fail for "
-                    "content/correctness issues — those belong to other parameters."},
+     "description": "HYBRID — applies only to full email-format replies (ones carrying a closing/signature "
+                    "block). For a NOTES-TAB reply (no signature block), mark NA. For an email-format reply, "
+                    "judge STRUCTURE/order only: greeting → acknowledgement → response → assistance line → "
+                    "closing. If that shape is present, PASS. Do NOT fail for content/correctness issues — "
+                    "those belong to other parameters."},
     {"key": "app_education", "label": "Educated to use the app", "weight": 30.0,
      "description": "Offered the relevant self-help option / existing app feature proactively. Mark NA when the "
                     "issue has no applicable app self-help."},

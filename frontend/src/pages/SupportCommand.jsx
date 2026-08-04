@@ -1769,7 +1769,7 @@ function KaptureAudit() {
                       <li>Correct <b>reversal / ticket assignment / CRM notes</b> — backend actions</li>
                       <li>Whether a quoted <b>TAT / policy / amount</b> was actually right — needs the SOP + order data</li>
                       <li>These correctness/process <b>fatals need the data integration</b> (roadmap); text alone can't verify them</li>
-                      <li><b>Opening/closing & email flow on this export</b> — the signature block isn't captured (only 21% of cells have a closing), so they're marked NA; a full-email export restores them</li>
+                      <li><b>Opening/closing & email flow are hybrid</b> — judged only on email-format replies (signature block present); notes-tab replies get NA because the workflow switch (~2–3 months ago) sends notes to the partner's mail without the template's greeting/signature</li>
                     </ul>
                   </div>
                 </div>

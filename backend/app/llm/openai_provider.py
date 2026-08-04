@@ -63,13 +63,20 @@ class OpenAIProvider(LLMProvider):
         return os.environ.get("OPENAI_BASE_URL", _DEFAULT_URL)
 
     def _headers(self) -> dict:
-        # The gateway sits behind an Akamai edge WAF that 403s non-browser clients.
-        # A User-Agent ALONE is not enough — the WAF checks the full browser signal set
-        # (sec-ch-ua / Sec-Fetch-* / Accept-Language / Origin / Referer). Verified against
-        # the live gateway: minimal headers -> 403 "Access Denied"; this full set -> 200.
-        # We deliberately do NOT set Accept-Encoding: `requests` manages it and decodes
-        # the body itself (forcing br here can yield an undecodable response).
-        return {
+        """Headers for an OpenAI-COMPATIBLE endpoint (buildathon gateway, Groq, Ollama, or the
+        approved enterprise gateway).
+
+        The buildathon gateway sat behind an Akamai edge WAF that 403s non-browser clients: a
+        User-Agent alone was not enough — it checked the full browser signal set (sec-ch-ua /
+        Sec-Fetch-* / Accept-Language / Origin / Referer), so those are kept for WAF-fronted
+        endpoints. Origin/Referer are DERIVED from the configured base URL: sending a hardcoded
+        foreign Origin to Groq/Ollama is wrong and can trip origin/CORS checks.
+        We deliberately do NOT set Accept-Encoding: `requests` manages it and decodes the body
+        itself (forcing br here can yield an undecodable response).
+        """
+        url = self._url()
+        origin = "/".join(url.split("/")[:3]) if "://" in url else ""
+        h = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
             "Accept": "application/json, text/plain, */*",
@@ -77,8 +84,6 @@ class OpenAIProvider(LLMProvider):
             "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                            "AppleWebKit/537.36 (KHTML, like Gecko) "
                            "Chrome/125.0.0.0 Safari/537.36"),
-            "Origin": "https://gateway-buildathon.ltl.sh",
-            "Referer": "https://gateway-buildathon.ltl.sh/",
             "sec-ch-ua": '"Chromium";v="125", "Not.A/Brand";v="24"',
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"macOS"',
@@ -86,6 +91,10 @@ class OpenAIProvider(LLMProvider):
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
         }
+        if origin:
+            h["Origin"] = origin
+            h["Referer"] = origin + "/"
+        return h
 
     def _post(self, body: dict, *, timeout: int = 90) -> dict:
         """POST with retries. The virtual-key 401 flake gets many fast retries

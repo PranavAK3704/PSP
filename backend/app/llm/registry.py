@@ -43,13 +43,25 @@ def _provider(name: str) -> LLMProvider:
 
 
 def for_node(node: str) -> tuple[LLMProvider, str]:
-    """Return (provider, model_id) for a pipeline node."""
+    """Return (provider, model_id) for a pipeline node.
+
+    YAML is the default routing; ENV can override it so a provider/model swap is a DEPLOY-TIME
+    change (a Render env var) rather than a code edit — which is what you need when the current
+    endpoint dies and you must repoint at Groq / Ollama / the approved enterprise gateway:
+        LLM_PROVIDER      openai | gemini | claude   (openai = any OpenAI-compatible endpoint)
+        LLM_MODEL_FAST    model id for the fast tier
+        LLM_MODEL_DEEP    model id for the deep tier
+    With provider=openai, pair these with OPENAI_BASE_URL + OPENAI_API_KEY.
+    """
     cfg = _config()
-    provider_name = cfg["provider"]
+    provider_name = active_provider_name()
     tier = cfg["nodes"].get(node, "fast")
+    env_model = os.environ.get(f"LLM_MODEL_{tier.upper()}", "").strip()
+    if env_model:
+        return _provider(provider_name), env_model
     model = cfg["tiers"][provider_name][tier]
     return _provider(provider_name), model
 
 
 def active_provider_name() -> str:
-    return _config()["provider"]
+    return (os.environ.get("LLM_PROVIDER", "").strip().lower() or _config()["provider"])

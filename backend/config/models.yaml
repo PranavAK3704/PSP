@@ -9,6 +9,12 @@
 # the registry routes each node's tier to that provider's model ids — no pipeline
 # code changes (see app/llm/registry.py). The Claude/Gemini tier ids are listed
 # under `tiers:` as ready-to-use alternatives.
+#
+# ENV OVERRIDES (so a swap is a DEPLOY change, not a file edit — e.g. when an endpoint dies):
+#   LLM_PROVIDER=openai   LLM_MODEL_FAST=<id>   LLM_MODEL_DEEP=<id>
+#   + OPENAI_BASE_URL / OPENAI_API_KEY for ANY OpenAI-compatible endpoint. Examples:
+#     Groq   OPENAI_BASE_URL=https://api.groq.com/openai/v1/chat/completions  LLM_MODEL_*=llama-3.3-70b-versatile
+#     Ollama OPENAI_BASE_URL=http://localhost:11434/v1/chat/completions       LLM_MODEL_*=llama3.1
 # ─────────────────────────────────────────────────────────────────────────────
 
 provider: openai            # ACTIVE. openai | gemini | claude  <-- flip to switch provider

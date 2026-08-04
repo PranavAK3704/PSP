@@ -1168,6 +1168,8 @@ function KaptureAudit() {
     for (const r of uploaded?.rows || []) m[String(r.ticket_number)] = r.conversation_history;
     return m;
   }, [uploaded]);
+  // the transcript shown in the trace: this session's upload, else the row's stored redacted excerpt
+  const txFor = (a) => txByTicket[String(a.ticket_number)] || a.transcript_excerpt || null;
   const dimMeta = (k) => (rubric?.dimensions || []).find((d) => d.key === k) || {};
   const tierOf = (k) => (k?.startsWith("zt_") ? "zt" : k?.startsWith("fatal_") ? "fatal" : "std");
 
@@ -1270,6 +1272,13 @@ function KaptureAudit() {
         {kpi("Avg quality", scores?.avg_quality_pct, "/100", compColor(scores?.avg_quality_pct))}
         {kpi("SOP coverage", scores?.coverage_pct, "%", covColor(scores?.coverage_pct))}
       </div>
+
+      {scores?.not_audited > 0 && (
+        <div className="text-[11px] text-warn bg-warn/8 border border-warn/30 rounded-xl px-md py-2 flex items-center gap-1.5">
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>help</span>
+          <span><b>{scores.not_audited} ticket{scores.not_audited === 1 ? "" : "s"} could not be audited</b> (the judge returned no verdicts — usually an LLM outage). They are excluded from every rate above, not counted as passes. Re-run them when the judge is available.</span>
+        </div>
+      )}
 
       {/* Calibration banner — engine vs human on the labeled BAU set (if a benchmark exists) */}
       {calib && (
@@ -1453,10 +1462,10 @@ function KaptureAudit() {
                   <div className="text-[10px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>
                     {a.covered ? a.disposition : "NOVEL · uncovered"} · rubric v{a.rubric_version}</div>
                 </div>
-                {(() => { const st = a.status || ((a.fired || []).length ? "FAIL" : "PASS"); return (
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${st === "PASS" ? "bg-tertiary/15 text-tertiary" : "bg-error/15 text-error"}`}>{(a.fired || []).length ? `FAIL · ${a.fired.length} gate${a.fired.length === 1 ? "" : "s"}` : st}</span>
+                {(() => { const st = a.status || ((a.fired || []).length ? "FAIL" : (a.quality_pct != null ? "PASS" : "NOT_AUDITED")); return (
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${st === "PASS" ? "bg-tertiary/15 text-tertiary" : st === "FAIL" ? "bg-error/15 text-error" : "bg-warn/15 text-warn"}`}>{(a.fired || []).length ? `FAIL · ${a.fired.length} gate${a.fired.length === 1 ? "" : "s"}` : st === "NOT_AUDITED" ? "not audited" : st}</span>
                 ); })()}
-                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${compTone(a.quality_pct ?? a.composite)}`} style={{ fontVariantNumeric: "tabular-nums" }}>q{a.quality_pct ?? a.composite ?? "—"}</span>
+                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${a.quality_pct != null ? compTone(a.quality_pct) : "bg-surface-variant text-on-surface-variant"}`} style={{ fontVariantNumeric: "tabular-nums" }}>{a.quality_pct != null ? `q${a.quality_pct}` : "—"}</span>
                 <span className="text-[9px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{(a.audited_at || "").slice(0, 10)}</span>
               </button>
               <button onClick={() => setDetail(a)} title="Open the full end-to-end audit"
@@ -1505,9 +1514,9 @@ function KaptureAudit() {
 
       {detail && (() => {
         const a = detail;
-        const tx = txByTicket[String(a.ticket_number)];
+        const tx = txFor(a);
         const entries = Object.entries(a.per_dimension || {});
-        const status = a.status || ((a.fired || []).length ? "FAIL" : "PASS");
+        const status = a.status || ((a.fired || []).length ? "FAIL" : (a.quality_pct != null ? "PASS" : "NOT_AUDITED"));
         const fired = a.fired || [];
         const quality = a.quality_pct ?? a.composite;
         const pct = (v) => Math.round((v?.score || 0) * 100);
@@ -1546,8 +1555,8 @@ function KaptureAudit() {
                 </div>
                 <div className="flex items-center gap-md">
                   <div className="text-right">
-                    <div className={`text-[24px] font-bold leading-none ${status === "PASS" ? "text-tertiary" : "text-error"}`}>{status}</div>
-                    <div className="text-[9px] uppercase tracking-wide text-on-surface-variant">quality {quality ?? "—"}/100</div>
+                    <div className={`text-[24px] font-bold leading-none ${status === "PASS" ? "text-tertiary" : status === "FAIL" ? "text-error" : "text-warn"}`}>{status === "NOT_AUDITED" ? "NOT AUDITED" : status}</div>
+                    <div className="text-[9px] uppercase tracking-wide text-on-surface-variant">{quality != null ? `quality ${quality}/100` : "nothing scored"}</div>
                   </div>
                   <button onClick={() => setDetail(null)} className="text-on-surface-variant hover:text-on-surface p-1 rounded-lg hover:bg-surface-variant/30 transition-all">
                     <span className="material-symbols-outlined" style={{ fontSize: 22 }}>close</span></button>
@@ -1561,21 +1570,28 @@ function KaptureAudit() {
                   <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: 16 }}>chevron_right</span>
                   <Step icon="policy" label="Coverage" val={a.covered ? a.disposition : "NOVEL"} tone={a.covered ? "text-tertiary" : "text-warn"} />
                   <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: 16 }}>chevron_right</span>
-                  <Step icon="grading" label="Quality" val={quality != null ? `${quality}/100` : "—"} tone={compColor(quality)} />
+                  <Step icon="grading" label="Quality" val={quality != null ? `${quality}/100` : "not scored"} tone={quality != null ? compColor(quality) : "text-warn"} />
                   <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: 16 }}>chevron_right</span>
-                  <Step icon={status === "PASS" ? "verified" : "gpp_bad"} label="Verdict" val={status} tone={status === "PASS" ? "text-tertiary" : "text-error"} />
+                  <Step icon={status === "PASS" ? "verified" : status === "FAIL" ? "gpp_bad" : "help"} label="Verdict" val={status === "NOT_AUDITED" ? "N/A" : status} tone={status === "PASS" ? "text-tertiary" : status === "FAIL" ? "text-error" : "text-warn"} />
                 </div>
 
+                {status === "NOT_AUDITED" && (
+                  <div className="mt-md text-[11px] text-warn bg-warn/8 border border-warn/30 rounded-lg px-md py-2 flex gap-1.5">
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>help</span>
+                    <span><b>This ticket was not actually audited.</b> The judge returned no verdicts (usually an LLM outage), so nothing was scored. It is excluded from every rate — it is <b>not</b> a pass. Re-run it once the judge is available.</span>
+                  </div>
+                )}
+
                 {/* 1 · transcript */}
-                <Head n={1} title="Transcript audited" meta={tx ? "this session" : ""} />
+                <Head n={1} title="Transcript audited" meta={tx ? (txByTicket[String(a.ticket_number)] ? "this session" : "stored · redacted") : ""} />
                 {tx ? (
                   <>
                     <pre className="text-[11px] leading-relaxed whitespace-pre-wrap bg-surface-container-lowest border border-on-primary-fixed-variant/12 rounded-lg p-md max-h-64 overflow-y-auto custom-scrollbar text-on-surface/90">{tx}</pre>
-                    <div className="text-[10px] text-on-surface-variant mt-1">Shown from this session's upload — transcripts are never stored server-side (PII-safe).</div>
+                    <div className="text-[10px] text-on-surface-variant mt-1">The exact input the judge saw. Emails, phones, AWBs and IDs are redacted.</div>
                   </>
                 ) : (
                   <div className="text-[11px] text-on-surface-variant bg-surface-container-lowest border border-on-primary-fixed-variant/12 rounded-lg p-md">
-                    The transcript isn't stored server-side (PII-safe). To inspect the exact input here, re-upload this ticket's CSV in this session, then reopen the audit.</div>
+                    No transcript stored for this ticket (live uploads keep the PII-safe posture). Re-upload this ticket's CSV in this session to inspect the exact input.</div>
                 )}
 
                 {/* 2 · coverage */}

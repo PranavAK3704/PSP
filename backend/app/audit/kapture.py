@@ -300,17 +300,28 @@ def _score_audit(per_dimension: dict, rubric: dict) -> dict:
             fired.append({"key": k, "label": d.get("label", k), "tier": tier,
                           "rationale": (per_dimension.get(k) or {}).get("rationale", "")})
     quality_pct = round(100 * passed_pts / scorable_pts) if scorable_pts > 0 else None
-    status = "FAIL" if fired else "PASS"
-    composite = 0 if fired else (quality_pct if quality_pct is not None else 0)
+    # A row where NOTHING was scorable and no gate fired was never really audited (e.g. the judge
+    # returned nothing). It must NOT read as a PASS — that is how a dead judge masquerades as a
+    # clean audit. Surface it as NOT_AUDITED so it is visibly excluded, not silently counted.
+    if fired:
+        status, composite = "FAIL", 0
+    elif quality_pct is None:
+        status, composite = "NOT_AUDITED", None
+    else:
+        status, composite = "PASS", quality_pct
     return {"status": status, "composite": composite, "quality_pct": quality_pct,
             "passed_points": round(passed_pts, 1), "scorable_points": round(scorable_pts, 1),
             "fired": fired}
 
 
 def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: dict, run_id: str,
-                 persist: bool = True) -> dict:
-    """Audit one Kapture ticket → coverage + judge → derived row (no transcript). persist=False
-    returns the row without writing (for bulk runs that batch-write once at the end)."""
+                 persist: bool = True, store_transcript: bool = False) -> dict:
+    """Audit one Kapture ticket → coverage + judge → derived row. persist=False returns the row
+    without writing (for bulk runs that batch-write once at the end).
+
+    store_transcript=True keeps a REDACTED excerpt on the row so the audit trace is inspectable
+    end-to-end. Off by default (live uploads keep the no-transcript, PII-safe posture); opt in only
+    for sources that are already redacted."""
     cov = locate_sop(transcript, sop_index)
     prompt = build_kapture_prompt(transcript, rubric, cov["sop"])
 
@@ -361,6 +372,8 @@ def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: d
         "overall_rationale": _redact(str(parsed.get("overall_rationale", ""))[:600]),
         "audited_at": _now(),
     }
+    if store_transcript:
+        row["transcript_excerpt"] = _redact((transcript or "").strip()[:4000])
     if persist:
         with _lock:   # persist after every ticket → a dropped stream / crash resumes from here
             d = _load()
@@ -498,8 +511,14 @@ def audit_batch_streamed(rows: list[dict], run_id: str, resume: bool = True):
 
 # ── dashboard aggregates ──────────────────────────────────────────────────────
 def _status_of(t: dict) -> str:
-    """Robust status for a stored row (new rows carry 'status'; be defensive for any older row)."""
-    return t.get("status") or ("FAIL" if t.get("fired") else "PASS")
+    """Robust status for a stored row. A row with no quality_pct and no fired gate was never
+    really judged → NOT_AUDITED (never silently counted as a PASS)."""
+    st = t.get("status")
+    if st:
+        return st
+    if t.get("fired"):
+        return "FAIL"
+    return "PASS" if t.get("quality_pct") is not None else "NOT_AUDITED"
 
 
 def scores() -> dict:
@@ -514,6 +533,12 @@ def scores() -> dict:
              "runs": [], "history": []}
     if not tickets:
         return empty
+    # NOT_AUDITED rows (judge returned nothing) are reported separately and excluded from every
+    # rate — counting them as passes is exactly how a broken run looks like a clean one.
+    not_audited = [t for t in tickets if _status_of(t) == "NOT_AUDITED"]
+    tickets = [t for t in tickets if _status_of(t) != "NOT_AUDITED"]
+    if not tickets:
+        return {**empty, "count": 0, "not_audited": len(not_audited)}
     n = len(tickets)
     n_pass = sum(1 for t in tickets if _status_of(t) == "PASS")
     qpv = [t["quality_pct"] for t in tickets if isinstance(t.get("quality_pct"), (int, float))]
@@ -570,6 +595,7 @@ def scores() -> dict:
     history = sorted(tickets, key=lambda t: t.get("audited_at", ""), reverse=True)[:500]
     return {
         "count": n,
+        "not_audited": len(not_audited),
         "pass_rate": round(100 * n_pass / n),
         "fail_rate": round(100 * (n - n_pass) / n),
         "avg_quality_pct": round(sum(qpv) / len(qpv)) if qpv else None,

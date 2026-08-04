@@ -1274,13 +1274,13 @@ function KaptureAudit() {
       {/* Calibration banner — engine vs human on the labeled BAU set (if a benchmark exists) */}
       {calib && (
         <button onClick={() => setShowCalib(true)}
-          className="w-full text-left glass-card rounded-xl p-md flex items-center gap-md hover:brightness-[1.03] transition-all border border-tertiary/25">
-          <span className="material-symbols-outlined text-tertiary" style={{ fontSize: 26 }}>balance</span>
+          className="w-full text-left glass-card rounded-xl p-md flex items-center gap-md hover:brightness-[1.03] transition-all border border-secondary-container/30">
+          <span className="material-symbols-outlined text-secondary-container" style={{ fontSize: 26 }}>balance</span>
           <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-bold text-tertiary">Calibrated against {calib.n?.toLocaleString?.() || calib.n} human audits</div>
-            <div className="text-[11px] text-on-surface-variant">Engine agrees with the human PASS/FAIL call <b>{calib.status_agreement}%</b> of the time (κ {calib.cohen_kappa}) · engine fail {calib.engine_fail_rate}% vs human {calib.human_fail_rate}%</div>
+            <div className="text-[12px] font-bold text-secondary-container">Benchmarked against {calib.n?.toLocaleString?.() || calib.n} human audits</div>
+            <div className="text-[11px] text-on-surface-variant">Engine flags <b>{calib.engine_fail_rate}%</b> as FAIL vs humans' <b>{calib.human_fail_rate}%</b> — stricter, and reads some parameters differently. See the honest breakdown →</div>
           </div>
-          <span className="text-[11px] font-bold text-tertiary flex items-center gap-1">View comparison<span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_right</span></span>
+          <span className="text-[11px] font-bold text-secondary-container flex items-center gap-1">Compare<span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_right</span></span>
         </button>
       )}
 
@@ -1702,6 +1702,9 @@ function KaptureAudit() {
                   <div className="text-on-surface-variant text-[10px] self-center">human FAIL</div>
                   <div className="rounded bg-error/15 text-error p-2 text-center"><b className="text-[15px]">{calib.confusion.human_fail_only}</b><div className="text-[9px]">engine missed</div></div>
                   <div className="rounded bg-tertiary/15 text-tertiary p-2 text-center"><b className="text-[15px]">{calib.confusion.both_fail}</b><div className="text-[9px]">agree</div></div>
+                </div>
+                <div className="text-[10px] text-on-surface-variant mt-sm">
+                  Of the <b>{calib.confusion.both_fail + calib.confusion.human_fail_only}</b> tickets humans failed, the engine caught <b>{calib.confusion.both_fail}</b> ({Math.round(100 * calib.confusion.both_fail / (calib.confusion.both_fail + calib.confusion.human_fail_only))}% recall). The high raw agreement ({calib.status_agreement}%) comes from the {Math.round(100 * calib.confusion.both_pass / calib.n)}% both sides pass — κ {calib.cohen_kappa} shows agreement on the FAIL call itself is near chance. This is the gap to close.
                 </div>
               </div>
 

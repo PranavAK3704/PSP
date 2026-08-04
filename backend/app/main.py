@@ -274,6 +274,11 @@ def health():
             ds["prism"] = provider.status()
         except Exception as e:  # noqa: BLE001 — health must never throw
             ds["prism"] = {"ok": False, "detail": type(e).__name__}
+    try:   # Kapture read-only browse access (audit evidence) — config presence only
+        from .audit import kapture_browse
+        ds["kapture_browse"] = kapture_browse.status()
+    except Exception as e:  # noqa: BLE001
+        ds["kapture_browse"] = {"configured": False, "detail": type(e).__name__}
     return {"ok": True, "provider": llm_registry.active_provider_name(),
             "knowledge": store.corpus_stats(), "data": ds}
 

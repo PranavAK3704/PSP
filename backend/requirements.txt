@@ -10,3 +10,4 @@ openpyxl==3.1.5          # Excel (.xlsx) extraction for uploaded SOP sheets
 python-docx==1.1.2       # Word (.docx) extraction for uploaded SOP docs
 # anthropic — install only if switching provider to 'claude'
 certifi==2024.8.30        # TLS CA bundle for the Turso HTTPS data source
+playwright==1.48.0        # READ-ONLY Kapture browse (audit evidence). Also needs: playwright install chromium

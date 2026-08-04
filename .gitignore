@@ -31,3 +31,7 @@ backend/data/*.json
 # generated deliverable docs (regeneratable — not source)
 /Valmo_Advocate_*.docx
 /Valmo_Advocate_*.pdf
+
+# Kapture browse credentials + session state (never commit)
+backend/data/kapture_creds.txt
+backend/data/kapture_session.json

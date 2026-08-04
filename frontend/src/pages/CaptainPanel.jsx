@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Send, Mic, MicOff, Cpu, Radio, ThumbsUp, ThumbsDown, Paperclip, X,
   ChevronRight, Clock, CheckCircle2, MessageSquare, FolderOpen, Trash2 } from "lucide-react";
 

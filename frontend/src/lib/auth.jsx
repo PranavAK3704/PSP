@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { getMe, getToken, clearToken, login as apiLogin, logout as apiLogout } from "./api.js";
 
 // Client-side session state. The SERVER is the source of truth for every gated

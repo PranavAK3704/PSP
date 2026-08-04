@@ -147,7 +147,6 @@ export function uploadKaptureCsv(file) {
   const fd = new FormData(); fd.append("file", file);
   return apiPostForm("/api/kapture/upload", fd);
 }
-export const estimateKapture = (rows) => apiPost("/api/kapture/estimate", { rows });
 export const streamKaptureRun = ({ run_id, rows }, onTicket, onEnd) =>
   stream({ url: "/api/kapture/run", method: "POST", body: { run_id, rows } }, onTicket, onEnd);
 export const getKaptureScores = () => apiGet("/api/kapture/scores");

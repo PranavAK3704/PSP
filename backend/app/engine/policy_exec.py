@@ -113,7 +113,7 @@ def _eval_real_loss(row: dict, policy: dict, awb: str, pend: dict | None = None,
                             f"{pend.get('current_location','?')}"
                             + (f" · misroute {pend.get('misroute_type')}" if (pend.get('misroute_type') or '').strip() else ""),
                    "source": "pendency"})
-    reversal_signal = bool(inscan) or attr_changed or cn_issued
+    reversal_signal = bool(inscan) or attr_changed
 
     # 0) A credit note already issued ⇒ already reversed/credited.
     if cn_issued:

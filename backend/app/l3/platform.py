@@ -67,7 +67,7 @@ def _team_of(concern: dict) -> str:
     return (p or {}).get("escalation", {}).get("team", "Functional team (L2/L3)")
 
 
-def inbox(include_resolved: bool = False) -> list[dict]:
+def inbox() -> list[dict]:
     """Escalated Concerns as L3 work items with SLA + breach status. Cases that have been
     resolved-back (a follow-up concern links to them) drop out of the active queue."""
     all_concerns = concern_log.all_concerns()
@@ -76,7 +76,7 @@ def inbox(include_resolved: bool = False) -> list[dict]:
     for c in all_concerns:
         if c.get("outcome") != "escalated":
             continue
-        if c.get("id") in resolved_ids and not include_resolved:
+        if c.get("id") in resolved_ids:
             continue
         team = _team_of(c)
         sla = TEAM_SLA.get(team, DEFAULT_SLA)

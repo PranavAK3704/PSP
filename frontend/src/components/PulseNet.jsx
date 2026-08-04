@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 // PulseNet — a living node-link "signal field": nodes drift, nearby nodes link,
 // and bright pulses travel along the links. Reacts to hover + page scroll (speeds up).

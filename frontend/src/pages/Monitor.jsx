@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Pipeline from "../components/Pipeline.jsx";
 import DecisionCore from "../components/DecisionCore.jsx";
 import PulseNet from "../components/PulseNet.jsx";

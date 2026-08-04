@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 // The "Decision Core" — glowing icosahedron + wireframe shell (Three.js).
 // Stateful + interactive:

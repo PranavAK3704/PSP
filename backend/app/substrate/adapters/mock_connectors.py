@@ -1,9 +1,8 @@
 """DemoDataProvider — the LIVE data provider today (canned query results).
 
-Returns Metabase-shaped rows from seed data so the platform runs without DB
-access. This is the provider wired into captain_context.py right now. A real
-Metabase-backed provider is future work (aspirational scaffolding is kept under
-adapters/experimental/ for reference) — it is NOT wired in yet.
+Returns query-shaped rows from seed data so the platform runs without DB access. This is the
+DEFAULT provider in captain_context.py; the real data-lake provider is prism_provider.py, opted
+into with PSP_DATA_PROVIDER=prism.
 """
 from __future__ import annotations
 

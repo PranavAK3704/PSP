@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 // Animated deep-teal "neural field" background (ported from the Stitch export).
 // Pure WebGL, no deps; degrades to nothing if WebGL is unavailable.

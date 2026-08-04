@@ -45,7 +45,7 @@ def evaluate(policy: dict, decision: dict, grounded: dict) -> dict:
         reasons.append(f"Confidence {conf:.2f} clears threshold {CONFIDENCE_THRESHOLD:.2f}")
 
     # 4) Partner Constitution
-    con = check_constitution(policy, decision, grounded)
+    con = check_constitution(policy, decision)
     if not con["passed"]:
         blocks += con["violations"]
     reasons += [f"Upholds: {u}" for u in con["upheld"]]

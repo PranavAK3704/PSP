@@ -78,12 +78,23 @@ reasoning/trust/governance IP.
    without a token via `python scripts/prism_sidecar_mock.py`.
 4. **Governance:** data-classification sign-off (losses/COD = financial + partner PII) + retention;
    finance sign-off for real money-movement; functional-team owners for SOPs + the governance bands.
-5. **Kapture audit rubric (pending — doc coming shortly):** the real **Email-Audit weights** and the
-   **ZT / Fatal "auto-fail" scoring rule**. The sub-parameter legend + failure-mode reasons are already
-   captured and seeded into the Kapture rubric (`audit/kapture_rubric.py`, 15 factors across standard /
-   ZT / Fatal tiers) with **provisional** weights; the weighted-mean judge does **not** yet enforce
-   auto-fail on a ZT/Fatal violation — both land when the weighting doc arrives (or upload the weights
-   sheet via the Kapture Audit tab to set them now).
+5. **Kapture audit — RESOLVED (weights + auto-fail are in).** The real model came from
+   **"BAU Audits_Aspire"** (the sheet the QA team audits against): 7 quality parameters scored
+   **Pass/Fail on point weights summing to 100** (app-education 30, template 25, flow 12.5, simple
+   12.5, empathy 10, format 6, opening/closing 4) plus **8 zt_/fatal_ AUTO-FAIL gates** — any breach
+   ⇒ composite 0 / status FAIL. Live rubric is v6. Calibrated against **1,089 human-labelled audits**:
+   status agreement **90.6%**, engine fail **5.3%** vs human **5.1%**, avg quality **81**, κ 0.05.
+   Two honest caveats carried forward:
+   - **Fatal recall is ~11%** — the correctness/process fatals (tagging, reversal, assignment, wrong
+     TAT) are only visible in the CRM, not the email text. The **Kapture read-only evidence puller**
+     (`audit/kapture_browse.py`, verified against the live tenant) now fetches exactly that evidence,
+     so those gates can be made real; wiring the gates to it is the next step.
+   - **opening/closing + email_flow are HYBRID** — the team replies from the Kapture **notes tab**,
+     which mails the partner without the template greeting/signature, so those two parameters are
+     judged only on genuine email-format replies and marked NA otherwise. `reply_channel` is derived
+     from CRM fact by the evidence puller.
+   Still wanted from the QA org: sign-off that these weights + the auto-fail rule are current, and a
+   decision on whether notes-tab replies should have their own open/close convention.
 
 Per the checklist's own point, **access latency — not code — is the critical path**: open items 2–3 now, in parallel.
 
@@ -273,7 +284,7 @@ All live now on the demo backend (`:8077`). "Stub" = shape is correct, swap the 
 | `/api/satisfaction` | POST | **real** | 👍/👎 → CPD |
 | `/api/audit` `/api/insights` | GET | **real** | Audit trail, CPD feed, CSAT, aggregate metrics |
 | `/api/sop/compile` | POST | **real** | Plain SOP → Executable Policy |
-| `/api/captains` `/api/captain/{id}` `/api/ledger` `/api/dispositions` `/api/policies` `/api/constitution` `/api/knowledge/search` | GET | **real** | Read models |
+| `/api/captains` `/api/captain/{id}` `/api/ledger`    GET | **real** | Read models |
 
 **Governance** — 🟡 mostly built. The editable **Governance Framework** (dimensions / bands /
 metrics / accountability, or structured from an uploaded doc) and the **SOP conformance loop**

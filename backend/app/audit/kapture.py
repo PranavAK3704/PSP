@@ -6,9 +6,9 @@ a conversation transcript). For each ticket it:
   2. measures SOP COVERAGE (matched SOP, or NOVEL) and per-check ADHERENCE against our SOP base,
 in ONE combined judge call, then persists a derived result row (NO raw transcript — PII).
 
-Reuses the internal judge's scoring maths (audit/runner.py::_composite/_coerce_result), the
-retrieval/disposition engine for coverage, and the same LLM mechanism the compilers use. Built
-for LARGE batches: a streamed, chunked, resumable generator that dedupes already-audited tickets.
+Scores with the REAL BAU model (quality Pass/Fail on point weights + zt_/fatal_ auto-fail gates;
+see _score_audit). Reuses the retrieval engine for SOP coverage and the same LLM mechanism the
+compilers use. Built for LARGE batches: a streamed, chunked generator that dedupes audited tickets.
 """
 from __future__ import annotations
 
@@ -34,8 +34,8 @@ _STORE = durable_path("kapture_audits.json")
 _CALIB_STORE = durable_path("kapture_calibration.json")   # engine-vs-human benchmark report
 _lock = threading.Lock()
 
-# Coverage floor — tunable, and deliberately SEPARATE from dispositions.NOVEL_THRESHOLD (1.5), so
-# QA can loosen/tighten "did an SOP cover this ticket" without touching the live resolution engine.
+# Coverage floor — tunable, and deliberately SEPARATE from the live resolution engine's own retrieval
+# floor, so QA can loosen/tighten "did an SOP cover this ticket" without touching resolution.
 # A ticket counts as COVERED only if (a) retrieval clears this floor AND (b) we resolve an actual SOP
 # (with checks) to audit against — an incidental word-overlap that maps to no real SOP is NOT coverage.
 _COVERAGE_THRESHOLD = 2.0
@@ -309,9 +309,7 @@ def _score_audit(per_dimension: dict, rubric: dict) -> dict:
         status, composite = "NOT_AUDITED", None
     else:
         status, composite = "PASS", quality_pct
-    return {"status": status, "composite": composite, "quality_pct": quality_pct,
-            "passed_points": round(passed_pts, 1), "scorable_points": round(scorable_pts, 1),
-            "fired": fired}
+    return {"status": status, "composite": composite, "quality_pct": quality_pct, "fired": fired}
 
 
 def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: dict, run_id: str,
@@ -327,7 +325,7 @@ def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: d
 
     provider, model = llm_registry.for_node("audit_judge")   # own node (falls back to fast tier if unset)
     parsed: dict = {}
-    for _ in range(2):   # robust to a JSON miss — one retry, then fall back to a conservative all-pass
+    for _ in range(2):   # robust to a JSON miss — one retry, then fail loud (see below)
         try:
             res = provider.generate(prompt, model=model, node="audit_judge", system=_SYSTEM, json_mode=True)
             parsed = _parse_json(res.text)
@@ -356,8 +354,6 @@ def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: d
         "composite": sc["composite"],
         "status": sc["status"],
         "quality_pct": sc["quality_pct"],
-        "passed_points": sc["passed_points"],
-        "scorable_points": sc["scorable_points"],
         "fired": sc["fired"],
         "covered": cov["covered"],
         "disposition": cov["disposition"],
@@ -529,8 +525,7 @@ def scores() -> dict:
     empty = {"count": 0, "pass_rate": None, "fail_rate": None, "avg_quality_pct": None,
              "avg_composite": None, "coverage_pct": None, "adherence_pct": None,
              "per_parameter": {}, "top_failures": [], "by_disposition": {}, "novel_count": 0,
-             "rubric_version": rubric.get("version"), "dimensions": rubric.get("dimensions", []),
-             "runs": [], "history": []}
+             "history": []}
     if not tickets:
         return empty
     # NOT_AUDITED rows (judge returned nothing) are reported separately and excluded from every
@@ -599,16 +594,12 @@ def scores() -> dict:
         "pass_rate": round(100 * n_pass / n),
         "fail_rate": round(100 * (n - n_pass) / n),
         "avg_quality_pct": round(sum(qpv) / len(qpv)) if qpv else None,
-        "avg_composite": round(sum(t.get("composite", 0) for t in tickets) / n),
         "coverage_pct": round(100 * cov / n),
         "adherence_pct": round(sum(adh) / len(adh)) if adh else None,
         "per_parameter": per_parameter,
         "top_failures": top_failures,
         "by_disposition": by_disposition,
         "novel_count": n - cov,
-        "rubric_version": rubric.get("version"),
-        "dimensions": rubric.get("dimensions", []),
-        "runs": list(reversed(d.get("runs", []))),
         "history": history,
     }
 
@@ -651,7 +642,7 @@ def export_csv(run_id: str | None = None) -> str:
             "overall_rationale": _flat(t.get("overall_rationale")),
         }
         for k in dim_keys:
-            # verdict is the audit signal; keep the 0–1 coaching score alongside in parens
+            # verdict is the audit signal; pre-Pass/Fail rows fall back to their 0–1 score
             cell = (t.get("per_dimension") or {}).get(k, {})
             vd = cell.get("verdict")
             row[f"dim_{k}"] = vd if vd else cell.get("score", "")

@@ -3,7 +3,7 @@ import { getInsights, getAudit, getKt, submitKt, reviewKt, compileSopStream, get
   approveSop, saveSopDraft, deleteSop, extractSop, compileBlueprintStream, getBlueprints, saveBlueprint, approveBlueprint,
   getConcernTrace, exportLedger, getAuditRubric, saveAuditRubric, runAudit, runAuditBatch, getAuditScores,
   getFramework, saveFramework, uploadFramework, approveFramework,
-  getKaptureRubric, saveKaptureRubric, uploadKaptureRubric, uploadKaptureCsv, estimateKapture,
+  getKaptureRubric, saveKaptureRubric, uploadKaptureRubric, uploadKaptureCsv,
   streamKaptureRun, getKaptureScores, exportKaptureScores, getKaptureCalibration } from "../lib/api.js";
 import PolicyCompileAnimation from "../components/PolicyCompileAnimation.jsx";
 import BlueprintCompileAnimation from "../components/BlueprintCompileAnimation.jsx";
@@ -1187,7 +1187,6 @@ function KaptureAudit() {
   const setDim = (i, patch) => setDims(dims.map((d, j) => (j === i ? { ...d, ...patch } : d)));
   const addDim = () => setDims([...dims, { key: "", label: "", description: "", weight: 0.1 }]);
   const removeDim = (i) => setDims(dims.filter((_, j) => j !== i));
-  const dimLabel = (k) => (rubric?.dimensions || []).find((d) => d.key === k)?.label || k;
 
   async function saveRubric() {
     const r = await saveKaptureRubric(dims);
@@ -1241,7 +1240,6 @@ function KaptureAudit() {
       </div>
     </div>
   );
-  const compColor = (c) => (c == null ? "text-on-surface-variant" : c >= 80 ? "text-tertiary" : c >= 55 ? "text-secondary-container" : "text-error");
   const covColor = (c) => (c == null ? "text-on-surface-variant" : c >= 70 ? "text-tertiary" : c >= 40 ? "text-warn" : "text-error");
 
   return (
@@ -1482,7 +1480,7 @@ function KaptureAudit() {
                       const tone = vd === "pass" ? "text-tertiary" : vd === "fail" ? "text-error" : vd === "na" ? "text-on-surface-variant/60" : "text-on-surface-variant";
                       return (
                         <div key={k} className="grid grid-cols-[160px_auto_1fr] gap-sm items-center">
-                          <span className="text-[11px] text-on-surface-variant">{dimLabel(k)}</span>
+                          <span className="text-[11px] text-on-surface-variant">{dimMeta(k).label || k}</span>
                           <span className={`text-[10px] font-bold uppercase w-10 ${tone}`} style={{ fontFamily: "JetBrains Mono" }}>{vd || Math.round((v.score || 0) * 100)}</span>
                           <span className="text-[10px] text-on-surface-variant truncate" title={v.rationale}>{v.rationale}</span>
                         </div>
@@ -1911,7 +1909,6 @@ function AuditScores() {
           {/* composite — big KPI tile, tone by score band */}
           {(() => {
             const comp = scores?.avg_composite;
-            const compColor = comp == null ? "text-on-surface-variant" : comp >= 80 ? "text-tertiary" : comp >= 55 ? "text-secondary-container" : "text-error";
             return (
               <div className="rounded-xl border border-on-primary-fixed-variant/15 bg-surface-container-lowest/60 scan-line p-md mb-lg">
                 <div className="flex items-center justify-between">
@@ -2446,6 +2443,10 @@ function DimensionCard({ dim, onChange, onRemove }) {
     </div>
   );
 }
+
+// Shared score->colour helpers (both panels use identical thresholds).
+const compColor = (c) => (c == null ? "text-on-surface-variant"
+  : c >= 80 ? "text-tertiary" : c >= 55 ? "text-secondary-container" : "text-error");
 
 function compTone(c) {
   if (c == null) return "bg-warn/10 text-warn border border-warn/40";

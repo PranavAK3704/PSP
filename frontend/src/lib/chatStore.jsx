@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
 
 // Multi-conversation store (Claude-style). Per captain: a list of conversations + which is
 // active. Each conversation has its own backend conversation_id and message history. Lifted

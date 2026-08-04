@@ -14,16 +14,11 @@ import os
 import sys
 import threading
 
-from ..state_paths import state_path
 from ..durable_state import read_json, write_json
 
 ROLES = {"author", "approver", "viewer"}
 _ITERATIONS = 200_000
 _lock = threading.Lock()
-
-
-def _path() -> str:
-    return state_path("users.json")
 
 
 def _hash(password: str, salt_hex: str) -> str:

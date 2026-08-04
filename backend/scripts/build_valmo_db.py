@@ -44,7 +44,6 @@ KEEP = ["awb", "consolidation_awb", "created_date", "lost_date", "actual_lost_da
         "current_movement_type", "shipment_value", "loss_percentage", "loss_value",
         "location", "leg", "loc2", "leg2", "reason", "reason_l1",
         "attribution_changed", "facility_inscan", "DC_Tenurity"]
-DROP_PII = {"transporter_or_FE_name", "accepted_by", "requested_by", "remarks"}
 
 # Enrichment tables (qc_fail / attribution) arrive with many more PII columns — FE/worker/party
 # names, evidence-image URLs, remarks, contact/entity ids. Drop any column matching these patterns

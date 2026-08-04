@@ -36,14 +36,13 @@ from .auth import tokens as auth_tokens                # noqa: E402
 from .auth.deps import current_user, require_role      # noqa: E402
 from .channels import whatsapp                          # noqa: E402
 from .engine import conversation, dispositions          # noqa: E402
-from .knowledge import blueprints, governance, policies, sop_compiler, store  # noqa: E402
+from .knowledge import blueprints, governance, sop_compiler, store  # noqa: E402
 from .kt import engine as kt_engine                     # noqa: E402
 from .l3 import platform as l3                          # noqa: E402
 from .llm import registry as llm_registry               # noqa: E402
 from .ledger import concern_log, trace_log               # noqa: E402
 from .monitor import monitor                             # noqa: E402
 from .substrate import captain_context as ctx            # noqa: E402
-from .trust import constitution                          # noqa: E402
 
 app = FastAPI(title="Valmo Partner Support Platform", version="demo-1.0")
 
@@ -300,8 +299,7 @@ def chat(body: ChatIn):
     Pass a stable conversation_id across turns; the engine may end a turn in a
     `need_input` event (asking the partner) and resume on the next turn.
     """
-    import uuid as _uuid
-    conv_id = body.conversation_id or ("conv-" + _uuid.uuid4().hex[:10])
+    conv_id = body.conversation_id or ("conv-" + uuid.uuid4().hex[:10])
     return EventSourceResponse(_sse(
         conversation.handle_turn(conv_id, body.captain_id, body.message, body.channel,
                                  attachments=body.attachments)))
@@ -311,16 +309,6 @@ def chat(body: ChatIn):
 def monitor_scan(captain_id: str):
     """Proactive monitoring — streams detect->nudge trace as SSE."""
     return EventSourceResponse(_sse(monitor.scan_captain(captain_id)))
-
-
-@app.get("/api/dispositions", dependencies=[_authed])
-def dispositions_list():
-    return {"dispositions": dispositions.catalogue()}
-
-
-@app.get("/api/policies", dependencies=[_authed])
-def policies_list():
-    return {"policies": policies.all_policies()}
 
 
 @app.post("/api/sop/compile", dependencies=[_author])
@@ -460,11 +448,6 @@ def ledger_export(format: str = "json"):
         media_type="application/json",
         headers={"Content-Disposition": 'attachment; filename="concern_log.json"'},
     )
-
-
-@app.get("/api/constitution", dependencies=[_authed])
-def get_constitution():
-    return {"principles": constitution.PRINCIPLES, "tiers": constitution.TIERS}
 
 
 # ── Channels: WhatsApp (the near-term primary channel) ──────────────────────
@@ -613,7 +596,6 @@ async def kapture_rubric_upload(file: UploadFile = File(...)):
 async def kapture_upload(file: UploadFile = File(...)):
     """Upload a CSV of ticket_number + conversation_history → parse rows + a cost estimate.
     Rows are returned to the client; transcripts are NOT persisted server-side (PII)."""
-    import uuid as _uuid
     raw = await file.read()
     if len(raw) > 12_000_000:
         raise HTTPException(status_code=413, detail="File too large — please upload under ~12MB.")
@@ -623,7 +605,7 @@ async def kapture_upload(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=str(e))
     if not rows:
         raise HTTPException(status_code=400, detail="No valid ticket rows found in the CSV.")
-    return {"run_id": "KAP-" + _uuid.uuid4().hex[:8].upper(), "count": len(rows),
+    return {"run_id": "KAP-" + uuid.uuid4().hex[:8].upper(), "count": len(rows),
             "rows": rows, "estimate": kapture.estimate_cost(rows)}
 
 
@@ -637,8 +619,7 @@ def kapture_estimate(body: KaptureEstimateIn):
 def kapture_run(body: KaptureRunIn):
     """Stream a batch audit — one SSE event per ticket, then a done summary. Resumable:
     re-running the same rows skips already-audited tickets."""
-    import uuid as _uuid
-    run_id = body.run_id or ("KAP-" + _uuid.uuid4().hex[:8].upper())
+    run_id = body.run_id or ("KAP-" + uuid.uuid4().hex[:8].upper())
     return EventSourceResponse(_sse(kapture.audit_batch_streamed(body.rows, run_id)))
 
 

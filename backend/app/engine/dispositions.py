@@ -9,34 +9,7 @@ a human, flag the team to author an SOP).
 from __future__ import annotations
 
 from ..knowledge import policies as pol
-from ..knowledge import store
 from ..ledger import concern_log
-
-# similarity floor below which a Concern is NOVEL (no SOP-backed cluster)
-NOVEL_THRESHOLD = 1.5
-
-
-def locate(intent: str, keywords: list[str]) -> dict:
-    """Map an intent to the nearest living disposition, or flag NOVEL (CPD)."""
-    hits = store.retrieve(intent, k=5, tags=keywords)
-    if not hits or hits[0]["score"] < NOVEL_THRESHOLD:
-        return {"disposition": "NOVEL", "novel": True, "score": hits[0]["score"] if hits else 0.0,
-                "cpd": {"reason": "No SOP-backed cluster within similarity threshold",
-                        "action": "route to human + flag team to author an SOP"},
-                "supporting": hits[:3]}
-    top = hits[0]
-    # derive disposition theme from the top chunk's queue/kind + policy availability
-    disposition = _theme_for(top)
-    policy = pol.get_policy(disposition)
-    return {
-        "disposition": disposition,
-        "novel": False,
-        "score": top["score"],
-        "has_policy": policy is not None,
-        "policy_id": policy["id"] if policy else None,
-        "supporting": hits[:3],
-    }
-
 
 def _theme_for(chunk: dict) -> str:
     # Prefer the explicit disposition CATEGORY carried on the chunk (from a compiled SOP) — that

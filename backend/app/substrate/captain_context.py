@@ -6,11 +6,10 @@ Assembles ONE grounded view of a captain by composing MULTIPLE upstream sources:
 Both the resolution engine and the monitor read from this single service. Each
 field keeps its source so nothing is hallucinated and provenance is auditable.
 
-Today both providers serve canned (seed) rows so the platform runs without live
-DB access. Future: a real Metabase-backed sync will supply the Meesho account data
-(aspirational scaffolding lives in adapters/experimental/, not wired in yet), and
-Log10Connector gains live calls once LOG10_* env is set — the contract here is
-unchanged either way.
+By default both providers serve canned (seed) rows so the platform runs without live DB
+access. Set PSP_DATA_PROVIDER=prism to serve Meesho account data from the real data lake
+(adapters/prism_provider.py); Log10Connector gains live calls once LOG10_* env is set — the
+contract here is unchanged either way.
 """
 from __future__ import annotations
 

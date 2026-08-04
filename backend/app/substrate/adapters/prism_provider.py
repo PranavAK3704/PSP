@@ -50,11 +50,6 @@ class PrismError(RuntimeError):
         self.code = str(code or "")
         self.query = query
 
-    @property
-    def is_config_error(self) -> bool:
-        """401 (no/invalid client_token) or a missing sidecar — an access problem, not a bug."""
-        return self.code in ("401", "no_sidecar")
-
 
 @dataclass(frozen=True)
 class PrismQuery:
@@ -246,8 +241,8 @@ def build_request(name: str, params: dict) -> dict:
 class PrismProvider:
     """DataProvider over the Meesho data lake via the Java PrismSDK sidecar.
 
-    Implements the same accessor contract as DemoDataProvider (see adapters/experimental/base.py)
-    so `captain_context` swaps providers without any pipeline change.
+    Implements the same accessor contract as DemoDataProvider (mock_connectors.py), so
+    `captain_context` swaps providers without any pipeline change.
     """
 
     source = "prism (Meesho data lake)"

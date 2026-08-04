@@ -266,6 +266,14 @@ def health():
         ds["losses"] = loss_db._query("SELECT COUNT(*) AS n FROM losses", ())[0]["n"]
     except Exception:  # noqa: BLE001
         ds["losses"] = None
+    # Which account-data provider is live (canned demo vs the Prism data lake) + its reachability.
+    provider = ctx.data_provider()
+    ds["account_provider"] = getattr(provider, "source", "unknown")
+    if hasattr(provider, "status"):
+        try:
+            ds["prism"] = provider.status()
+        except Exception as e:  # noqa: BLE001 — health must never throw
+            ds["prism"] = {"ok": False, "detail": type(e).__name__}
     return {"ok": True, "provider": llm_registry.active_provider_name(),
             "knowledge": store.corpus_stats(), "data": ds}
 

@@ -51,12 +51,31 @@ reasoning/trust/governance IP.
 2. **Infra (Track B):** a **Meesho GitHub org** repo + CI/CD onboarding; a **Cloud SQL (MySQL)** instance
    + creds; **Vault/External-Secrets** access; **Meesho SSO/OAuth** client registration; an **approved
    enterprise LLM** endpoint + service key; the **observability** stack; (later) GCS + IAM, approved Redis.
-3. **Data (Track C):** (a) **PrismSDK access + the Gold-tables doc section** (auth + call shape — now
-   added to the data-platform doc) + the **Gold dataset scope** (loss, COD-pendency, payout) with a
-   least-privilege read role; (b) **Meesholytics onboarding** for frontend events → silver; (c) the
-   **critical clarification** — a **transactional operational DB (Cloud SQL / tech DB)** for auth + the
-   live Concern Log + authored content, separate from silver (silver-via-PrismSDK is not a
-   transactional store, so it can't back login / live-case reads).
+3. **Data (Track C) — the integration is BUILT; these are the unblockers:**
+   - (a) **`client_token`** for PrismSDK (email `data-requests@meesho.com`) + **internal Maven repo
+     access** so `com.meesho:prismsdk:1.2.8-RELEASE` resolves — the sidecar cannot be compiled without it.
+   - (b) **The real table + column names** for the 5 pending named queries (captain profile, payments
+     ledger, COD pendency, open shipments, scan events). `gold.valmo_lost_awb_2k24_v1` is already
+     confirmed and wired. Placeholders are `TBD_*` and are **blocked from executing** by
+     `enabled_queries()` — a wrong table can never silently return junk.
+   - (c) **SANDBOX first** (`PRISMSDK_ENVIRONMENT=SANDBOX`) with a least-privilege read role, then PRODUCTION.
+   - (d) **Meesholytics onboarding** for frontend events → silver.
+   - (e) The **critical clarification** — a **transactional operational DB (Cloud SQL / tech DB)** for auth +
+     the live Concern Log + authored content, separate from silver (silver-via-PrismSDK is not a
+     transactional store, so it can't back login / live-case reads).
+
+   **What is already built (see `substrate/adapters/prism_provider.py` + `backend/prism-sidecar/`):**
+   PrismSDK is **Java-only**, so the supported shape is PSP (Python) → HTTP → `prism-sidecar` (Java,
+   wraps PrismSDK) → data lake. The named-query whitelist translates a query *name* into PrismSDK's
+   structured fetch params (table/columns/filter/date-window/sort/limit) — **no SQL anywhere in the
+   request path**, so prompt injection can't reach the lake (params are validated + quoted; injection
+   attempts are rejected). Silver-table rules (mandatory date window, ~5h span cap) are enforced
+   client-side. Enabled with `PSP_DATA_PROVIDER=prism` + `PRISM_SIDECAR_URL`; **defaults to demo**, so
+   this is an opt-in deploy step with a one-env-var rollback. It **never falls back to canned data** on
+   failure — it raises with the SDK's error code (401 unauthorised / 409 unknown table / 5xx escalate),
+   because fake data wearing a real provenance label is worse than an outage. `/api/health` reports the
+   active provider + sidecar reachability + which queries are enabled vs pending. Test the whole path
+   without a token via `python scripts/prism_sidecar_mock.py`.
 4. **Governance:** data-classification sign-off (losses/COD = financial + partner PII) + retention;
    finance sign-off for real money-movement; functional-team owners for SOPs + the governance bands.
 5. **Kapture audit rubric (pending — doc coming shortly):** the real **Email-Audit weights** and the

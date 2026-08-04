@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  prism-sidecar — a thin Java shim that exposes Meesho's PrismSDK over localhost HTTP so the
+  Python backend can query the data lake. PrismSDK is Java-only; this is the supported bridge.
+
+  Deliberately minimal: PrismSDK + Jackson, and the JDK's built-in HTTP server (no Spring). Fewer
+  dependencies = fewer things to resolve from the internal Nexus and a smaller sidecar image.
+
+  BUILD NOTE: com.meesho:prismsdk resolves from Meesho's INTERNAL maven repository, so this cannot
+  be built outside the corporate network / without repo credentials. Add the internal repo to your
+  settings.xml (or uncomment <repositories> below with the real URL from the data/platform team).
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.meesho.valmo</groupId>
+  <artifactId>prism-sidecar</artifactId>
+  <version>0.1.0</version>
+  <packaging>jar</packaging>
+
+  <properties>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <jackson.version>2.17.2</jackson.version>
+  </properties>
+
+  <!--
+  <repositories>
+    <repository>
+      <id>meesho-internal</id>
+      <url>REPLACE_WITH_INTERNAL_NEXUS_URL</url>
+    </repository>
+  </repositories>
+  -->
+
+  <dependencies>
+    <dependency>
+      <groupId>com.meesho</groupId>
+      <artifactId>prismsdk</artifactId>
+      <version>1.2.8-RELEASE</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- fat jar so the container runs `java -jar prism-sidecar.jar` with no classpath fuss -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.5.1</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <finalName>prism-sidecar</finalName>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>com.meesho.valmo.prism.SidecarMain</mainClass>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

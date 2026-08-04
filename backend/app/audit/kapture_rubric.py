@@ -44,8 +44,9 @@ def _now() -> str:
 _SEED_DIMENSIONS = [
     # ── QUALITY (Pass/Fail, points sum to 100) ──
     {"key": "proper_opening_closing", "label": "Proper opening & closing", "weight": 4.0,
-     "description": "Proper salutation in the opening (e.g. \"Dear Partner,\") and a complete closing "
-                    "(e.g. \"Thank you, Valmo Partner Support\")."},
+     "description": "PASS if the email opens with any reasonable salutation (e.g. \"Dear Partner,\" / "
+                    "\"Hi Partner,\") AND ends with a closing that names the brand/role (e.g. \"Thank you, "
+                    "Valmo Partner Support\"). Both present = pass. Do NOT fail for minor stylistic wording."},
     {"key": "correct_email_format", "label": "Correct email format", "weight": 6.0,
      "description": "Correct font / size / alignment and paragraph formatting (Arial/Times/Calibri 10, "
                     "left-aligned); no spacing, case, spelling or punctuation errors."},
@@ -55,10 +56,14 @@ _SEED_DIMENSIONS = [
     {"key": "simple_language", "label": "Simple, easy to understand", "weight": 12.5,
      "description": "Grammatically correct, simple language; no company jargon, complex words or unclear statements."},
     {"key": "template_modification", "label": "Appropriate template modification", "weight": 25.0,
-     "description": "The template is not modified unnecessarily or inappropriately (non-critical unless the "
-                    "resolution itself is impacted)."},
+     "description": "PASS BY DEFAULT. This checks the agent did NOT inappropriately alter the standard "
+                    "template in a way that harms the resolution. Using the standard template as-is, or "
+                    "customizing it correctly, is a PASS. Being generic or un-personalised is NOT a fail. "
+                    "FAIL only for a harmful/inappropriate modification that damages the response."},
     {"key": "email_flow", "label": "Adhered to email flow", "weight": 12.5,
-     "description": "The prescribed email flow was followed in the correct order."},
+     "description": "Judge STRUCTURE/order only: does the email broadly follow greeting → acknowledgement → "
+                    "response → assistance line → closing? If that shape is present, PASS. Do NOT fail for "
+                    "content/correctness issues — those belong to other parameters."},
     {"key": "app_education", "label": "Educated to use the app", "weight": 30.0,
      "description": "Offered the relevant self-help option / existing app feature proactively. Mark NA when the "
                     "issue has no applicable app self-help."},
@@ -82,11 +87,14 @@ _SEED_DIMENSIONS = [
     {"key": "fatal_assignment", "label": "Fatal · Incorrect ticket assignment / handling", "weight": 0.0,
      "description": "FATAL gate. Fails ONLY if the ticket was assigned to the wrong queue or mishandled."},
     {"key": "fatal_misleading_info", "label": "Fatal · Incorrect / misleading information", "weight": 0.0,
-     "description": "FATAL gate. Fails ONLY if the agent gave incorrect or misleading information — wrong TAT "
-                    "vs SOP, wrong resolution/expectations, or wrong template customization."},
+     "description": "FATAL gate. Fire ONLY if the transcript ITSELF shows the agent stated something "
+                    "contradictory or wrong (e.g. it contradicts the partner's own stated facts). You do "
+                    "NOT have the SOP/CRM — NEVER infer a wrong TAT, policy or amount you cannot verify from "
+                    "the text. When you cannot verify correctness from the transcript, PASS."},
     {"key": "fatal_incomplete_info", "label": "Fatal · Incomplete information", "weight": 0.0,
-     "description": "FATAL gate. Fails ONLY if the agent left a raised query unaddressed or gave a clearly "
-                    "incomplete resolution."},
+     "description": "FATAL gate. Fire ONLY if the partner explicitly asked a distinct question that the agent "
+                    "COMPLETELY ignored, or gave no resolution at all. A brief, on-point reply that addresses "
+                    "the main ask is a PASS. 'Could be more detailed' is NOT a fatal — default to PASS."},
 ]
 
 

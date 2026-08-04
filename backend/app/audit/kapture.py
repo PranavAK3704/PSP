@@ -307,8 +307,10 @@ def _score_audit(per_dimension: dict, rubric: dict) -> dict:
             "fired": fired}
 
 
-def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: dict, run_id: str) -> dict:
-    """Audit one Kapture ticket → coverage + judge → persist a derived row (no transcript)."""
+def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: dict, run_id: str,
+                 persist: bool = True) -> dict:
+    """Audit one Kapture ticket → coverage + judge → derived row (no transcript). persist=False
+    returns the row without writing (for bulk runs that batch-write once at the end)."""
     cov = locate_sop(transcript, sop_index)
     prompt = build_kapture_prompt(transcript, rubric, cov["sop"])
 
@@ -355,10 +357,11 @@ def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: d
         "overall_rationale": _redact(str(parsed.get("overall_rationale", ""))[:600]),
         "audited_at": _now(),
     }
-    with _lock:   # persist after every ticket → a dropped stream / crash resumes from here
-        d = _load()
-        d["tickets"][str(ticket_number)] = row
-        _write(d)
+    if persist:
+        with _lock:   # persist after every ticket → a dropped stream / crash resumes from here
+            d = _load()
+            d["tickets"][str(ticket_number)] = row
+            _write(d)
     return row
 
 

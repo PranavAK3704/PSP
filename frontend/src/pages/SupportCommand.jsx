@@ -1750,8 +1750,31 @@ function KaptureAudit() {
                 </div>
               </div>
 
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-sm">What the engine can & cannot judge — from the email text alone</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-sm">
+                  <div className="rounded-lg border border-tertiary/25 bg-tertiary/5 p-md">
+                    <div className="text-[11px] font-bold text-tertiary mb-1 flex items-center gap-1"><span className="material-symbols-outlined" style={{ fontSize: 15 }}>check_circle</span>Judges reliably (in the text)</div>
+                    <ul className="text-[10.5px] text-on-surface-variant list-disc pl-4 space-y-0.5">
+                      <li>Communication quality — opening/closing, format, empathy, simple language, email flow, template use</li>
+                      <li>Whether the reply addresses the partner's stated question</li>
+                      <li>Rude / abusive language (ZT)</li>
+                      <li>Every ticket to the <b>same bar</b>, no fatigue or drift</li>
+                    </ul>
+                  </div>
+                  <div className="rounded-lg border border-error/25 bg-error/5 p-md">
+                    <div className="text-[11px] font-bold text-error mb-1 flex items-center gap-1"><span className="material-symbols-outlined" style={{ fontSize: 15 }}>block</span>Cannot judge yet (not in the text)</div>
+                    <ul className="text-[10.5px] text-on-surface-variant list-disc pl-4 space-y-0.5">
+                      <li>Correct <b>tagging / disposition</b> — lives in the CRM, not the email</li>
+                      <li>Correct <b>reversal / ticket assignment / CRM notes</b> — backend actions</li>
+                      <li>Whether a quoted <b>TAT / policy / amount</b> was actually right — needs the SOP + order data</li>
+                      <li>These correctness/process <b>fatals need the data integration</b> (roadmap); text alone can't verify them</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
               <div className="text-[10px] text-on-surface-variant bg-surface-variant/20 rounded-lg p-md leading-relaxed">
-                <b>How to read this:</b> "engine stricter" = the engine flagged a gate the human passed — either a real catch the human was lenient on, or a text-only false positive worth reviewing. "engine missed" = the human failed it on CRM / SOP context the engine can't see from the transcript alone. The engine applies the <b>same bar to every ticket</b>; its value is consistency at scale plus surfacing these disagreements for review — not replacing the human call.
+                <b>The goal — better than a human auditor, not just equal:</b> perfect consistency, 100% coverage (not a 2% sample), and — once the CRM/SOP data is wired in — catching the correctness fatals a rushed human misses. Today the engine is a <b>communication-quality auditor at full scale plus a first-pass screen</b>; the correctness fatals still need a human with the CRM open. "Engine stricter" = a real catch or a text-only false positive to review; "engine missed" = a breach only visible in data the engine can't yet see.
               </div>
             </div>
           </div>

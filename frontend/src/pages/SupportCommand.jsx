@@ -4,7 +4,7 @@ import { getInsights, getAudit, getKt, submitKt, reviewKt, compileSopStream, get
   getConcernTrace, exportLedger, getAuditRubric, saveAuditRubric, runAudit, runAuditBatch, getAuditScores,
   getFramework, saveFramework, uploadFramework, approveFramework,
   getKaptureRubric, saveKaptureRubric, uploadKaptureRubric, uploadKaptureCsv, estimateKapture,
-  streamKaptureRun, getKaptureScores, exportKaptureScores } from "../lib/api.js";
+  streamKaptureRun, getKaptureScores, exportKaptureScores, getKaptureCalibration } from "../lib/api.js";
 import PolicyCompileAnimation from "../components/PolicyCompileAnimation.jsx";
 import BlueprintCompileAnimation from "../components/BlueprintCompileAnimation.jsx";
 import { useAuth } from "../lib/auth.jsx";
@@ -1155,6 +1155,8 @@ function KaptureAudit() {
   const [live, setLive] = useState([]);             // streamed per-ticket results
   const [openRow, setOpenRow] = useState(null);
   const [detail, setDetail] = useState(null);       // a full audit row → end-to-end drill-down modal
+  const [calib, setCalib] = useState(null);         // engine-vs-human calibration benchmark
+  const [showCalib, setShowCalib] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 4600); };
@@ -1171,7 +1173,7 @@ function KaptureAudit() {
 
   const loadRubric = () => getKaptureRubric().then((r) => { setRubric(r); setDims((r.dimensions || []).map((d) => ({ ...d }))); });
   const loadScores = () => getKaptureScores().then(setScores);
-  useEffect(() => { loadRubric(); loadScores(); }, []);
+  useEffect(() => { loadRubric(); loadScores(); getKaptureCalibration().then(setCalib).catch(() => {}); }, []);
   useEffect(() => {
     if (!detail) return;
     const onKey = (e) => { if (e.key === "Escape") setDetail(null); };
@@ -1261,12 +1263,26 @@ function KaptureAudit() {
         {rubric && <span className="text-[11px] font-bold px-2.5 py-1 rounded bg-secondary-container/10 text-secondary-container" style={{ fontFamily: "JetBrains Mono" }}>rubric v{rubric.version}</span>}
       </div>
 
-      {/* KPI row */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-gutter">
-        {kpi("Avg composite", scores?.avg_composite, "/100", compColor(scores?.avg_composite))}
+      {/* KPI row — BAU model: audit passes only if NO fatal/ZT gate fires; quality % is the 100-pt score */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-gutter">
+        {kpi("Audit pass rate", scores?.pass_rate, "%", compColor(scores?.pass_rate))}
+        {kpi("Fatal / ZT fail", scores?.fail_rate, "%", scores?.fail_rate == null ? "text-on-surface-variant" : scores.fail_rate > 15 ? "text-error" : scores.fail_rate > 6 ? "text-warn" : "text-tertiary")}
+        {kpi("Avg quality", scores?.avg_quality_pct, "/100", compColor(scores?.avg_quality_pct))}
         {kpi("SOP coverage", scores?.coverage_pct, "%", covColor(scores?.coverage_pct))}
-        {kpi("SOP adherence", scores?.adherence_pct, "%", covColor(scores?.adherence_pct))}
       </div>
+
+      {/* Calibration banner — engine vs human on the labeled BAU set (if a benchmark exists) */}
+      {calib && (
+        <button onClick={() => setShowCalib(true)}
+          className="w-full text-left glass-card rounded-xl p-md flex items-center gap-md hover:brightness-[1.03] transition-all border border-tertiary/25">
+          <span className="material-symbols-outlined text-tertiary" style={{ fontSize: 26 }}>balance</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-[12px] font-bold text-tertiary">Calibrated against {calib.n?.toLocaleString?.() || calib.n} human audits</div>
+            <div className="text-[11px] text-on-surface-variant">Engine agrees with the human PASS/FAIL call <b>{calib.status_agreement}%</b> of the time (κ {calib.cohen_kappa}) · engine fail {calib.engine_fail_rate}% vs human {calib.human_fail_rate}%</div>
+          </div>
+          <span className="text-[11px] font-bold text-tertiary flex items-center gap-1">View comparison<span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_right</span></span>
+        </button>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-gutter items-start">
         {/* ── RUBRIC EDITOR + doc upload ── */}
@@ -1279,7 +1295,7 @@ function KaptureAudit() {
               <input type="file" accept=".xlsx,.xlsm,.csv,.tsv,.pdf,.docx,.txt,.md" className="hidden" onChange={(e) => onRubricDoc(e.target.files?.[0])} />
             </label>
           </div>
-          <p className="text-xs text-on-surface-variant mb-md">Weights need not sum to 1 — normalized at scoring. Upload a <b>priority-factors sheet</b> (Excel/CSV: factor · weight · description) or a QA doc to auto-set the factors + weights, then Save (bumps version). Σ {totalWeight.toFixed(2)}.</p>
+          <p className="text-xs text-on-surface-variant mb-md">Quality factors score <b>Pass/Fail</b> on their point weights (7 factors sum to 100). Keys prefixed <code className="text-secondary-container">fatal_</code> / <code className="text-secondary-container">zt_</code> are <b>auto-fail gates</b> (weight 0 — any breach fails the whole audit). Upload the BAU legend sheet or a QA doc to reset factors + points, then Save. Σ points {totalWeight.toFixed(0)}.</p>
           <div className="space-y-sm max-h-[440px] overflow-y-auto custom-scrollbar pr-1">
             {dims.map((d, i) => (
               <div key={i} className="bg-surface-container-lowest border border-on-primary-fixed-variant/15 rounded-lg p-md">
@@ -1372,25 +1388,53 @@ function KaptureAudit() {
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>download</span>Download scores CSV</button>
         </div>
 
-        {scores?.per_dimension_avg && Object.keys(scores.per_dimension_avg).length > 0 && (
+        {scores?.per_parameter && Object.keys(scores.per_parameter).length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-lg gap-y-sm mb-lg">
-            {Object.entries(scores.per_dimension_avg).map(([k, v]) => (
-              <div key={k}>
-                <div className="flex justify-between text-[11px] mb-0.5"><span className="text-on-surface-variant">{dimLabel(k)}</span>
-                  <span style={{ fontFamily: "JetBrains Mono", fontVariantNumeric: "tabular-nums" }}>{Math.round(v * 100)}</span></div>
-                <div className="h-2 rounded-full bg-surface-variant/40 overflow-hidden"><div className="h-full bg-secondary-container" style={{ width: `${Math.round(v * 100)}%` }} /></div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1.5">Quality parameters · pass rate</div>
+              <div className="space-y-1.5">
+                {Object.entries(scores.per_parameter).filter(([, v]) => v.tier === "quality").map(([k, v]) => (
+                  <div key={k}>
+                    <div className="flex justify-between text-[11px] mb-0.5"><span className="text-on-surface-variant">{v.label}</span>
+                      <span style={{ fontFamily: "JetBrains Mono" }}>{v.pass_rate}%</span></div>
+                    <div className="h-2 rounded-full bg-surface-variant/40 overflow-hidden"><div className={`h-full ${v.pass_rate >= 80 ? "bg-tertiary" : v.pass_rate >= 55 ? "bg-secondary-container" : "bg-error"}`} style={{ width: `${v.pass_rate}%` }} /></div>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1.5">Auto-fail gates · fire rate</div>
+              <div className="space-y-1">
+                {Object.entries(scores.per_parameter).filter(([, v]) => v.tier !== "quality").map(([k, v]) => (
+                  <div key={k} className="flex items-center justify-between text-[11px] gap-sm">
+                    <span className="text-on-surface-variant truncate">{v.label}</span>
+                    <span className={`font-bold px-1.5 rounded ${v.fire_rate === 0 ? "text-tertiary" : v.fire_rate > 5 ? "text-error" : "text-warn"}`} style={{ fontFamily: "JetBrains Mono" }}>{v.fire_rate}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(scores?.top_failures || []).length > 0 && (
+          <div className="mb-lg">
+            <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-sm">What agents miss most · share of tickets</div>
+            <div className="flex flex-wrap gap-xs">
+              {scores.top_failures.slice(0, 8).map((f) => (
+                <span key={f.key} className={`text-[10px] px-2.5 py-0.5 rounded-full border ${f.tier === "quality" ? "bg-surface-variant text-on-surface-variant border-on-primary-fixed-variant/20" : "bg-error/10 text-error border-error/25"}`} style={{ fontFamily: "JetBrains Mono", fontVariantNumeric: "tabular-nums" }}>
+                  {f.label} · {f.pct}%</span>
+              ))}
+            </div>
           </div>
         )}
 
         {scores?.by_disposition && Object.keys(scores.by_disposition).length > 0 && (
           <div className="mb-lg">
-            <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-sm">By disposition · coverage / adherence / composite</div>
+            <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-sm">By disposition · pass / coverage / quality</div>
             <div className="flex flex-wrap gap-xs">
               {Object.entries(scores.by_disposition).map(([disp, s]) => (
                 <span key={disp} className="text-[10px] px-2.5 py-0.5 rounded-full bg-surface-variant text-on-surface-variant border border-on-primary-fixed-variant/20" style={{ fontFamily: "JetBrains Mono", fontVariantNumeric: "tabular-nums" }}>
-                  {disp}: cov {s.coverage_pct}% · adh {s.adherence ?? "—"} · {s.avg_composite} ({s.count})</span>
+                  {disp}: pass {s.pass_rate}% · cov {s.coverage_pct}% · q{s.avg_composite} ({s.count})</span>
               ))}
             </div>
           </div>
@@ -1409,8 +1453,10 @@ function KaptureAudit() {
                   <div className="text-[10px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>
                     {a.covered ? a.disposition : "NOVEL · uncovered"} · rubric v{a.rubric_version}</div>
                 </div>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${a.covered ? "bg-tertiary/15 text-tertiary" : "bg-warn/15 text-warn"}`}>{a.covered ? `adh ${a.adherence ?? "—"}` : "no SOP"}</span>
-                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${compTone(a.composite)}`} style={{ fontVariantNumeric: "tabular-nums" }}>{a.composite}</span>
+                {(() => { const st = a.status || ((a.fired || []).length ? "FAIL" : "PASS"); return (
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${st === "PASS" ? "bg-tertiary/15 text-tertiary" : "bg-error/15 text-error"}`}>{(a.fired || []).length ? `FAIL · ${a.fired.length} gate${a.fired.length === 1 ? "" : "s"}` : st}</span>
+                ); })()}
+                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${compTone(a.quality_pct ?? a.composite)}`} style={{ fontVariantNumeric: "tabular-nums" }}>q{a.quality_pct ?? a.composite ?? "—"}</span>
                 <span className="text-[9px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{(a.audited_at || "").slice(0, 10)}</span>
               </button>
               <button onClick={() => setDetail(a)} title="Open the full end-to-end audit"
@@ -1422,13 +1468,17 @@ function KaptureAudit() {
                 <div className="px-md pb-md border-t border-on-primary-fixed-variant/10 pt-sm">
                   {a.overall_rationale && <div className="text-[11px] text-on-surface/85 italic mb-sm bg-surface-variant/20 rounded px-2 py-1">{a.overall_rationale}</div>}
                   <div className="space-y-1.5 mb-sm">
-                    {Object.entries(a.per_dimension || {}).map(([k, v]) => (
-                      <div key={k} className="grid grid-cols-[160px_auto_1fr] gap-sm items-center">
-                        <span className="text-[11px] text-on-surface-variant">{dimLabel(k)}</span>
-                        <span className="text-[11px] font-bold w-8" style={{ fontFamily: "JetBrains Mono" }}>{Math.round((v.score || 0) * 100)}</span>
-                        <span className="text-[10px] text-on-surface-variant truncate" title={v.rationale}>{v.rationale}</span>
-                      </div>
-                    ))}
+                    {Object.entries(a.per_dimension || {}).map(([k, v]) => {
+                      const vd = v.verdict;
+                      const tone = vd === "pass" ? "text-tertiary" : vd === "fail" ? "text-error" : vd === "na" ? "text-on-surface-variant/60" : "text-on-surface-variant";
+                      return (
+                        <div key={k} className="grid grid-cols-[160px_auto_1fr] gap-sm items-center">
+                          <span className="text-[11px] text-on-surface-variant">{dimLabel(k)}</span>
+                          <span className={`text-[10px] font-bold uppercase w-10 ${tone}`} style={{ fontFamily: "JetBrains Mono" }}>{vd || Math.round((v.score || 0) * 100)}</span>
+                          <span className="text-[10px] text-on-surface-variant truncate" title={v.rationale}>{v.rationale}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                   {(a.per_check || []).length > 0 && (
                     <div className="mt-sm">
@@ -1457,15 +1507,17 @@ function KaptureAudit() {
         const a = detail;
         const tx = txByTicket[String(a.ticket_number)];
         const entries = Object.entries(a.per_dimension || {});
+        const status = a.status || ((a.fired || []).length ? "FAIL" : "PASS");
+        const fired = a.fired || [];
+        const quality = a.quality_pct ?? a.composite;
         const pct = (v) => Math.round((v?.score || 0) * 100);
-        const pctTone = (p) => (p >= 80 ? "text-tertiary" : p >= 55 ? "text-secondary-container" : "text-error");
         const barTone = (p) => (p >= 80 ? "bg-tertiary" : p >= 55 ? "bg-secondary-container" : "bg-error");
+        const vTone = (vd) => (vd === "pass" ? "text-tertiary" : vd === "fail" ? "text-error" : "text-on-surface-variant/60");
         const tiers = [
-          { id: "fatal", title: "Fatal parameters", border: "border-l-error", chip: "bg-error/15 text-error" },
-          { id: "zt", title: "Zero-tolerance parameters", border: "border-l-warn", chip: "bg-warn/15 text-warn" },
-          { id: "std", title: "Quality parameters", border: "border-l-on-primary-fixed-variant/25", chip: "bg-surface-variant text-on-surface-variant" },
+          { id: "fatal", title: "Fatal gates · auto-fail", border: "border-l-error", chip: "bg-error/15 text-error" },
+          { id: "zt", title: "Zero-tolerance gates · auto-fail", border: "border-l-warn", chip: "bg-warn/15 text-warn" },
+          { id: "std", title: "Quality parameters · Pass/Fail on points", border: "border-l-on-primary-fixed-variant/25", chip: "bg-surface-variant text-on-surface-variant" },
         ];
-        const critMiss = entries.some(([k, v]) => tierOf(k) !== "std" && pct(v) < 55);
         const Step = ({ icon, label, val, tone }) => (
           <div className="flex-1 min-w-0 rounded-lg border border-on-primary-fixed-variant/15 bg-surface-container-lowest/70 px-sm py-2 grid place-items-center text-center gap-0.5">
             <span className={`material-symbols-outlined ${tone}`} style={{ fontSize: 18 }}>{icon}</span>
@@ -1494,8 +1546,8 @@ function KaptureAudit() {
                 </div>
                 <div className="flex items-center gap-md">
                   <div className="text-right">
-                    <div className={`text-[34px] font-bold leading-none ${compColor(a.composite)}`} style={{ fontVariantNumeric: "tabular-nums" }}>{a.composite}</div>
-                    <div className="text-[9px] uppercase tracking-wide text-on-surface-variant">composite</div>
+                    <div className={`text-[24px] font-bold leading-none ${status === "PASS" ? "text-tertiary" : "text-error"}`}>{status}</div>
+                    <div className="text-[9px] uppercase tracking-wide text-on-surface-variant">quality {quality ?? "—"}/100</div>
                   </div>
                   <button onClick={() => setDetail(null)} className="text-on-surface-variant hover:text-on-surface p-1 rounded-lg hover:bg-surface-variant/30 transition-all">
                     <span className="material-symbols-outlined" style={{ fontSize: 22 }}>close</span></button>
@@ -1509,9 +1561,9 @@ function KaptureAudit() {
                   <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: 16 }}>chevron_right</span>
                   <Step icon="policy" label="Coverage" val={a.covered ? a.disposition : "NOVEL"} tone={a.covered ? "text-tertiary" : "text-warn"} />
                   <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: 16 }}>chevron_right</span>
-                  <Step icon="grading" label="Rubric" val={a.composite} tone={compColor(a.composite)} />
+                  <Step icon="grading" label="Quality" val={quality != null ? `${quality}/100` : "—"} tone={compColor(quality)} />
                   <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: 16 }}>chevron_right</span>
-                  <Step icon="rule" label="Adherence" val={a.covered ? (a.adherence ?? "—") : "n/a"} tone={a.covered ? compColor(a.adherence) : "text-on-surface-variant"} />
+                  <Step icon={status === "PASS" ? "verified" : "gpp_bad"} label="Verdict" val={status} tone={status === "PASS" ? "text-tertiary" : "text-error"} />
                 </div>
 
                 {/* 1 · transcript */}
@@ -1547,12 +1599,12 @@ function KaptureAudit() {
                 )}
 
                 {/* 3 · rubric scoring */}
-                <Head n={3} title="Rubric scoring" meta={`composite ${a.composite}`} />
+                <Head n={3} title="Scoring" meta={`quality ${quality ?? "—"}/100 · ${status}`} />
                 {a.overall_rationale && <div className="text-[11.5px] text-on-surface/90 italic bg-surface-variant/20 rounded-lg px-md py-2 mb-sm">{a.overall_rationale}</div>}
-                {critMiss && (
-                  <div className="text-[10.5px] text-warn bg-warn/8 border border-warn/25 rounded-lg px-md py-2 mb-sm flex gap-1.5">
-                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>warning</span>
-                    <span>A zero-tolerance / fatal parameter scored low. <b>Auto-fail is pending the weighting doc</b> — a breach here does not yet collapse the composite to 0, so read the composite alongside these flags.</span>
+                {fired.length > 0 && (
+                  <div className="text-[11px] text-error bg-error/8 border border-error/30 rounded-lg px-md py-2 mb-sm flex gap-1.5">
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>gpp_bad</span>
+                    <span><b>Auto-failed.</b> {fired.length} gate{fired.length === 1 ? "" : "s"} fired — {fired.map((f) => f.label).join(", ")}. A fatal / zero-tolerance breach fails the whole audit regardless of the quality points.</span>
                   </div>
                 )}
                 {tiers.map((t) => {
@@ -1562,15 +1614,18 @@ function KaptureAudit() {
                     <div key={t.id} className={`border-l-2 ${t.border} pl-md mb-md`}>
                       <div className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t.title}</div>
                       {rows.map(([k, v]) => {
-                        const p = pct(v);
+                        const vd = v.verdict; const p = pct(v);
                         return (
                           <div key={k} className="py-1.5 border-b border-on-primary-fixed-variant/8 last:border-0">
                             <div className="flex items-center justify-between gap-sm">
                               <span className="text-[12px] text-on-surface">{dimMeta(k).label || k}
-                                {t.id !== "std" && p < 55 && <span className={`ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full ${t.chip}`}>flag</span>}</span>
-                              <span className="text-[10px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>w{dimMeta(k).weight ?? "—"} · <b className={pctTone(p)}>{p}</b></span>
+                                {t.id === "std" && <span className="ml-1.5 text-[9px] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>{dimMeta(k).weight ?? 0} pts</span>}</span>
+                              <span className={`text-[9.5px] font-bold uppercase px-1.5 py-0.5 rounded ${vd === "pass" ? "bg-tertiary/15 text-tertiary" : vd === "fail" ? "bg-error/15 text-error" : "bg-surface-variant text-on-surface-variant"}`}>{vd || p}</span>
                             </div>
-                            <div className="h-1.5 rounded-full bg-surface-variant/40 overflow-hidden my-1"><div className={`h-full ${barTone(p)}`} style={{ width: `${p}%` }} /></div>
+                            <div className="flex items-center gap-2 my-1">
+                              <div className="flex-1 h-1 rounded-full bg-surface-variant/40 overflow-hidden"><div className={`h-full ${barTone(p)}`} style={{ width: `${p}%` }} /></div>
+                              <span className={`text-[9px] ${vTone(vd)}`} style={{ fontFamily: "JetBrains Mono" }}>coach {p}</span>
+                            </div>
                             {v?.rationale && <div className="text-[11px] text-on-surface-variant">{v.rationale}</div>}
                           </div>
                         );
@@ -1610,6 +1665,95 @@ function KaptureAudit() {
           </div>
         );
       })()}
+
+      {showCalib && calib && (
+        <div onClick={() => setShowCalib(false)} className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm grid place-items-center p-md">
+          <div onClick={(e) => e.stopPropagation()} className="bg-surface-container border border-on-primary-fixed-variant/20 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <div className="sticky top-0 z-10 bg-surface-container/95 backdrop-blur border-b border-on-primary-fixed-variant/15 px-lg py-md flex items-center justify-between gap-md">
+              <div>
+                <div className="text-[9px] uppercase tracking-[0.14em] text-on-surface-variant">Calibration · engine vs humans</div>
+                <div className="text-[15px] font-bold">Benchmarked on {calib.n?.toLocaleString?.() || calib.n} human-labeled BAU audits</div>
+              </div>
+              <button onClick={() => setShowCalib(false)} className="text-on-surface-variant hover:text-on-surface p-1 rounded-lg hover:bg-surface-variant/30 transition-all">
+                <span className="material-symbols-outlined" style={{ fontSize: 22 }}>close</span></button>
+            </div>
+            <div className="px-lg pb-lg pt-md space-y-lg">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-sm">
+                {[["Status agreement", `${calib.status_agreement}%`, "text-tertiary"],
+                  ["Cohen's κ", calib.cohen_kappa, "text-secondary-container"],
+                  ["Engine fail rate", `${calib.engine_fail_rate}%`, "text-on-surface"],
+                  ["Human fail rate", `${calib.human_fail_rate}%`, "text-on-surface"]].map(([l, v, t]) => (
+                  <div key={l} className="rounded-xl border border-on-primary-fixed-variant/15 bg-surface-container-lowest/60 p-md">
+                    <div className="text-[9px] uppercase tracking-wide text-on-surface-variant">{l}</div>
+                    <div className={`text-[26px] font-bold ${t}`} style={{ fontVariantNumeric: "tabular-nums" }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-sm">Agreement matrix · the PASS / FAIL call</div>
+                <div className="grid grid-cols-[80px_1fr_1fr] gap-1 text-[11px] items-stretch">
+                  <div></div>
+                  <div className="text-center text-on-surface-variant text-[10px] pb-1">engine PASS</div>
+                  <div className="text-center text-on-surface-variant text-[10px] pb-1">engine FAIL</div>
+                  <div className="text-on-surface-variant text-[10px] self-center">human PASS</div>
+                  <div className="rounded bg-tertiary/15 text-tertiary p-2 text-center"><b className="text-[15px]">{calib.confusion.both_pass}</b><div className="text-[9px]">agree</div></div>
+                  <div className="rounded bg-warn/15 text-warn p-2 text-center"><b className="text-[15px]">{calib.confusion.engine_fail_only}</b><div className="text-[9px]">engine stricter</div></div>
+                  <div className="text-on-surface-variant text-[10px] self-center">human FAIL</div>
+                  <div className="rounded bg-error/15 text-error p-2 text-center"><b className="text-[15px]">{calib.confusion.human_fail_only}</b><div className="text-[9px]">engine missed</div></div>
+                  <div className="rounded bg-tertiary/15 text-tertiary p-2 text-center"><b className="text-[15px]">{calib.confusion.both_fail}</b><div className="text-[9px]">agree</div></div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-sm">Per-parameter · agreement & flag rates</div>
+                <div className="space-y-1.5">
+                  {(calib.per_parameter || []).map((p) => (
+                    <div key={p.key} className="grid grid-cols-[1fr_46px_88px] gap-sm items-center text-[11px]">
+                      <div className="min-w-0">
+                        <div className="truncate text-on-surface">{p.label} <span className="text-[9px] text-on-surface-variant">{p.tier}</span></div>
+                        <div className="h-1.5 rounded-full bg-surface-variant/40 overflow-hidden mt-0.5"><div className={`h-full ${p.agreement >= 90 ? "bg-tertiary" : p.agreement >= 75 ? "bg-secondary-container" : "bg-warn"}`} style={{ width: `${p.agreement}%` }} /></div>
+                      </div>
+                      <span className="text-right font-bold" style={{ fontFamily: "JetBrains Mono" }}>{p.agreement}%</span>
+                      <span className="text-right text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>e{p.engine_flag_pct}/h{p.human_flag_pct}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="text-[9px] text-on-surface-variant mt-1">e/h = engine vs human flag rate for the parameter (quality: fail-rate · gates: fire-rate).</div>
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-sm">What agents miss most · human ground truth</div>
+                <div className="flex flex-wrap gap-xs">
+                  {(calib.what_agents_missed || []).map((f) => (
+                    <span key={f.key} className={`text-[10px] px-2.5 py-0.5 rounded-full border ${f.tier === "quality" ? "bg-surface-variant text-on-surface-variant border-on-primary-fixed-variant/20" : "bg-error/10 text-error border-error/25"}`} style={{ fontFamily: "JetBrains Mono" }}>{f.label} · {f.pct}%</span>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-sm">Where they disagree · sample cases to review</div>
+                <div className="space-y-1 max-h-64 overflow-y-auto custom-scrollbar">
+                  {(calib.disagreements_sample || []).slice(0, 20).map((s, i) => (
+                    <div key={i} className="text-[10.5px] bg-surface-container-lowest border border-on-primary-fixed-variant/10 rounded px-sm py-1.5">
+                      <div className="flex items-center gap-sm">
+                        <span style={{ fontFamily: "JetBrains Mono" }} className="text-on-surface-variant">{s.ticket_id}</span>
+                        <span className={`font-bold ${s.engine === "PASS" ? "text-tertiary" : "text-error"}`}>eng {s.engine}</span>
+                        <span className={`font-bold ${s.human === "PASS" ? "text-tertiary" : "text-error"}`}>hum {s.human}</span>
+                      </div>
+                      <div className="text-on-surface-variant">{(s.diffs || []).map((dd, j) => <span key={j}>{dd.param} (eng {dd.engine}/hum {dd.human}){j < s.diffs.length - 1 ? " · " : ""}</span>)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="text-[10px] text-on-surface-variant bg-surface-variant/20 rounded-lg p-md leading-relaxed">
+                <b>How to read this:</b> "engine stricter" = the engine flagged a gate the human passed — either a real catch the human was lenient on, or a text-only false positive worth reviewing. "engine missed" = the human failed it on CRM / SOP context the engine can't see from the transcript alone. The engine applies the <b>same bar to every ticket</b>; its value is consistency at scale plus surfacing these disagreements for review — not replacing the human call.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -635,6 +635,12 @@ def kapture_scores():
     return kapture.scores()
 
 
+@app.get("/api/kapture/calibration", dependencies=[_authed])
+def kapture_calibration():
+    """Engine-vs-human calibration benchmark (from the labeled BAU audit set), or null if not run."""
+    return kapture.get_calibration()
+
+
 @app.get("/api/kapture/export", dependencies=[_authed])
 def kapture_export(run_id: str = ""):
     """Download the Kapture audit scores as CSV (optionally scoped to one run)."""

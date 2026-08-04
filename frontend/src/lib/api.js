@@ -151,6 +151,7 @@ export const estimateKapture = (rows) => apiPost("/api/kapture/estimate", { rows
 export const streamKaptureRun = ({ run_id, rows }, onTicket, onEnd) =>
   stream({ url: "/api/kapture/run", method: "POST", body: { run_id, rows } }, onTicket, onEnd);
 export const getKaptureScores = () => apiGet("/api/kapture/scores");
+export const getKaptureCalibration = () => apiGet("/api/kapture/calibration");
 // Download the scored tickets as CSV (optionally scoped to one run_id).
 export async function exportKaptureScores(run_id = "") {
   const res = guard(await fetch(`/api/kapture/export?run_id=${encodeURIComponent(run_id)}`, { headers: authHeaders() }));

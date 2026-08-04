@@ -28,9 +28,10 @@ from ..knowledge import policies as pol
 from ..knowledge import store
 from ..kt import engine as kt_engine
 from . import kapture_rubric
-from .runner import _composite, _coerce_result   # reuse the internal judge's scoring maths
+from .kapture_rubric import tier_of              # quality | zt | fatal, by key prefix
 
 _STORE = durable_path("kapture_audits.json")
+_CALIB_STORE = durable_path("kapture_calibration.json")   # engine-vs-human benchmark report
 _lock = threading.Lock()
 
 # Coverage floor — tunable, and deliberately SEPARATE from dispositions.NOVEL_THRESHOLD (1.5), so
@@ -63,6 +64,23 @@ def _load() -> dict:
 
 def _write(d: dict) -> None:
     _STORE.write_text(json.dumps(d, indent=1))
+
+
+def get_calibration() -> dict | None:
+    """The stored engine-vs-human calibration benchmark (built from the labeled BAU set), or None."""
+    if _CALIB_STORE.exists():
+        try:
+            rep = json.loads(_CALIB_STORE.read_text())
+            return rep if isinstance(rep, dict) and rep.get("n") else None
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
+def save_calibration(report: dict) -> dict:
+    """Persist a calibration report so the dashboard can serve it."""
+    _CALIB_STORE.write_text(json.dumps(report, indent=1))
+    return report
 
 
 # ── PII redaction (applied to any derived text before it is persisted) ────────
@@ -125,19 +143,27 @@ def locate_sop(transcript: str, sop_index: dict) -> dict:
 
 
 # ── the judge (ONE combined call: rubric quality + SOP adherence) ─────────────
-_SYSTEM = """You are an independent QUALITY AUDITOR reviewing how a support agent handled an
-external CRM ("Kapture") ticket for a Valmo delivery partner ("captain" or "pilot"). You are fair
-but demanding: reward correct, partner-first, SOP-compliant resolutions; penalise wrong outcomes,
-guessing, unhelpful deflection, and dishonesty. You judge ONLY against the rubric you are given,
-and SEPARATELY assess whether the resolution followed the applicable SOP. You never resolve the
-ticket yourself; you SCORE it. Return STRICT JSON only."""
+_SYSTEM = """You are an independent QUALITY AUDITOR for a Valmo partner-support team, reviewing how an
+agent handled a delivery-partner ("captain"/"pilot") ticket in the Kapture CRM. You apply a fixed
+rubric the way a seasoned human QA lead does: a clear PASS or FAIL on each quality parameter, and a
+disciplined check of the zero-tolerance / fatal gates.
+
+Be fair and consistent, NOT trigger-happy. A GATE (zero-tolerance or fatal) is a SERIOUS, unambiguous
+breach — mark it "fail" ONLY when the transcript clearly evidences it; when unsure, mark "pass". Most
+tickets have NO gate breach. Judge only what the transcript shows; never assume problems you cannot
+see. You never resolve the ticket yourself; you SCORE it. Return STRICT JSON only."""
 
 
 def build_kapture_prompt(transcript: str, rubric: dict, sop: dict | None) -> str:
     dims = rubric.get("dimensions", [])
-    dim_block = "\n".join(
-        f'  - "{d["key"]}" ({d.get("label", d["key"])}, weight {d.get("weight", 0)}): {d.get("description", "")}'
-        for d in dims)
+    quality = [d for d in dims if tier_of(d["key"]) == "quality"]
+    gates = [d for d in dims if tier_of(d["key"]) != "quality"]
+    q_block = "\n".join(
+        f'  - "{d["key"]}" — {d.get("label", d["key"])} (worth {float(d.get("weight", 0) or 0):g} pts): {d.get("description", "")}'
+        for d in quality)
+    g_block = "\n".join(
+        f'  - "{d["key"]}" [{tier_of(d["key"]).upper()}] — {d.get("label", d["key"])}: {d.get("description", "")}'
+        for d in gates)
     keys_json = ", ".join(f'"{d["key"]}"' for d in dims)
     t = (transcript or "").strip()
     if len(t) > _TRANSCRIPT_CAP:
@@ -161,12 +187,22 @@ def build_kapture_prompt(transcript: str, rubric: dict, sop: dict | None) -> str
         sop_block = ("SOP COVERAGE: No SOP in our library covers this ticket's issue (uncovered / NOVEL).\n"
                      "Judge the rubric dimensions only; in sop_adherence set matched=false and per_check=[].")
 
-    return f"""Audit this Kapture support ticket. Score EACH rubric dimension from 0.0 (poor) to 1.0
-(excellent) with ONE short rationale line, give an overall_rationale, and SEPARATELY assess SOP
-adherence against the SOP below.
+    return f"""Audit this Kapture support ticket the way a human QA lead would, then SEPARATELY assess
+SOP adherence against the SOP below.
 
-RUBRIC DIMENSIONS (score every one of these):
-{dim_block}
+For EACH QUALITY parameter: decide "pass" or "fail" (or "na" if it genuinely does not apply to this
+ticket). Also give a 0.0–1.0 quality score (coaching only) and a one-line reason:
+{q_block}
+
+For EACH GATE: decide "pass" (no breach) or "fail" (breach). GATES ARE RARE — in real audits fewer
+than 1 ticket in 20 breaches ANY gate, and a gate "fail" AUTO-FAILS the whole audit. So DEFAULT EVERY
+GATE TO "pass" and only "fail" when the TRANSCRIPT ITSELF gives specific, quotable evidence. You see
+ONLY the partner message and the agent's reply — you do NOT have the CRM, the SOP, or the backend
+data, so do NOT infer a correctness/process breach you cannot verify from the text alone (never assume
+a TAT is "wrong", a reversal "incorrect", or tagging/assignment "wrong" unless the agent's own words
+show it). A brief but on-point reply that addresses the partner's main ask is NOT "incomplete"; a
+generic or vague reply is NOT "misleading". When in doubt, "pass".
+{g_block}
 
 TICKET CONVERSATION TRANSCRIPT (partner ↔ agent):
 {t}
@@ -175,7 +211,7 @@ TICKET CONVERSATION TRANSCRIPT (partner ↔ agent):
 
 Return ONLY JSON with EXACTLY this shape:
 {{
-  "per_dimension": {{ {keys_json} : {{"score": <0.0-1.0>, "rationale": "<one line>"}} , ... }},
+  "per_dimension": {{ {keys_json} : {{"verdict": "pass|fail|na", "score": <0.0-1.0>, "rationale": "<one line>"}} , ... }},
   "overall_rationale": "<2-3 sentence verdict — what was strong, what to fix>",
   "sop_adherence": {{
     "matched": <true|false>,
@@ -184,7 +220,7 @@ Return ONLY JSON with EXACTLY this shape:
   }},
   "key_findings": ["<short factual bullet>", "..."]
 }}
-Every rubric key MUST appear in per_dimension with a numeric score in [0,1]."""
+Every rubric key MUST appear in per_dimension. Gate keys use only "pass" or "fail" (never "na")."""
 
 
 _FOLLOW = {"yes": 1.0, "partial": 0.5, "no": 0.0}
@@ -215,6 +251,62 @@ def _coerce_adherence(block, covered: bool) -> dict:
     return {"per_check": per_check, "resolution_action_followed": raf, "adherence": adherence}
 
 
+_VERDICTS = ("pass", "fail", "na")
+
+
+def _coerce_dims(parsed: dict, rubric: dict) -> dict:
+    """Coerce the judge's per_dimension into {key: {verdict, score, rationale}} for every rubric key.
+    A missing/invalid quality verdict → 'na' (excluded from the score); a missing gate verdict → 'pass'
+    (never fire an auto-fail gate we didn't get a clear verdict for). The 0–1 score is coaching-only."""
+    raw = parsed.get("per_dimension") if isinstance(parsed, dict) else None
+    raw = raw if isinstance(raw, dict) else {}
+    out: dict = {}
+    for d in rubric.get("dimensions", []):
+        k = d["key"]
+        tier = tier_of(k)
+        e = raw.get(k) if isinstance(raw.get(k), dict) else {}
+        v = str(e.get("verdict", "")).strip().lower()
+        if v not in _VERDICTS:
+            v = "na" if tier == "quality" else "pass"
+        if tier != "quality" and v == "na":
+            v = "pass"                       # gates are pass/fail only
+        try:
+            s = float(e.get("score", 0) or 0)
+        except (TypeError, ValueError):
+            s = 0.0
+        out[k] = {"verdict": v, "score": round(min(1.0, max(0.0, s)), 2),
+                  "rationale": _redact(str(e.get("rationale", ""))[:300])}
+    return out
+
+
+def _score_audit(per_dimension: dict, rubric: dict) -> dict:
+    """The REAL BAU scoring model: quality params are Pass/Fail on their point weights (which sum to
+    100); ANY zt_/fatal_ gate FAIL auto-fails the audit → composite 0 / status FAIL. Returns the
+    derived fields; leaves the 0–1 gradient in per_dimension untouched (coaching only)."""
+    fired: list[dict] = []
+    passed_pts = scorable_pts = 0.0
+    for d in rubric.get("dimensions", []):
+        k = d["key"]
+        tier = tier_of(k)
+        v = (per_dimension.get(k) or {}).get("verdict", "na")
+        if tier == "quality":
+            if v == "na":
+                continue
+            w = float(d.get("weight", 0) or 0)
+            scorable_pts += w
+            if v == "pass":
+                passed_pts += w
+        elif v == "fail":
+            fired.append({"key": k, "label": d.get("label", k), "tier": tier,
+                          "rationale": (per_dimension.get(k) or {}).get("rationale", "")})
+    quality_pct = round(100 * passed_pts / scorable_pts) if scorable_pts > 0 else None
+    status = "FAIL" if fired else "PASS"
+    composite = 0 if fired else (quality_pct if quality_pct is not None else 0)
+    return {"status": status, "composite": composite, "quality_pct": quality_pct,
+            "passed_points": round(passed_pts, 1), "scorable_points": round(scorable_pts, 1),
+            "fired": fired}
+
+
 def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: dict, run_id: str) -> dict:
     """Audit one Kapture ticket → coverage + judge → persist a derived row (no transcript)."""
     cov = locate_sop(transcript, sop_index)
@@ -222,7 +314,7 @@ def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: d
 
     provider, model = llm_registry.for_node("audit_judge")   # own node (falls back to fast tier if unset)
     parsed: dict = {}
-    for _ in range(2):   # robust to a JSON miss — one retry, then fall back to zeros
+    for _ in range(2):   # robust to a JSON miss — one retry, then fall back to a conservative all-pass
         try:
             res = provider.generate(prompt, model=model, node="audit_judge", system=_SYSTEM, json_mode=True)
             parsed = _parse_json(res.text)
@@ -234,8 +326,8 @@ def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: d
             parsed = {}
     parsed = parsed if isinstance(parsed, dict) else {}
 
-    per_dimension = _coerce_result(parsed, rubric)
-    composite = _composite(per_dimension, rubric)
+    per_dimension = _coerce_dims(parsed, rubric)
+    sc = _score_audit(per_dimension, rubric)
     adh = _coerce_adherence(parsed.get("sop_adherence"), cov["covered"])
     findings = [_redact(str(x)[:200]) for x in (parsed.get("key_findings") or []) if str(x).strip()][:6]
 
@@ -244,7 +336,12 @@ def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: d
         "rubric_version": rubric.get("version"),
         "run_id": run_id,
         "per_dimension": per_dimension,
-        "composite": composite,
+        "composite": sc["composite"],
+        "status": sc["status"],
+        "quality_pct": sc["quality_pct"],
+        "passed_points": sc["passed_points"],
+        "scorable_points": sc["scorable_points"],
+        "fired": sc["fired"],
         "covered": cov["covered"],
         "disposition": cov["disposition"],
         "coverage_score": cov["coverage_score"],
@@ -393,47 +490,87 @@ def audit_batch_streamed(rows: list[dict], run_id: str, resume: bool = True):
 
 
 # ── dashboard aggregates ──────────────────────────────────────────────────────
+def _status_of(t: dict) -> str:
+    """Robust status for a stored row (new rows carry 'status'; be defensive for any older row)."""
+    return t.get("status") or ("FAIL" if t.get("fired") else "PASS")
+
+
 def scores() -> dict:
     d = _load()
     tickets = list(d.get("tickets", {}).values())
     rubric = kapture_rubric.get_rubric()
+    labels = {dim["key"]: dim.get("label", dim["key"]) for dim in rubric.get("dimensions", [])}
+    empty = {"count": 0, "pass_rate": None, "fail_rate": None, "avg_quality_pct": None,
+             "avg_composite": None, "coverage_pct": None, "adherence_pct": None,
+             "per_parameter": {}, "top_failures": [], "by_disposition": {}, "novel_count": 0,
+             "rubric_version": rubric.get("version"), "dimensions": rubric.get("dimensions", []),
+             "runs": [], "history": []}
     if not tickets:
-        return {"count": 0, "avg_composite": None, "coverage_pct": None, "adherence_pct": None,
-                "per_dimension_avg": {}, "by_disposition": {}, "novel_count": 0,
-                "rubric_version": rubric.get("version"), "dimensions": rubric.get("dimensions", []),
-                "runs": [], "history": []}
+        return empty
     n = len(tickets)
+    n_pass = sum(1 for t in tickets if _status_of(t) == "PASS")
+    qpv = [t["quality_pct"] for t in tickets if isinstance(t.get("quality_pct"), (int, float))]
     cov = sum(1 for t in tickets if t.get("covered"))
     adh = [t["adherence"] for t in tickets if t.get("adherence") is not None]
-    dsum: dict[str, float] = defaultdict(float)
-    dcnt: dict[str, int] = defaultdict(int)
+
+    # per-parameter: quality → pass-rate; gate → fire-rate. Over rows that carry a pass/fail verdict.
+    hit: dict[str, int] = defaultdict(int)     # quality passes / gate fires
+    seen: dict[str, int] = defaultdict(int)
+    fail_ct: dict[str, int] = defaultdict(int)  # for "what agents missed"
     for t in tickets:
         for k, v in (t.get("per_dimension") or {}).items():
-            try:
-                dsum[k] += float(v.get("score", 0) or 0)
-                dcnt[k] += 1
-            except (TypeError, ValueError):
-                pass
-    per_dimension_avg = {k: round(dsum[k] / dcnt[k], 3) for k in dsum if dcnt[k]}
-    bd: dict[str, dict] = defaultdict(lambda: {"count": 0, "comp": 0, "cov": 0, "adh": []})
+            vd = (v or {}).get("verdict")
+            if vd not in ("pass", "fail"):
+                continue
+            tier = tier_of(k)
+            seen[k] += 1
+            if tier == "quality":
+                if vd == "pass":
+                    hit[k] += 1
+                else:
+                    fail_ct[k] += 1
+            else:  # gate
+                if vd == "fail":
+                    hit[k] += 1
+                    fail_ct[k] += 1
+    per_parameter: dict[str, dict] = {}
+    for dim in rubric.get("dimensions", []):
+        k = dim["key"]
+        if not seen.get(k):
+            continue
+        tier = tier_of(k)
+        rate = round(100 * hit[k] / seen[k])
+        per_parameter[k] = {"label": labels.get(k, k), "tier": tier, "n": seen[k],
+                            ("pass_rate" if tier == "quality" else "fire_rate"): rate}
+    top_failures = sorted(
+        ({"key": k, "label": labels.get(k, k), "tier": tier_of(k), "count": c, "pct": round(100 * c / n)}
+         for k, c in fail_ct.items()), key=lambda x: -x["count"])[:10]
+
+    bd: dict[str, dict] = defaultdict(lambda: {"count": 0, "comp": 0, "cov": 0, "pass": 0, "adh": []})
     for t in tickets:
         b = bd[t.get("disposition") or "unknown"]
         b["count"] += 1
         b["comp"] += t.get("composite", 0)
         b["cov"] += 1 if t.get("covered") else 0
+        b["pass"] += 1 if _status_of(t) == "PASS" else 0
         if t.get("adherence") is not None:
             b["adh"].append(t["adherence"])
     by_disposition = {k: {"count": v["count"], "avg_composite": round(v["comp"] / v["count"]),
+                          "pass_rate": round(100 * v["pass"] / v["count"]),
                           "coverage_pct": round(100 * v["cov"] / v["count"]),
                           "adherence": round(sum(v["adh"]) / len(v["adh"])) if v["adh"] else None}
                       for k, v in bd.items()}
     history = sorted(tickets, key=lambda t: t.get("audited_at", ""), reverse=True)[:500]
     return {
         "count": n,
+        "pass_rate": round(100 * n_pass / n),
+        "fail_rate": round(100 * (n - n_pass) / n),
+        "avg_quality_pct": round(sum(qpv) / len(qpv)) if qpv else None,
         "avg_composite": round(sum(t.get("composite", 0) for t in tickets) / n),
         "coverage_pct": round(100 * cov / n),
         "adherence_pct": round(sum(adh) / len(adh)) if adh else None,
-        "per_dimension_avg": per_dimension_avg,
+        "per_parameter": per_parameter,
+        "top_failures": top_failures,
         "by_disposition": by_disposition,
         "novel_count": n - cov,
         "rubric_version": rubric.get("version"),
@@ -453,7 +590,8 @@ def export_csv(run_id: str | None = None) -> str:
         for k in (t.get("per_dimension") or {}):
             if k not in dim_keys:
                 dim_keys.append(k)
-    fieldnames = (["ticket_number", "composite"] + [f"dim_{k}" for k in dim_keys]
+    fieldnames = (["ticket_number", "final_status", "composite", "quality_pct", "fired_gates"]
+                  + [f"dim_{k}" for k in dim_keys]
                   + ["covered", "matched_sop_id", "disposition", "coverage_score", "adherence",
                      "resolution_action_followed", "key_findings", "overall_rationale"])
     buf = io.StringIO()
@@ -466,7 +604,10 @@ def export_csv(run_id: str | None = None) -> str:
     for t in tickets:
         row = {
             "ticket_number": t.get("ticket_number"),
+            "final_status": _status_of(t),
             "composite": t.get("composite"),
+            "quality_pct": t.get("quality_pct") if t.get("quality_pct") is not None else "",
+            "fired_gates": _flat("; ".join(f.get("label", f.get("key", "")) for f in (t.get("fired") or []))),
             "covered": "yes" if t.get("covered") else "no",
             "matched_sop_id": t.get("matched_sop_id") or "",
             "disposition": t.get("disposition"),
@@ -477,6 +618,9 @@ def export_csv(run_id: str | None = None) -> str:
             "overall_rationale": _flat(t.get("overall_rationale")),
         }
         for k in dim_keys:
-            row[f"dim_{k}"] = (t.get("per_dimension") or {}).get(k, {}).get("score", "")
+            # verdict is the audit signal; keep the 0–1 coaching score alongside in parens
+            cell = (t.get("per_dimension") or {}).get(k, {})
+            vd = cell.get("verdict")
+            row[f"dim_{k}"] = vd if vd else cell.get("score", "")
         w.writerow(row)
     return buf.getvalue()

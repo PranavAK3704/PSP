@@ -13,6 +13,7 @@ path cloned from knowledge/governance.py::structure_framework_from_text.
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import threading
@@ -32,52 +33,80 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# ── Seed rubric (version 1) — the REAL "Email Audit Legends" sub-parameters + their failure-mode
-# reasons, across three criticality tiers: standard, ZT (zero-tolerance) and Fatal.
-# PENDING (weighting doc coming shortly): (1) the real WEIGHTS — the ones below are PROVISIONAL
-# placeholders (standard 1.0 / empathy 2.0 / ZT+Fatal 3.0); (2) the ZT/Fatal "AUTO-FAIL" scoring —
-# a ZT/Fatal violation should collapse the whole audit to 0, which the current weighted-mean judge
-# does NOT yet enforce (it only weighs heavier). Both land when the weights documentation arrives.
+# ── Seed rubric (version 1) — the REAL Valmo BAU audit model (from "BAU Audits_Aspire",
+# the sheet Manju & Aarti audit against). Three tiers, encoded by KEY PREFIX (tier_of):
+#   • QUALITY  (no prefix)  — scored Pass/Fail; `weight` is the POINT value; the 7 quality
+#                             weights sum to 100 (Audit Score = % of scorable points passed).
+#   • zt_…     zero-tolerance — an AUTO-FAIL gate (weight 0, carries no points).
+#   • fatal_…  fatal          — an AUTO-FAIL gate (weight 0, carries no points).
+# Any zt_/fatal_ violation collapses the audit to composite 0 / status FAIL, regardless of the
+# quality points. The judge also returns a 0–1 gradient per factor (kept for coaching only).
 _SEED_DIMENSIONS = [
-    {"key": "proper_opening_closing", "label": "Proper opening & closing", "weight": 1.0,
-     "description": "Proper email salutation in the opening; brand name + role present in the closing."},
-    {"key": "correct_email_format", "label": "Correct email format", "weight": 1.0,
-     "description": "Correct font size / alignment / paragraph formatting; no spacing, upper/lower-case, "
-                    "spelling or punctuation errors."},
-    {"key": "empathy_acknowledgement", "label": "Empathy / apology / reassurance / acknowledgement / rebuttal", "weight": 2.0,
-     "description": "Appropriate empathy; assurance/reassurance present and correct; acknowledgement or "
-                    "paraphrasing done; rebuttal statements used where warranted."},
-    {"key": "simple_language", "label": "Simple, easy to understand", "weight": 1.0,
-     "description": "Grammatically correct, simple language; no inappropriate jargon."},
-    {"key": "template_modification", "label": "Appropriate template modification", "weight": 1.0,
-     "description": "No unnecessary or inappropriate modification of the template."},
-    {"key": "email_flow", "label": "Adhered to email flow", "weight": 1.0,
-     "description": "The prescribed email flow was followed."},
-    {"key": "app_education", "label": "Educated to use the app", "weight": 1.0,
-     "description": "Self-help option offered; proactive information provided."},
-    {"key": "zt_language", "label": "ZT · Rude / sarcastic / abusive language", "weight": 3.0,
-     "description": "ZERO TOLERANCE — no casual, sarcastic, rude or abusive language. Violation = auto-fail (enforcement pending the weighting doc)."},
-    {"key": "zt_financial_loss", "label": "ZT · Action leading to financial loss", "weight": 3.0,
-     "description": "ZERO TOLERANCE — no incorrect validation or action causing financial loss. Violation = auto-fail (enforcement pending)."},
-    {"key": "fatal_crm_utilization", "label": "Fatal · Improper CRM utilization", "weight": 3.0,
-     "description": "FATAL — past ticket referred; correct notes/remarks in Kapture; correct email ID; "
-                    "duplicate tickets merged; mandatory details captured. Violation = auto-fail (pending)."},
-    {"key": "fatal_incorrect_reversal", "label": "Fatal · Incorrect reversal request", "weight": 3.0,
-     "description": "FATAL — no wrong reversal initiated; reversal raised when required. Violation = auto-fail (pending)."},
-    {"key": "fatal_tagging", "label": "Fatal · Incorrect / no tagging", "weight": 3.0,
-     "description": "FATAL — correct disposition/folder and correct ticket status. Violation = auto-fail (pending)."},
-    {"key": "fatal_assignment", "label": "Fatal · Incorrect ticket assignment / handling", "weight": 3.0,
-     "description": "FATAL — ticket assigned to the correct queue. Violation = auto-fail (pending)."},
-    {"key": "fatal_misleading_info", "label": "Fatal · Incorrect / misleading information", "weight": 3.0,
-     "description": "FATAL — correct TAT, resolution and expectations; correct template customization; "
-                    "necessary documents sent; no requesting of already-provided info. Violation = auto-fail (pending)."},
-    {"key": "fatal_incomplete_info", "label": "Fatal · Incomplete information", "weight": 3.0,
-     "description": "FATAL — all queries addressed; complete resolution provided. Violation = auto-fail (pending)."},
+    # ── QUALITY (Pass/Fail, points sum to 100) ──
+    {"key": "proper_opening_closing", "label": "Proper opening & closing", "weight": 4.0,
+     "description": "Proper salutation in the opening (e.g. \"Dear Partner,\") and a complete closing "
+                    "(e.g. \"Thank you, Valmo Partner Support\")."},
+    {"key": "correct_email_format", "label": "Correct email format", "weight": 6.0,
+     "description": "Correct font / size / alignment and paragraph formatting (Arial/Times/Calibri 10, "
+                    "left-aligned); no spacing, case, spelling or punctuation errors."},
+    {"key": "empathy_acknowledgement", "label": "Empathy / apology / reassurance / acknowledgement", "weight": 10.0,
+     "description": "Appropriate empathy, apology, reassurance and acknowledgement; the partner's concern is "
+                    "paraphrased/acknowledged; rebuttal used where warranted."},
+    {"key": "simple_language", "label": "Simple, easy to understand", "weight": 12.5,
+     "description": "Grammatically correct, simple language; no company jargon, complex words or unclear statements."},
+    {"key": "template_modification", "label": "Appropriate template modification", "weight": 25.0,
+     "description": "The template is not modified unnecessarily or inappropriately (non-critical unless the "
+                    "resolution itself is impacted)."},
+    {"key": "email_flow", "label": "Adhered to email flow", "weight": 12.5,
+     "description": "The prescribed email flow was followed in the correct order."},
+    {"key": "app_education", "label": "Educated to use the app", "weight": 30.0,
+     "description": "Offered the relevant self-help option / existing app feature proactively. Mark NA when the "
+                    "issue has no applicable app self-help."},
+    # ── ZERO-TOLERANCE gates (auto-fail; no points) ──
+    {"key": "zt_language", "label": "ZT · Rude / sarcastic / abusive language", "weight": 0.0,
+     "description": "ZERO-TOLERANCE gate. Fails ONLY if the agent used casual, sarcastic, rude or abusive "
+                    "language. Any breach auto-fails the whole audit."},
+    {"key": "zt_financial_loss", "label": "ZT · Action leading to financial loss", "weight": 0.0,
+     "description": "ZERO-TOLERANCE gate. Fails ONLY if the agent took an action (e.g. wrong validation) that "
+                    "causes a financial loss. Any breach auto-fails the whole audit."},
+    # ── FATAL gates (auto-fail; no points) ──
+    {"key": "fatal_crm_utilization", "label": "Fatal · Improper CRM utilization", "weight": 0.0,
+     "description": "FATAL gate. Fails ONLY on clear CRM misuse: past tickets not checked in Kapture, wrong "
+                    "notes/email ID, duplicate tickets not merged, or mandatory details not captured."},
+    {"key": "fatal_incorrect_reversal", "label": "Fatal · Incorrect reversal request", "weight": 0.0,
+     "description": "FATAL gate. Fails ONLY if the agent raised a wrong reversal request, or failed to raise "
+                    "one that was clearly required."},
+    {"key": "fatal_tagging", "label": "Fatal · Incorrect / no tagging", "weight": 0.0,
+     "description": "FATAL gate. Fails ONLY on clearly incorrect (or missing) disposition/folder tagging or "
+                    "ticket status."},
+    {"key": "fatal_assignment", "label": "Fatal · Incorrect ticket assignment / handling", "weight": 0.0,
+     "description": "FATAL gate. Fails ONLY if the ticket was assigned to the wrong queue or mishandled."},
+    {"key": "fatal_misleading_info", "label": "Fatal · Incorrect / misleading information", "weight": 0.0,
+     "description": "FATAL gate. Fails ONLY if the agent gave incorrect or misleading information — wrong TAT "
+                    "vs SOP, wrong resolution/expectations, or wrong template customization."},
+    {"key": "fatal_incomplete_info", "label": "Fatal · Incomplete information", "weight": 0.0,
+     "description": "FATAL gate. Fails ONLY if the agent left a raised query unaddressed or gave a clearly "
+                    "incomplete resolution."},
 ]
 
 
+_SEED_FP = hashlib.md5(json.dumps(_SEED_DIMENSIONS, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def tier_of(key: str) -> str:
+    """A dimension's criticality tier, encoded by key prefix. zt_/fatal_ are auto-fail gates;
+    everything else is a scored quality parameter (its `weight` is its point value)."""
+    k = (key or "").lower()
+    if k.startswith("zt_"):
+        return "zt"
+    if k.startswith("fatal_"):
+        return "fatal"
+    return "quality"
+
+
 def _seed() -> dict:
-    return {"version": 1, "dimensions": [dict(d) for d in _SEED_DIMENSIONS], "updated_at": _now()}
+    return {"version": 1, "seed_fp": _SEED_FP,
+            "dimensions": [dict(d) for d in _SEED_DIMENSIONS], "updated_at": _now()}
 
 
 def _load() -> dict | None:
@@ -103,13 +132,12 @@ def get_rubric() -> dict:
             rubric = _seed()
             _write(rubric)
             return rubric
-        # Auto-refresh a NEVER-EDITED (version 1) rubric if the seed's factor set has changed —
-        # e.g. the real Email-Audit legend replaced the earlier placeholders. save_rubric bumps the
-        # version, so this never overwrites a rubric an author has actually edited/saved.
-        if int(rubric.get("version", 1) or 1) == 1:
-            if {d.get("key") for d in rubric.get("dimensions", [])} != {d["key"] for d in _SEED_DIMENSIONS}:
-                rubric = _seed()
-                _write(rubric)
+        # Auto-refresh a NEVER-EDITED (version 1) rubric whenever the seed changes — by
+        # fingerprint, so a change to weights/points/descriptions (not just the key set) triggers
+        # it. save_rubric bumps the version, so this never overwrites an author-edited rubric.
+        if int(rubric.get("version", 1) or 1) == 1 and rubric.get("seed_fp") != _SEED_FP:
+            rubric = _seed()
+            _write(rubric)
         return rubric
 
 

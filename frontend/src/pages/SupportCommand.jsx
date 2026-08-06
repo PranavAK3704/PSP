@@ -1271,6 +1271,13 @@ function KaptureAudit() {
         {kpi("SOP coverage", scores?.coverage_pct, "%", covColor(scores?.coverage_pct))}
       </div>
 
+      {scores?.provisional_excluded > 0 && (
+        <div className="text-[11px] text-secondary-container bg-secondary-container/8 border border-secondary-container/30 rounded-xl px-md py-2 flex items-center gap-1.5">
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>science</span>
+          <span><b>{scores.provisional_excluded} audit{scores.provisional_excluded === 1 ? "" : "s"} hidden</b> — judged by a <b>provisional</b> (temporary stop-gap) LLM while the approved path is procured. They are measured for benchmarking only and are excluded from every number above, never published as results.</span>
+        </div>
+      )}
+
       {scores?.not_audited > 0 && (
         <div className="text-[11px] text-warn bg-warn/8 border border-warn/30 rounded-xl px-md py-2 flex items-center gap-1.5">
           <span className="material-symbols-outlined" style={{ fontSize: 16 }}>help</span>

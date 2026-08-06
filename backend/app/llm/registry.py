@@ -65,3 +65,34 @@ def for_node(node: str) -> tuple[LLMProvider, str]:
 
 def active_provider_name() -> str:
     return (os.environ.get("LLM_PROVIDER", "").strip().lower() or _config()["provider"])
+
+
+# ── provisional (temporary bridge) LLMs ───────────────────────────────────────
+# A stop-gap endpoint stood up because the sanctioned one is unavailable (e.g. the Groq bridge
+# while the enterprise LLM path is procured). Its output is fine for MEASUREMENT but must not be
+# published as if it were an approved result — so anything derived from it is stamped provisional
+# and excluded from the dashboards. `load_env.sh` sets LLM_PROVISIONAL when it activates a bridge;
+# the host is also sniffed so an endpoint set by hand can't quietly bypass the flag.
+_PROVISIONAL_HOSTS = ("groq.com", "openrouter.ai", "together.xyz", "localhost", "127.0.0.1")
+
+
+def provisional_label() -> str:
+    """'' when the active LLM is an approved path, else a short label for the bridge in use."""
+    flag = os.environ.get("LLM_PROVISIONAL", "").strip()
+    if flag and flag.lower() not in ("0", "false", "no"):
+        return flag
+    url = os.environ.get("OPENAI_BASE_URL", "")
+    host = url.split("//")[-1].split("/")[0].lower() if "//" in url else ""
+    return next((h for h in _PROVISIONAL_HOSTS if h in host), "")
+
+
+def is_provisional() -> bool:
+    return bool(provisional_label())
+
+
+def active_model_label() -> str:
+    """Provider/model of the deep tier + a provisional marker, for stamping derived records."""
+    _, model = for_node("policy_reasoning")
+    label = f"{active_provider_name()}:{model}"
+    prov = provisional_label()
+    return f"{label} (provisional:{prov})" if prov else label

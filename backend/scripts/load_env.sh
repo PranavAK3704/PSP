@@ -36,6 +36,7 @@ if [ -z "$OPENAI_BASE_URL" ] && [ -f "$DATA/groq_key.txt" ]; then
         export OPENAI_API_KEY="$groq_key"
         export OPENAI_BASE_URL="https://api.groq.com/openai/v1/chat/completions"
         export LLM_PROVIDER="openai"
+        export LLM_PROVISIONAL="groq"   # marks derived results as NOT publishable
         if [ -f "$DATA/groq_model.txt" ]; then
             groq_model="$(tr -d '\r\n' < "$DATA/groq_model.txt")"
             [ -n "$groq_model" ] && export LLM_MODEL_FAST="$groq_model" && export LLM_MODEL_DEEP="$groq_model"

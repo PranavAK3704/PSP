@@ -350,6 +350,11 @@ def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: d
         "ticket_number": str(ticket_number),
         "rubric_version": rubric.get("version"),
         "run_id": run_id,
+        # WHO judged this, and whether that judge was an approved path. A provisional (stop-gap)
+        # LLM is fine to measure with but its verdicts must never be published as results, so
+        # scores() excludes them — see llm.registry.provisional_label().
+        "judge": f"{model}",
+        "provisional": bool(llm_registry.is_provisional()),
         "per_dimension": per_dimension,
         "composite": sc["composite"],
         "status": sc["status"],
@@ -525,15 +530,21 @@ def scores() -> dict:
     empty = {"count": 0, "pass_rate": None, "fail_rate": None, "avg_quality_pct": None,
              "avg_composite": None, "coverage_pct": None, "adherence_pct": None,
              "per_parameter": {}, "top_failures": [], "by_disposition": {}, "novel_count": 0,
-             "history": []}
+             "provisional_excluded": 0, "history": []}
     if not tickets:
         return empty
+    # Rows judged by a PROVISIONAL (stop-gap) LLM are measured, never published: they are excluded
+    # from every number and reported separately, so a temporary bridge can never masquerade as an
+    # approved audit result.
+    provisional = [t for t in tickets if t.get("provisional")]
+    tickets = [t for t in tickets if not t.get("provisional")]
     # NOT_AUDITED rows (judge returned nothing) are reported separately and excluded from every
     # rate — counting them as passes is exactly how a broken run looks like a clean one.
     not_audited = [t for t in tickets if _status_of(t) == "NOT_AUDITED"]
     tickets = [t for t in tickets if _status_of(t) != "NOT_AUDITED"]
     if not tickets:
-        return {**empty, "count": 0, "not_audited": len(not_audited)}
+        return {**empty, "count": 0, "not_audited": len(not_audited),
+                "provisional_excluded": len(provisional)}
     n = len(tickets)
     n_pass = sum(1 for t in tickets if _status_of(t) == "PASS")
     qpv = [t["quality_pct"] for t in tickets if isinstance(t.get("quality_pct"), (int, float))]
@@ -591,6 +602,7 @@ def scores() -> dict:
     return {
         "count": n,
         "not_audited": len(not_audited),
+        "provisional_excluded": len(provisional),
         "pass_rate": round(100 * n_pass / n),
         "fail_rate": round(100 * (n - n_pass) / n),
         "avg_quality_pct": round(sum(qpv) / len(qpv)) if qpv else None,

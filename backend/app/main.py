@@ -279,6 +279,9 @@ def health():
     except Exception as e:  # noqa: BLE001
         ds["kapture_browse"] = {"configured": False, "detail": type(e).__name__}
     return {"ok": True, "provider": llm_registry.active_provider_name(),
+            "llm": {"model": llm_registry.active_model_label(),
+                    "provisional": llm_registry.is_provisional(),
+                    "provisional_label": llm_registry.provisional_label()},
             "knowledge": store.corpus_stats(), "data": ds}
 
 

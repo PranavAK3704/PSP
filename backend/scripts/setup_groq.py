@@ -34,10 +34,13 @@ CHAT_URL = f"{BASE}/chat/completions"
 
 # Preference order: strongest general-reasoning open models first. The script only picks one that
 # the key can actually see, so a retired id here is skipped rather than breaking the run.
+# Ordered by (quality x throughput) for the audit workload. TPM is the binding limit, so a strong
+# model with a higher token allowance beats a slightly stronger one that is 1.5x slower:
+#   llama-3.3-70b-versatile 12k TPM | openai/gpt-oss-120b 8k | groq/compound-mini 70k (agentic, verbose)
 PREFERRED = [
+    "llama-3.3-70b-versatile",
     "openai/gpt-oss-120b",
     "moonshotai/kimi-k2-instruct",
-    "llama-3.3-70b-versatile",
     "deepseek-r1-distill-llama-70b",
     "qwen/qwen3-32b",
     "llama-3.1-70b-versatile",
@@ -112,14 +115,21 @@ def main() -> int:
         print("rate limits:")
         for k2 in sorted(lim):
             print(f"  {k2}: {lim[k2]}")
+        # The binding limit for auditing is TOKENS/min, not requests: one audit costs ~2,550
+        # tokens (transcript + rubric in, verdicts out), so TPM is what caps throughput.
+        AUDIT_TOKENS = 2550
+        tpm = lim.get("x-ratelimit-limit-tokens")
         rpm = lim.get("x-ratelimit-limit-requests")
-        if rpm:
-            try:
-                n = int(rpm)
-                print(f"  -> suggested batch concurrency: {max(1, min(8, n // 6))} "
-                      f"(leaves headroom; 429s are retried with Retry-After)")
-            except ValueError:
-                pass
+        try:
+            tpm_n = int(tpm)
+            per_min = max(1, tpm_n // AUDIT_TOKENS)
+            print(f"  -> ~{per_min} audits/min on this model ({tpm_n} tok/min / ~{AUDIT_TOKENS} per audit)")
+            print(f"  -> 719 tickets would take ~{round(719 / per_min)} min")
+            print(f"  -> suggested batch concurrency: {max(1, min(8, per_min // 2))} "
+                  f"(429s are retried honouring Retry-After)")
+        except (TypeError, ValueError):
+            if rpm:
+                print(f"  -> requests/min: {rpm} (token limit unknown)")
 
     MODEL_FILE.write_text(chosen + "\n")
     print(f"\nwrote {MODEL_FILE.name}")

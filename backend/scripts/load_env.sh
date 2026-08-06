@@ -22,3 +22,24 @@ set_from_file OPENAI_BASE_URL    "$DATA/llm_base_url.txt"
 set_from_file ANTHROPIC_BASE_URL "$DATA/anthropic_base_url.txt"
 set_from_file TURSO_DATABASE_URL "$DATA/turso_url.txt"     # external loss DB (else local valmo.db)
 set_from_file TURSO_AUTH_TOKEN   "$DATA/turso_token.txt"
+set_from_file KAPTURE_URL        "$DATA/kapture_url.txt"   # read-only audit-evidence browse
+set_from_file KAPTURE_EMAIL      "$DATA/kapture_email.txt"
+set_from_file KAPTURE_PASSWORD   "$DATA/kapture_password.txt"
+
+# ── TEMPORARY: Groq bridge (Groq is OpenAI-API-compatible, so no provider code is needed) ──
+# Drop a key in data/groq_key.txt, run `python scripts/setup_groq.py` once to pick + verify a model,
+# then sourcing this file routes every LLM call to Groq. Delete groq_key.txt to switch back.
+# A key already present in the environment always wins (production/Secret Manager is never clobbered).
+if [ -z "$OPENAI_BASE_URL" ] && [ -f "$DATA/groq_key.txt" ]; then
+    groq_key="$(tr -d '\r\n' < "$DATA/groq_key.txt")"
+    if [ -n "$groq_key" ]; then
+        export OPENAI_API_KEY="$groq_key"
+        export OPENAI_BASE_URL="https://api.groq.com/openai/v1/chat/completions"
+        export LLM_PROVIDER="openai"
+        if [ -f "$DATA/groq_model.txt" ]; then
+            groq_model="$(tr -d '\r\n' < "$DATA/groq_model.txt")"
+            [ -n "$groq_model" ] && export LLM_MODEL_FAST="$groq_model" && export LLM_MODEL_DEEP="$groq_model"
+        fi
+        echo "LLM -> Groq (${LLM_MODEL_DEEP:-model not set: run scripts/setup_groq.py})" >&2
+    fi
+fi

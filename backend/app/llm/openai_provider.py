@@ -138,12 +138,21 @@ class OpenAIProvider(LLMProvider):
                 time.sleep(_WAF_BACKOFF_SECONDS + random.uniform(0, 0.9))
                 continue
 
-            # Rate limits / server errors — a few backed-off retries.
+            # Rate limits / server errors — a few backed-off retries. On 429 HONOUR Retry-After:
+            # free tiers (Groq, most gateways) reply "wait 27s", and a 0.6s linear backoff would
+            # just burn all the attempts against a limit that has not reset yet.
             if resp.status_code == 429 or resp.status_code >= 500:
                 err_attempts += 1
                 if err_attempts >= _ERR_MAX_ATTEMPTS:
                     raise last_err
-                time.sleep(_ERR_BACKOFF_SECONDS * err_attempts)
+                wait = _ERR_BACKOFF_SECONDS * err_attempts
+                if resp.status_code == 429:
+                    hinted = resp.headers.get("retry-after") or resp.headers.get("Retry-After")
+                    try:
+                        wait = max(wait, min(float(hinted), 60.0))   # cap so we never hang forever
+                    except (TypeError, ValueError):
+                        wait = max(wait, 5.0)                        # unparseable -> sane 429 pause
+                time.sleep(wait)
                 continue
 
             # Anything else (400/403/real auth failure) is not transient.

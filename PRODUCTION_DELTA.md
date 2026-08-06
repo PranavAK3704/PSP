@@ -96,6 +96,42 @@ reasoning/trust/governance IP.
    Still wanted from the QA org: sign-off that these weights + the auto-fail rule are current, and a
    decision on whether notes-tab replies should have their own open/close convention.
 
+## LLM options — measured, not assumed (Aug '26)
+
+The hackathon gateway was decommissioned, so the active LLM is a **provisional Groq bridge**. Anything
+it judges is stamped `provisional` and **excluded from every dashboard number** (see
+`llm/registry.provisional_label()`); it is for measurement only. Replacing it = delete
+`backend/data/groq_key.txt`, or point `OPENAI_BASE_URL` at the approved endpoint. No code change:
+`LLM_PROVIDER` / `LLM_MODEL_FAST` / `LLM_MODEL_DEEP` / `OPENAI_BASE_URL` override `models.yaml`.
+
+**Accuracy — Groq `llama-3.3-70b-versatile` passed all 8 pipeline nodes** (`scripts/bench_llm.py`,
+deterministic checks, no LLM grading another LLM): intent, classify, policy_reasoning,
+adversarial_verify, explain, sop_compile, audit_judge, monitor_compose. Both real correctness probes
+passed — the adversarial verifier **rejected** an unevidenced ₹5,000 payout, and the audit judge
+**failed** a reply that ignored the partner's stated problem. Conclusion: **the platform does not
+require a frontier model to be correct.** That is the useful finding for the no-enterprise-key case.
+
+**Throughput — the free tier cannot carry this workload.** One audit costs ~2,550 tokens, so
+tokens/min is the binding limit, not requests/min:
+
+| Model | Limit | Effective | 719-ticket batch |
+|---|---|---|---|
+| `llama-3.3-70b-versatile` | 12k tok/min | ~4–5 audits/min | ~3 h, error-prone |
+| `openai/gpt-oss-120b` | 8k tok/min | ~3 audits/min | ~4 h |
+| `groq/compound-mini` | 70k tok/min **but 250 req / 3 h** | ~83 req/h | **impossible** |
+
+Measured, not extrapolated: 30 audits took 693 s at 4 workers with a **53% error rate** (4 × 2,550 =
+10.2k per round against a 12k cap ⇒ permanent 429/back-off). The 8-node run showed the same curve —
+first two calls 0.15–0.24 s, then 29 s → 176 s once the budget was spent. **A live demo is 4–6 calls,
+so calls 3+ take 30–170 s: Groq free-tier is too slow to demo on.** `groq/compound-mini` is not the
+escape hatch — its `usage_breakdown` shows it *proxies to* `llama-3.3-70b` + `gpt-oss-120b` (so it
+burns more tokens per call) and it carries a 250-request/3-hour cap.
+
+**Recommendation:** an **Anthropic key** — the full 3,548-ticket email set costs **~₹1,458 on Haiku
+4.5** (~₹298 for a 719 backlog), unattended, with no rate wall. Groq's paid dev tier would also
+remove the TPM ceiling. Either way the swap is env-only, and the provisional stamp on historical
+rows keeps "which judge produced which audit" auditable forever.
+
 Per the checklist's own point, **access latency — not code — is the critical path**: open items 2–3 now, in parallel.
 
 ---

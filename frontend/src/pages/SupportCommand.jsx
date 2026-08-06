@@ -1346,6 +1346,12 @@ function KaptureAudit() {
         {/* ── CSV upload + run ── */}
         <div className="glass-card rounded-xl p-lg flex flex-col">
           <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-secondary-container mb-sm">Batch audit · upload tickets CSV</div>
+          {scores?.audit_enabled === false && (
+            <div className="mb-md text-[11px] text-warn bg-warn/8 border border-warn/30 rounded-lg px-md py-2 flex gap-1.5">
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>gpp_maybe</span>
+              <span><b>Audit judging is disabled.</b> A provisional LLM{scores.provisional_llm ? ` (${scores.provisional_llm})` : ""} is active, and an audit is a QA record — it may only come from an approved judge or a human review. <b>The chat / resolution path is unaffected.</b></span>
+            </div>
+          )}
           <p className="text-xs text-on-surface-variant mb-md">CSV with a <b>ticket_number</b> column and a <b>conversation_history</b> column (transcript per cell). Re-uploading skips already-audited tickets.</p>
           <label className="cursor-pointer border border-dashed border-secondary-container/50 text-secondary-container rounded-lg py-lg grid place-items-center gap-1 hover:bg-secondary-container/5 transition-all">
             <span className="material-symbols-outlined" style={{ fontSize: 26 }}>{busy ? "hourglass_top" : "upload_file"}</span>

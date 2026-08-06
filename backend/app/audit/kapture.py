@@ -44,6 +44,10 @@ _TRANSCRIPT_CAP = 12000     # chars fed to the judge
 _COVERAGE_QUERY_CAP = 2000  # chars used for SOP retrieval (the issue is usually stated up front)
 
 
+class ProvisionalJudgeError(RuntimeError):
+    """Raised when an audit is attempted while a provisional (stop-gap) LLM is active."""
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -319,7 +323,17 @@ def audit_ticket(ticket_number: str, transcript: str, rubric: dict, sop_index: d
 
     store_transcript=True keeps a REDACTED excerpt on the row so the audit trace is inspectable
     end-to-end. Off by default (live uploads keep the no-transcript, PII-safe posture); opt in only
-    for sources that are already redacted."""
+    for sources that are already redacted.
+
+    REFUSES to run on a PROVISIONAL (stop-gap) LLM. Audit verdicts drive agent coaching and QA
+    reporting, so they may only come from an approved judge or a human (scripts/manual_audit.py).
+    A stop-gap bridge stays available for the conversational path — it is auditing specifically
+    that is gated, because a throwaway endpoint must never produce a QA record."""
+    if llm_registry.is_provisional():
+        raise ProvisionalJudgeError(
+            f"auditing is disabled on a provisional LLM ({llm_registry.provisional_label()}). "
+            "Point OPENAI_BASE_URL at an approved endpoint, or judge via "
+            "scripts/manual_audit.py. The conversational path is unaffected.")
     cov = locate_sop(transcript, sop_index)
     prompt = build_kapture_prompt(transcript, rubric, cov["sop"])
 
@@ -462,6 +476,12 @@ def estimate_cost(rows: list[dict]) -> dict:
 def audit_batch_streamed(rows: list[dict], run_id: str, resume: bool = True):
     """Generator: audit each ticket, persist per-ticket, yield SSE stages
     (start → ticket → progress → done). Resumes by skipping already-audited ticket_numbers."""
+    if llm_registry.is_provisional():
+        yield {"stage": "error", "code": "provisional_llm",
+               "message": (f"Auditing is disabled while a provisional LLM "
+                           f"({llm_registry.provisional_label()}) is active. The chat/resolution "
+                           f"path still works; only audit judging is gated.")}
+        return
     rubric = kapture_rubric.get_rubric()
     sop_index = build_sop_index()
 

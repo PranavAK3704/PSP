@@ -621,7 +621,15 @@ def kapture_estimate(body: KaptureEstimateIn):
 @app.post("/api/kapture/run", dependencies=[_author])
 def kapture_run(body: KaptureRunIn):
     """Stream a batch audit — one SSE event per ticket, then a done summary. Resumable:
-    re-running the same rows skips already-audited tickets."""
+    re-running the same rows skips already-audited tickets.
+
+    Refused outright on a provisional LLM: an audit is a QA record, so it may only come from an
+    approved judge or a human. (The conversational/demo path is unaffected.)"""
+    if llm_registry.is_provisional():
+        raise HTTPException(status_code=409, detail=(
+            f"Auditing is disabled while a provisional LLM "
+            f"({llm_registry.provisional_label()}) is active. Use an approved endpoint or "
+            f"scripts/manual_audit.py. The chat/resolution path still works."))
     run_id = body.run_id or ("KAP-" + uuid.uuid4().hex[:8].upper())
     return EventSourceResponse(_sse(kapture.audit_batch_streamed(body.rows, run_id)))
 
@@ -629,7 +637,10 @@ def kapture_run(body: KaptureRunIn):
 @app.get("/api/kapture/scores", dependencies=[_authed])
 def kapture_scores():
     """Kapture audit dashboard — coverage %, adherence %, composite, per-dimension + by-disposition."""
-    return kapture.scores()
+    out = kapture.scores()
+    out["audit_enabled"] = not llm_registry.is_provisional()
+    out["provisional_llm"] = llm_registry.provisional_label()
+    return out
 
 
 @app.get("/api/kapture/calibration", dependencies=[_authed])

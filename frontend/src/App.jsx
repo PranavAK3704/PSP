@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import CaptainPanel from "./pages/CaptainPanel.jsx";
-import CaptainLosses from "./pages/CaptainLosses.jsx";
 import Monitor from "./pages/Monitor.jsx";
 import L3Workspace from "./pages/L3Workspace.jsx";
 import SupportCommand from "./pages/SupportCommand.jsx";
@@ -15,8 +14,6 @@ import { AuthProvider, useAuth } from "./lib/auth.jsx";
 const VIEWS = {
   captain: { label: "Captain Advocate",     icon: "forum",           comp: CaptainPanel,
              title: "Captain Advocate",     sub: "Live partner-support advocacy — resolve concerns in-conversation." },
-  losses:  { label: "Captain 360",          icon: "receipt_long",    comp: CaptainLosses,
-             title: "Captain 360 · Losses & Debits", sub: "Real per-captain loss/debit ledger — a million loss rows, with reversal state." },
   monitor: { label: "Proactive Monitoring", icon: "radar",           comp: Monitor,
              title: "Proactive Monitoring", sub: "Always-on, shadow-first risk detection on the event stream." },
   l3:      { label: "L3 Console",           icon: "inbox",           comp: L3Workspace,
@@ -24,7 +21,7 @@ const VIEWS = {
   support: { label: "Support Command",      icon: "space_dashboard", comp: SupportCommand,
              title: "Support Command",      sub: "Command deck, authoring, auditing, governance & the concern log." },
 };
-const NAV = ["captain", "losses", "monitor", "l3", "support"];
+const NAV = ["captain", "monitor", "l3", "support"];
 
 // Nav context — some pages (e.g. Monitor) call useNav() to jump views. Exposes setView.
 const NavCtx = createContext(() => {});

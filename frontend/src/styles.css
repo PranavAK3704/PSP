@@ -73,8 +73,6 @@
    Setting only these four custom properties re-tints every accent-following rule at once. */
 .app[data-view="captain"] { --accent: var(--signal); --accent-soft: var(--signal-soft);
   --accent-line: var(--signal-line); --accent-glow: var(--signal-glow); }
-.app[data-view="losses"]  { --accent: var(--warn); --accent-soft: var(--warn-soft);
-  --accent-line: rgba(255,185,95,0.38); --accent-glow: rgba(255,185,95,0.42); }
 .app[data-view="monitor"] { --accent: var(--good); --accent-soft: var(--good-soft);
   --accent-line: rgba(78,222,163,0.38); --accent-glow: rgba(78,222,163,0.42); }
 .app[data-view="l3"]      { --accent: var(--violet); --accent-soft: var(--violet-soft);
@@ -118,7 +116,6 @@ body {
    colour-coded map: the icon stays tinted even when inactive, which is what makes a destination
    findable without reading all five labels. */
 .nav-item[data-view="captain"] { --nav: var(--signal); }
-.nav-item[data-view="losses"]  { --nav: var(--warn); }
 .nav-item[data-view="monitor"] { --nav: var(--good); }
 .nav-item[data-view="l3"]      { --nav: var(--violet); }
 .nav-item[data-view="support"] { --nav: var(--teal); }
@@ -440,5 +437,3 @@ pre.json .s { color: var(--good); }
   .engine-core-stage { animation: none; }
 }
 
-/* Captain 360 · Losses & Debits — two-column (captain list + ledger), collapses like .split */
-@media (max-width: 1180px) { .c360 { grid-template-columns: 1fr !important; } }

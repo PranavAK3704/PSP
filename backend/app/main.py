@@ -484,24 +484,9 @@ def captain_cases(captain_id: str):
     return {"cases": l3.cases(captain_id)}
 
 
-# ── Captain 360 — real per-captain loss/debit ledger (valmo.db, keyed on partner_id) ─────────
 # Distinct from /api/captains (the seeded chat captains): these read the REAL loss-attribution
 # ledger so the panel demonstrably runs on live data — a million loss rows, 10k attributions
 # with reversal state — not seed rows.
-@app.get("/api/demo/captains", dependencies=[_authed])
-def demo_captains():
-    from .substrate import loss_db
-    return {"captains": loss_db.demo_captains(), "source": loss_db.source()}
-
-
-@app.get("/api/captain/{captain_id}/losses", dependencies=[_authed])
-def captain_losses(captain_id: str):
-    from .substrate import loss_db
-    return {"partner_id": captain_id, "source": loss_db.source(),
-            "summary": loss_db.get_captain_summary(captain_id),
-            "losses": loss_db.get_captain_losses(captain_id)}
-
-
 # ── Support tickets — READ-ONLY analytics over the Kapture export (tickets.db) ───────────────
 # 140k tickets, PII scrubbed at build time. SELECT-only: these endpoints cannot write anything,
 # and a missing tickets.db just reports available:false. Aggregate + per-hub drill-down.

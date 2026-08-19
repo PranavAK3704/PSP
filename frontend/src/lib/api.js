@@ -115,10 +115,6 @@ export const getHealth = () => apiGet("/api/health");
 export const getCaptains = () => apiGet("/api/captains");
 export const getLedger = () => apiGet("/api/ledger");
 export const getCaptainCases = (id) => apiGet(`/api/captain/${id}/cases`);
-
-// Captain 360 — real per-captain loss/debit ledger (valmo.db), separate from the seeded chat captains.
-export const getDemoCaptains = () => apiGet("/api/demo/captains");
-export const getCaptainLosses = (id) => apiGet(`/api/captain/${id}/losses`);
 // SOP compile now streams stages (SSE) so the UI can animate the structuring/tiering.
 export const compileSopStream = (sop_text, onStage, onEnd) =>
   stream({ url: "/api/sop/compile", method: "POST", body: { sop_text } }, onStage, onEnd);

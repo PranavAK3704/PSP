@@ -71,3 +71,19 @@ def active_model_label() -> str:
     """Provider/model of the deep tier, for stamping derived records with what produced them."""
     prov, model = for_node("policy_reasoning")
     return f"{prov.name}:{model}"
+
+
+# Which env var holds the credential for each provider. Used ONLY to report presence.
+_KEY_ENV = {"claude": "ANTHROPIC_API_KEY", "gemini": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY"}
+
+
+def key_configured() -> bool:
+    """Is a credential present for the ACTIVE provider? Presence only — the value is never read
+    out, logged, or returned.
+
+    This exists because the failure it catches is otherwise invisible: with no key, the app boots,
+    /api/health returns 200 and reports the right model, and only the first real turn fails — so a
+    misconfigured deploy looks completely healthy. Surfacing it here turns a confusing runtime
+    symptom ("the assistant is broken") into a config fact anyone can check.
+    """
+    return bool(os.environ.get(_KEY_ENV.get(active_provider_name(), ""), "").strip())

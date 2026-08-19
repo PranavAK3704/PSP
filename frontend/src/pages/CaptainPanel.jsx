@@ -60,7 +60,10 @@ export default function CaptainPanel() {
   const [captains, setCaptains] = useState([]);
   const [captainId, setCaptainId] = useState("VLMO-CPT-4471");
   const [events, setEvents] = useState([]);
-  const [engineOpen, setEngineOpen] = useState(true);
+  // Starts COLLAPSED. Open-by-default spent ~40% of the width on a panel reading "Engine idle",
+  // which is the one state where it has nothing to say. It opens itself when a turn starts
+  // (see send()) and stays open afterwards so the finished trace remains inspectable.
+  const [engineOpen, setEngineOpen] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState("idle");
@@ -138,9 +141,12 @@ export default function CaptainPanel() {
       (ev) => {
         if (ev.node === "reply") {
           const replyText = ev.data?.reply || ev.detail || "";
-          setMessages((m) => [...m, { who: "bot", text: replyText,
+          const failed = !!ev.data?.engine_error;
+          setMessages((m) => [...m, { who: "bot", text: replyText, isError: failed,
             action: ev.data?.decision_action, concernId: ev.data?.concern_id }]);
-          setPhase("resolved");
+          // A failed turn is not "resolved". Keeping the core green-and-steady on an engine
+          // failure would claim work that did not happen.
+          setPhase(failed ? "idle" : "resolved");
           if (convoRef.current) speak(replyText, () => listen());   // speak, then listen again (hands-free loop)
         } else {
           setEvents((prev) => [...prev, ev]);
@@ -339,11 +345,8 @@ export default function CaptainPanel() {
 
           {/* My cases — slim bar; opens a roomy drawer (no inline cramming / overlap) */}
           {cases.length > 0 && (
-            <button onClick={() => setCasesOpen(true)}
-              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
-                padding: "10px 16px", border: "none", borderBottom: "1px solid var(--line-soft)",
-                background: "var(--surface-0)", cursor: "pointer", fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-mute)" }}>
-              <FolderOpen size={13} style={{ color: "var(--signal)" }} />
+            <button onClick={() => setCasesOpen(true)} className="cases-bar">
+              <FolderOpen size={13} style={{ color: "var(--warn)" }} />
               <span style={{ color: "var(--text)" }}>My cases</span>
               <span>· {cases.length}</span>
               {openCases > 0 && <span style={{ color: "var(--warn)" }}>· {openCases} open</span>}
@@ -357,7 +360,7 @@ export default function CaptainPanel() {
               <div className="msg system">Namaste 👋 Aapki koi bhi problem — bataiye. Voice, text ya photo, kisi bhi bhaasha mein.</div>
             )}
             {messages.map((m, i) => (
-              <div key={i} className={`msg ${m.who}`}>
+              <div key={i} className={`msg ${m.who}${m.isError ? " is-error" : ""}`}>
                 <div className="who">{m.who === "captain" ? "You" : "Valmo Advocate"}</div>
                 {m.who === "bot"
                   ? <span dangerouslySetInnerHTML={{ __html: mdToHtml(m.text) }} />
@@ -393,7 +396,7 @@ export default function CaptainPanel() {
                   {m.rated === "up" ? "✓ thanks for the feedback" : "✓ logged for CPD — we'll improve this"}</div>}
               </div>
             ))}
-            {busy && <div className="msg system">● engine resolving…</div>}
+            {busy && <div className="msg system working">● engine resolving…</div>}
           </div>
 
           {/* attachment chips */}
@@ -447,23 +450,35 @@ export default function CaptainPanel() {
           gets the full width. It opens itself the moment a turn starts — the trace is worth
           seeing when there is something to see, and worth hiding when there isn't. */}
       {engineOpen ? (
-        <div className="card" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div className="card hue-violet" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div className="card-head">
-            <h3><Cpu size={15} /> Resolution Engine · live trace</h3>
+            <h3><Cpu size={15} /> Resolution Engine</h3>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span className="mono faint" style={{ fontSize: 10 }}>
-                {phase === "thinking" ? "thinking…" : phase === "resolved" ? "resolved" : "idle"}</span>
-              {/* the core is the *activity* indicator, so it exists only while there is activity */}
-              {phase !== "idle" && (
-                <div style={{ width: 56, height: 56, marginRight: -4 }}>
-                  <DecisionCore size={56} state={phase} />
-                </div>
-              )}
+              <span className={`engine-state ${phase}`}>
+                {phase === "thinking" ? "reasoning" : phase === "resolved" ? "resolved" : "ready"}</span>
               <button className="icon-btn" title="Collapse panel" onClick={() => setEngineOpen(false)}
                 style={{ width: 28, height: 28 }}><ChevronRight size={15} /></button>
             </div>
           </div>
-          <div style={{ overflow: "auto", padding: "14px 16px", flex: 1 }}>
+          {/* The core lives ABOVE the steps while a turn is in flight, at a size where the
+              contra-rotation is actually legible. It is the activity indicator, so it appears
+              with the work and leaves with it — motion on this page always means work. */}
+          {phase !== "idle" && (
+            <div className={`engine-core-stage ${phase}`}>
+              {/* Size is CONSTANT on purpose. DecisionCore rebuilds its WebGL context whenever
+                  `size` changes (its effect keys on [size]), so driving size off `phase` would
+                  force a context teardown + rebuild on every thinking→resolved flip — the exact
+                  churn its own header comment warns about. State changes alone just mutate the
+                  existing materials, which is the cheap path. */}
+              <DecisionCore size={124} state={phase} />
+              <div className="engine-core-caption mono">
+                {phase === "thinking"
+                  ? (events.length ? events[events.length - 1].label : "starting…")
+                  : "trace complete"}
+              </div>
+            </div>
+          )}
+          <div style={{ overflow: "auto", padding: "12px 16px 16px", flex: 1, minHeight: 0 }}>
             <Pipeline events={events} />
           </div>
         </div>

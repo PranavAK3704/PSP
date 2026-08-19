@@ -46,20 +46,60 @@ async function apiPostForm(url, formData) {
 }
 
 // ── Auth ──
-export async function login(email, password) {
-  const res = await fetch("/api/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) {
-    let msg = "Login failed";
-    try { const d = await res.json(); if (d && d.detail) msg = d.detail; } catch { /* ignore */ }
-    const err = new Error(msg); err.status = res.status; throw err;
+// Render's free tier SLEEPS the instance after ~15 min idle, and the first request then takes
+// ~25s to boot the container (measured: 24.2s cold vs 0.58s warm). The browser abandons the
+// request long before that, so the very first login attempt of the day failed with a bare
+// "Failed to fetch" — indistinguishable, to the person typing, from a wrong password or a dead
+// server. So a network-level failure is now RETRIED against the public /api/health probe until
+// the instance answers, with progress reported so the wait is explained rather than mysterious.
+//
+// Only transport failures retry. An HTTP response — including 401 — is a real answer from a live
+// server and returns immediately; retrying a wrong password would be both useless and confusing.
+const COLD_START_TRIES = 6;
+const COLD_START_GAP_MS = 5000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A TypeError from fetch means the request never got an HTTP reply (DNS, connection reset,
+// instance still booting). Anything else is a real server answer.
+const isTransportError = (e) => e instanceof TypeError;
+
+export async function login(email, password, onStatus = () => {}) {
+  let lastErr;
+  for (let attempt = 0; attempt < COLD_START_TRIES; attempt++) {
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) {
+        let msg = "Login failed";
+        try { const d = await res.json(); if (d && d.detail) msg = d.detail; } catch { /* ignore */ }
+        const err = new Error(msg); err.status = res.status; throw err;   // a real answer — do not retry
+      }
+      const data = await res.json();   // { token, user }
+      setToken(data.token);
+      onStatus("");
+      return data;
+    } catch (e) {
+      if (!isTransportError(e)) throw e;     // 401/400/500 — surface it straight away
+      lastErr = e;
+      if (attempt === COLD_START_TRIES - 1) break;
+      onStatus(attempt === 0
+        ? "Waking the server — the free tier sleeps when idle, this can take up to a minute…"
+        : `Still waking the server… (attempt ${attempt + 1} of ${COLD_START_TRIES - 1})`);
+      // Poke the public health route: it boots the instance and, unlike login, cannot fail on
+      // credentials, so a 200 here means the next login attempt will reach a live server.
+      try { await fetch("/api/health", { cache: "no-store" }); } catch { /* still booting */ }
+      await sleep(COLD_START_GAP_MS);
+    }
   }
-  const data = await res.json();   // { token, user }
-  setToken(data.token);
-  return data;
+  const err = new Error(
+    "Can't reach the server. It may still be starting up (the free tier sleeps when idle) — "
+    + "please try again in a moment.");
+  err.cause = lastErr;
+  err.transport = true;
+  throw err;
 }
 // getMe THROWS on any non-200 (used by the auth gate to decide login vs app).
 export async function getMe() {

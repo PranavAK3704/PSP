@@ -248,7 +248,9 @@ def health():
     from .substrate import loss_db
     ds = {"source": loss_db.source()}          # 'remote' (Turso) | 'local' (baked) | 'none'
     try:
-        ds["losses"] = loss_db._query("SELECT COUNT(*) AS n FROM losses", ())[0]["n"]
+        # _i(): Turso's Hrana wire format returns every INTEGER as a JSON *string*, so a raw
+        # cell here reported "losses": "1000001" — a count that reads as a string to any client.
+        ds["losses"] = loss_db._i(loss_db._query("SELECT COUNT(*) AS n FROM losses", ())[0]["n"])
     except Exception:  # noqa: BLE001
         ds["losses"] = None
     # Which account-data provider is live (canned demo vs the Prism data lake) + its reachability.
@@ -259,8 +261,14 @@ def health():
             ds["prism"] = provider.status()
         except Exception as e:  # noqa: BLE001 — health must never throw
             ds["prism"] = {"ok": False, "detail": type(e).__name__}
+    # `key_configured` is presence-only (never the value). Without it a keyless deploy looks
+    # perfectly healthy here and only fails on the first real turn — see registry.key_configured.
+    key_ok = llm_registry.key_configured()
     return {"ok": True, "provider": llm_registry.active_provider_name(),
             "llm": {"model": llm_registry.active_model_label(),
+                    "key_configured": key_ok,
+                    **({} if key_ok else {"detail": "No API key set for the active provider — "
+                                                    "chat will fail until it is configured."}),
                     },
             "knowledge": store.corpus_stats(), "data": ds}
 

@@ -273,11 +273,46 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
         except Exception as e:  # noqa: BLE001 — graceful degradation (BRD §11)
             yield _y(_evt("explain", "Model provider unavailable", status="blocked", tier="fast",
                        detail=f"{type(e).__name__}: {str(e)[:280]}"))
+            # The reply must name the REAL cause, because the three causes need three different
+            # actions. The old text blamed "an LLM gateway reached through a network path blocked
+            # upstream" — that gateway was decommissioned, so the sentence was simply false and it
+            # sent anyone debugging this looking for a firewall.
+            #
+            # The distinction that matters most: an exhausted-credits 400 is NOT retryable, and
+            # telling someone to "try again in a moment" when the account has no balance is a lie
+            # that wastes their time. It was the actual cause of the first Claude-provider failure
+            # on the deployed build, and it arrives as a 400 (not a 401), so it does not look like
+            # an auth error either. Each branch names what it is and who can fix it.
+            emsg = str(e).lower()
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if "credit balance" in emsg or "quota" in emsg or "billing" in emsg:
+                kind = "billing"
+                reply = ("I can't reason about this right now: the AI account behind me has run out "
+                         "of credits. Nothing else is broken — the knowledge base, resolution engine "
+                         "and trust spine are all live — and retrying won't help until the account is "
+                         "topped up. Please tell the team to add credits.")
+            elif not llm_registry.key_configured() or status == 401 or "authentication" in emsg:
+                kind = "auth"
+                reply = ("I can't reach my reasoning model because this deployment has no valid API "
+                         "key for it. Everything else is live — knowledge base, resolution engine and "
+                         "trust spine — so this is one config value away from working. "
+                         "Whoever runs the deploy needs to set the API key for the active provider.")
+            elif status == 429 or "rate limit" in emsg:
+                kind = "rate_limit"
+                reply = ("I'm being rate-limited by the AI provider right now, so I've had to stop "
+                         "mid-thought. This one genuinely does clear on its own — please try again "
+                         "in a few moments.")
+            else:
+                kind = "transport"
+                reply = ("I'm having trouble reaching my reasoning model right now. The knowledge "
+                         "base, resolution engine and trust spine are all live, so this should be "
+                         "temporary — please try again in a moment.")
+            # engine_error marks this as a FAILURE, not an answer, so the UI can style it as one.
+            # Without the flag a "sorry, I can't reach my model" bubble is visually identical to a
+            # resolved reply, which is the one thing it must never be mistaken for.
             yield _y({"node": "reply", "label": "Reply", "status": "done",
-                   "detail": "", "data": {"reply": "I'm having trouble reaching my reasoning service from "
-                             "this environment right now — the knowledge base, resolution engine, and trust "
-                             "spine are all live. Please try again in a moment. (This deploy reaches the LLM "
-                             "gateway through a network path that's currently blocked upstream.)",
+                   "detail": "", "data": {"reply": reply, "engine_error": True,
+                             "error_kind": kind,
                              "decision_action": "respond", "concern_id": None}})
             return
         parts = content.get("parts", [])

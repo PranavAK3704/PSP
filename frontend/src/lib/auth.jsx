@@ -26,8 +26,10 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener("valmo-unauthed", onUnauthed);
   }, []);
 
-  const login = async (email, password) => {
-    const data = await apiLogin(email, password);   // stores token, throws on bad creds
+  // onStatus receives cold-start progress text ("waking the server…") so the login screen can
+  // explain a slow first request instead of leaving the user staring at a dead button.
+  const login = async (email, password, onStatus) => {
+    const data = await apiLogin(email, password, onStatus);   // stores token, throws on bad creds
     setUser(data.user);
     return data.user;
   };

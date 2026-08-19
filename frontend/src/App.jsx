@@ -68,13 +68,17 @@ function Login() {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  // Cold-start progress, distinct from `err`: this is "still working, here's why it's slow",
+  // not "it failed". Showing it as an error was what made a sleeping free-tier instance look
+  // like a broken login.
+  const [status, setStatus] = useState("");
 
   async function submit(e) {
     e.preventDefault();
     if (busy || !email.trim() || !password) return;
-    setBusy(true); setErr("");
-    try { await login(email.trim(), password); }
-    catch (ex) { setErr(ex.message || "Login failed"); setBusy(false); }
+    setBusy(true); setErr(""); setStatus("");
+    try { await login(email.trim(), password, setStatus); }
+    catch (ex) { setErr(ex.message || "Login failed"); setBusy(false); setStatus(""); }
   }
 
   return (
@@ -112,10 +116,20 @@ function Login() {
           </div>
         )}
 
+        {/* Waiting, not failing — amber and explanatory, so a 25s cold start reads as a slow
+            server rather than a rejected password. */}
+        {!err && status && (
+          <div className="flex items-start gap-2 mb-md text-xs rounded-lg px-md py-sm"
+            style={{ color: "var(--warn)", background: "var(--warn-soft)", border: "1px solid rgba(255,185,95,0.3)" }}>
+            <span className="material-symbols-outlined animate-spin" style={{ fontSize: 16, flex: "none" }}>progress_activity</span>
+            <span style={{ lineHeight: 1.45 }}>{status}</span>
+          </div>
+        )}
+
         <button type="submit" disabled={busy || !email.trim() || !password}
           className="w-full bg-secondary-container text-on-secondary py-sm rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:brightness-110 disabled:opacity-50 transition-all">
           <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{busy ? "progress_activity" : "login"}</span>
-          {busy ? "Signing in…" : "Sign in"}
+          {busy ? (status ? "Waking server…" : "Signing in…") : "Sign in"}
         </button>
         <p className="text-[10px] text-on-surface-variant/70 mt-md text-center leading-relaxed">
           Access is role-based. Ask an admin on your team to create your account.
@@ -291,7 +305,10 @@ function Shell() {
         <div className="fixed inset-0 z-[1] pointer-events-none"
           style={{ backgroundImage: "linear-gradient(rgba(65,71,83,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(65,71,83,0.05) 1px,transparent 1px)", backgroundSize: "46px 46px" }} />
 
-        <div className="app">
+        {/* data-view drives the per-destination accent hue (styles.css). One attribute here
+            re-tints the nav item, the page rule, headings and focus states, so each destination
+            is recognisable at a glance instead of five identical blue screens. */}
+        <div className="app" data-view={view}>
           {/* ── SIDEBAR ── */}
           <aside className="sidebar">
             <div className="brand">

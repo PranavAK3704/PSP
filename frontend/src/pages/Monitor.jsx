@@ -95,7 +95,19 @@ export default function Monitor() {
         </div>
         <div className="col-span-12 lg:col-span-7 glass-card rounded-xl p-lg overflow-y-auto custom-scrollbar">
           <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-secondary-container mb-md">Monitor trace · live</div>
-          <Pipeline events={events} />
+          {/* Pipeline renders nothing when there are no events — correct for the chat panel,
+              which is collapsed until a turn starts, but this card is ALWAYS visible and empty
+              until "Run scan" is pressed. So the idle hint belongs here, at the call site, where
+              it can name this page's actual action (a scan, not a message). */}
+          {events.length ? <Pipeline events={events} /> : (
+            <div className="empty">
+              <div>
+                <div className="core-at-rest" aria-hidden="true" />
+                <div className="big" style={{ marginTop: 10 }}>No scan yet</div>
+                <div style={{ fontSize: 13 }}>Run a scan — each stage appears here as it resolves.</div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -208,20 +208,11 @@ export default function Pipeline({ events = [] }) {
 
   const visible = nodes.slice(0, shown);
 
-  // Nothing running: stay quiet. A 220px orb spinning against an empty panel was the loudest
-  // thing on the page while also being the least informative — the core now belongs to an
-  // active query, so at rest we show a still glyph and get out of the way.
-  if (!nodes.length) {
-    return (
-      <div className="empty">
-        <div>
-          <div className="core-at-rest" aria-hidden="true" />
-          <div className="big" style={{ marginTop: 10 }}>Engine idle</div>
-          <div style={{ fontSize: 13 }}>Send a message — every stage appears here as it resolves.</div>
-        </div>
-      </div>
-    );
-  }
+  // Nothing running: render NOTHING. The panel now starts collapsed and only opens when a turn
+  // begins, so an "Engine idle / send a message" placeholder could only ever be seen by someone
+  // who had opened the panel deliberately — telling them what they just did. An empty state that
+  // states the obvious is worse than no empty state, so this returns null and the panel is bare.
+  if (!nodes.length) return null;
 
   return (
     <div className="pipeline">

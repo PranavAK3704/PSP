@@ -714,14 +714,42 @@ def insights():
 # via `run.sh`, where Vite serves the UI on :5190) simply skips mounting so boot never
 # breaks. Unknown non-/api GET paths fall back to index.html (SPA-friendly).
 _DIST = Path(os.environ.get("PSP_STATIC_DIR") or (Path(__file__).resolve().parents[2] / "frontend" / "dist"))
+
+# THE SPA CACHING CONTRACT. index.html was served with NO Cache-Control at all, which lets a
+# browser apply heuristic caching to it. Vite fingerprints the asset filenames, so that one
+# missing header is enough to break every deploy: the stale index.html keeps pointing at the
+# PREVIOUS bundle hash, the browser happily serves it from disk, and the new build is invisible
+# — the app looks unchanged even though the server is running new code. (Observed exactly that:
+# the deploy was live and correct while the browser still rendered the old UI.)
+#
+# The fix is the standard pair, and both halves are required:
+#   • index.html          → no-cache: revalidate EVERY load. It is ~2.5 kB, so this is free.
+#   • /assets/<hash>.js   → immutable, 1 year: the hash IS the cache key, so a changed file is
+#                           a changed URL and can never be served stale.
+_HTML_CACHE = {"Cache-Control": "no-cache, must-revalidate"}
+_ASSET_CACHE = {"Cache-Control": "public, max-age=31536000, immutable"}
+
+
+def _html(path: Path) -> FileResponse:
+    return FileResponse(str(path), media_type="text/html", headers=_HTML_CACHE)
+
+
 if (_DIST / "index.html").is_file():
     _assets = _DIST / "assets"
     if _assets.is_dir():
-        app.mount("/assets", StaticFiles(directory=str(_assets)), name="assets")
+        # StaticFiles does not set long-lived caching itself; wrap it so the fingerprinted
+        # bundles get the immutable half of the contract above.
+        class _ImmutableStatic(StaticFiles):
+            def file_response(self, *args, **kwargs):   # noqa: D102
+                resp = super().file_response(*args, **kwargs)
+                resp.headers.update(_ASSET_CACHE)
+                return resp
+
+        app.mount("/assets", _ImmutableStatic(directory=str(_assets)), name="assets")
 
     @app.get("/", include_in_schema=False)
     def _spa_root():
-        return FileResponse(str(_DIST / "index.html"))
+        return _html(_DIST / "index.html")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def _spa_fallback(full_path: str):
@@ -729,6 +757,7 @@ if (_DIST / "index.html").is_file():
         if full_path == "api" or full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="not found")
         candidate = _DIST / full_path
-        if candidate.is_file():
+        if candidate.is_file() and candidate.suffix.lower() != ".html":
             return FileResponse(str(candidate))
-        return FileResponse(str(_DIST / "index.html"))
+        # Every SPA route resolves to index.html, so it carries the no-cache header too.
+        return _html(_DIST / "index.html")

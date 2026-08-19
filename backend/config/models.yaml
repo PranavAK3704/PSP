@@ -17,7 +17,7 @@
 #     Ollama OPENAI_BASE_URL=http://localhost:11434/v1/chat/completions       LLM_MODEL_*=llama3.1
 # ─────────────────────────────────────────────────────────────────────────────
 
-provider: openai            # ACTIVE. openai | gemini | claude  <-- flip to switch provider
+provider: claude            # ACTIVE. openai | gemini | claude  <-- flip to switch provider
 
 # Per-node model tier. Each pipeline node asks the registry for its tier.
 # (With provider: openai both tiers map to gpt-5.5, so the split is a no-op today.)
@@ -29,18 +29,18 @@ nodes:
   explain:             fast   # warm, grounded reply
   monitor_compose:     fast   # compose a proactive nudge
   sop_compile:         deep   # plain SOP -> Executable Policy (authoring)
-  audit_judge:         deep   # Kapture-ticket QA judge — flip to `fast` for cheaper large-batch runs
 
 # Tier -> concrete model id, per provider.
 tiers:
-  openai:                            # <-- ACTIVE provider
+  openai:                            # legacy demo path via the hackathon gateway — kept
+                                     # as a fallback only; not a production target
     fast: gpt-5.5    # gpt-5.5 on EVERY tier — same model for fast and deep today
     deep: gpt-5.5    # money judgement + adversarial verify + SOP compile
   gemini:                            # alternative — flip `provider: gemini` above
     fast: gemini-2.5-flash
     deep: gemini-2.5-pro
-  claude:                            # alternative — flip `provider: claude` above
-    fast: claude-haiku-4-5-20251001   # high-volume conversational path
-    deep: claude-opus-4-8             # money judgement + adversarial verify (strongest)
+  claude:                            # <-- ACTIVE provider
+    fast: claude-sonnet-5             # conversational path — reasons well enough to be trusted
+    deep: claude-opus-5               # money judgement + adversarial verify (strongest)
 
 temperature: 0.1

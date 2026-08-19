@@ -30,7 +30,6 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 from .audit import cpd                                 # noqa: E402
 from .audit import rubric as audit_rubric              # noqa: E402
 from .audit import runner as audit_runner             # noqa: E402
-from .audit import kapture, kapture_rubric            # noqa: E402
 from .auth import store as auth_store                  # noqa: E402
 from .auth import tokens as auth_tokens                # noqa: E402
 from .auth.deps import current_user, require_role      # noqa: E402
@@ -190,19 +189,6 @@ class AuditBatchIn(BaseModel):
     limit: int = 10
 
 
-class KaptureRubricIn(BaseModel):
-    dimensions: list[dict]
-
-
-class KaptureEstimateIn(BaseModel):
-    rows: list[dict]
-
-
-class KaptureRunIn(BaseModel):
-    run_id: str = ""
-    rows: list[dict]
-
-
 class LoginIn(BaseModel):
     email: str
     password: str
@@ -273,15 +259,9 @@ def health():
             ds["prism"] = provider.status()
         except Exception as e:  # noqa: BLE001 — health must never throw
             ds["prism"] = {"ok": False, "detail": type(e).__name__}
-    try:   # Kapture read-only browse access (audit evidence) — config presence only
-        from .audit import kapture_browse
-        ds["kapture_browse"] = kapture_browse.status()
-    except Exception as e:  # noqa: BLE001
-        ds["kapture_browse"] = {"configured": False, "detail": type(e).__name__}
     return {"ok": True, "provider": llm_registry.active_provider_name(),
             "llm": {"model": llm_registry.active_model_label(),
-                    "provisional": llm_registry.is_provisional(),
-                    "provisional_label": llm_registry.provisional_label()},
+                    },
             "knowledge": store.corpus_stats(), "data": ds}
 
 
@@ -496,6 +476,39 @@ def captain_cases(captain_id: str):
     return {"cases": l3.cases(captain_id)}
 
 
+# ── Captain 360 — real per-captain loss/debit ledger (valmo.db, keyed on partner_id) ─────────
+# Distinct from /api/captains (the seeded chat captains): these read the REAL loss-attribution
+# ledger so the panel demonstrably runs on live data — a million loss rows, 10k attributions
+# with reversal state — not seed rows.
+@app.get("/api/demo/captains", dependencies=[_authed])
+def demo_captains():
+    from .substrate import loss_db
+    return {"captains": loss_db.demo_captains(), "source": loss_db.source()}
+
+
+@app.get("/api/captain/{captain_id}/losses", dependencies=[_authed])
+def captain_losses(captain_id: str):
+    from .substrate import loss_db
+    return {"partner_id": captain_id, "source": loss_db.source(),
+            "summary": loss_db.get_captain_summary(captain_id),
+            "losses": loss_db.get_captain_losses(captain_id)}
+
+
+# ── Support tickets — READ-ONLY analytics over the Kapture export (tickets.db) ───────────────
+# 140k tickets, PII scrubbed at build time. SELECT-only: these endpoints cannot write anything,
+# and a missing tickets.db just reports available:false. Aggregate + per-hub drill-down.
+@app.get("/api/tickets/summary", dependencies=[_authed])
+def tickets_summary():
+    from .substrate import tickets_db
+    return {**tickets_db.summary(), "top_hubs": tickets_db.top_hubs()}
+
+
+@app.get("/api/tickets/hub/{hub_code}", dependencies=[_authed])
+def tickets_by_hub(hub_code: str):
+    from .substrate import tickets_db
+    return tickets_db.by_hub(hub_code)
+
+
 # ── KT engine ───────────────────────────────────────────────────────────────
 @app.post("/api/kt/submit", dependencies=[_author])
 def kt_submit(body: KtIn):
@@ -565,97 +578,6 @@ def audit_run_batch(body: AuditBatchIn):
 def audit_scores():
     """Audit history + aggregates (avg composite, per-dimension avg, trend, by disposition)."""
     return audit_runner.scores()
-
-
-# ── Kapture-ticket Auditing: dedicated rubric + SOP coverage/adherence + batch ──
-@app.get("/api/kapture/rubric", dependencies=[_authed])
-def kapture_rubric_get():
-    """The dedicated (versioned) Kapture-audit rubric the judge scores tickets against."""
-    return kapture_rubric.get_rubric()
-
-
-@app.post("/api/kapture/rubric", dependencies=[_author])
-def kapture_rubric_save(body: KaptureRubricIn):
-    """Save an edited Kapture rubric → bumps version. Authoring write."""
-    return kapture_rubric.save_rubric(body.dimensions)
-
-
-@app.post("/api/kapture/rubric/upload", dependencies=[_author])
-async def kapture_rubric_upload(file: UploadFile = File(...)):
-    """Upload a QA-guidelines document OR a priority-factors SHEET → a DRAFT rubric for review.
-    A structured factors sheet (Excel/CSV with factor·weight·description columns) is parsed
-    DETERMINISTICALLY (exact weights); anything else is LLM-structured. Draft, never auto-saved."""
-    raw = await file.read()
-    sheet_dims = kapture_rubric.dimensions_from_sheet(raw, file.filename or "")
-    if sheet_dims:
-        return {"rubric": kapture_rubric.draft_from_dimensions(sheet_dims),
-                "source_name": file.filename, "mode": "sheet"}
-    text = _extract_text(raw, file.content_type, file.filename)
-    return {"rubric": kapture_rubric.structure_rubric_from_text(text),
-            "source_name": file.filename, "mode": "structured"}
-
-
-@app.post("/api/kapture/upload", dependencies=[_author])
-async def kapture_upload(file: UploadFile = File(...)):
-    """Upload a CSV of ticket_number + conversation_history → parse rows + a cost estimate.
-    Rows are returned to the client; transcripts are NOT persisted server-side (PII)."""
-    raw = await file.read()
-    if len(raw) > 12_000_000:
-        raise HTTPException(status_code=413, detail="File too large — please upload under ~12MB.")
-    try:
-        rows = kapture._parse_csv(raw)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    if not rows:
-        raise HTTPException(status_code=400, detail="No valid ticket rows found in the CSV.")
-    return {"run_id": "KAP-" + uuid.uuid4().hex[:8].upper(), "count": len(rows),
-            "rows": rows, "estimate": kapture.estimate_cost(rows)}
-
-
-@app.post("/api/kapture/estimate", dependencies=[_authed])
-def kapture_estimate(body: KaptureEstimateIn):
-    """Re-estimate the token/₹ cost for a set of rows (post-dedupe against already-audited)."""
-    return kapture.estimate_cost(body.rows)
-
-
-@app.post("/api/kapture/run", dependencies=[_author])
-def kapture_run(body: KaptureRunIn):
-    """Stream a batch audit — one SSE event per ticket, then a done summary. Resumable:
-    re-running the same rows skips already-audited tickets.
-
-    Refused outright on a provisional LLM: an audit is a QA record, so it may only come from an
-    approved judge or a human. (The conversational/demo path is unaffected.)"""
-    if llm_registry.is_provisional():
-        raise HTTPException(status_code=409, detail=(
-            f"Auditing is disabled while a provisional LLM "
-            f"({llm_registry.provisional_label()}) is active. Use an approved endpoint or "
-            f"scripts/manual_audit.py. The chat/resolution path still works."))
-    run_id = body.run_id or ("KAP-" + uuid.uuid4().hex[:8].upper())
-    return EventSourceResponse(_sse(kapture.audit_batch_streamed(body.rows, run_id)))
-
-
-@app.get("/api/kapture/scores", dependencies=[_authed])
-def kapture_scores():
-    """Kapture audit dashboard — coverage %, adherence %, composite, per-dimension + by-disposition."""
-    out = kapture.scores()
-    out["audit_enabled"] = not llm_registry.is_provisional()
-    out["provisional_llm"] = llm_registry.provisional_label()
-    return out
-
-
-@app.get("/api/kapture/calibration", dependencies=[_authed])
-def kapture_calibration():
-    """Engine-vs-human calibration benchmark (from the labeled BAU audit set), or null if not run."""
-    return kapture.get_calibration()
-
-
-@app.get("/api/kapture/export", dependencies=[_authed])
-def kapture_export(run_id: str = ""):
-    """Download the Kapture audit scores as CSV (optionally scoped to one run)."""
-    csv_text = kapture.export_csv(run_id or None)
-    fname = f"kapture_audit_{run_id or 'all'}.csv"
-    return Response(content=csv_text, media_type="text/csv",
-                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 # ── Auditing Studio: dynamic, editable Governance Framework ──────────────────

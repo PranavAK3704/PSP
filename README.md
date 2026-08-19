@@ -5,7 +5,7 @@ or pilot) chats by voice or text in Hinglish and the issue is **resolved inside 
 conversation, in seconds** — grounded in real data, gated by a trust spine + an adversarial
 verifier before any money moves. Around that core: proactive monitoring, an append-only
 Concern Log, the SOP Compiler, an L3 escalation platform, audit/CPD + a governance-conformance
-loop, role-based access, and a Kapture-ticket auditing engine.
+loop, and role-based access.
 
 > **Status: working demo, production-in-progress.** Today it runs as a single Docker image on
 > **Render**, backed by **Turso** — a hackathon deployment, *not* production-grade. The
@@ -64,7 +64,7 @@ backend/
   app/trust/              # trust spine: gate + adversarial verifier + Partner Constitution
   app/l3/                 # L3 functional-team escalation platform (SLA + breach ladder)
   app/ledger/             # append-only Concern Log + per-concern trace
-  app/audit/              # Auditing Studio (rubric + judge) + Kapture-ticket audit engine
+  app/audit/              # Auditing Studio (rubric + LLM judge over resolved concerns) + CPD
   app/auth/               # signed-token RBAC (→ Meesho SSO in production)
   app/monitor/            # proactive monitoring
   scripts/                # knowledge ingest + the loss-data build/sync

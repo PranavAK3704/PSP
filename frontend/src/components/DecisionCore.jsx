@@ -11,11 +11,14 @@ import { useEffect, useRef } from "react";
 // boundary, unmounts the whole app to a black screen. Context creation + render are also guarded
 // so GPU/context exhaustion degrades silently instead of crashing.
 const CFG = {
-  idle:      { color: 0x4d8eff, emissive: 0.5, base: 1.0 },
-  thinking:  { color: 0x4d8eff, emissive: 1.0, base: 2.8 },
-  resolved:  { color: 0x4edea3, emissive: 0.8, base: 1.4 },
-  listening: { color: 0x4d8eff, emissive: 0.7, base: 1.15, reactive: true },  // deforms to live mic amplitude
-  speaking:  { color: 0x4edea3, emissive: 1.0, base: 1.6, pulse: true },       // rhythmic bloom while it talks
+  idle:      { color: 0x4d8eff, emissive: 0.5, base: 1.0 , shell: 1.0 },
+  // `base` multiplies the per-frame rotation. 2.8 read as "slightly hurried"; a decision core
+  // under load should read as a reactor spinning up, so thinking runs much hotter and the
+  // wireframe shell counter-spins harder than the core for the contra-rotating look.
+  thinking:  { color: 0x4d8eff, emissive: 1.35, base: 6.0, shell: 2.2 },
+  resolved:  { color: 0x4edea3, emissive: 0.8, base: 1.4 , shell: 1.0 },
+  listening: { color: 0x4d8eff, emissive: 0.7, base: 1.15, reactive: true , shell: 1.0 },  // deforms to live mic amplitude
+  speaking:  { color: 0x4edea3, emissive: 1.0, base: 1.6, pulse: true , shell: 1.0 },       // rhythmic bloom while it talks
 };
 
 // levelRef (optional): a ref whose .current is a 0..1 signal. Pass one and the orb deforms /
@@ -114,8 +117,9 @@ export default function DecisionCore({ size = 220, state = "idle", levelRef = nu
         boost.current += (target - boost.current) * 0.06;          // decay toward hover/1
         const react = 1 + lvl * 2.2;                               // spin up on louder input
         const m = c.base * boost.current * react;
+        const sm = m * (cfgRef.current.shell || 1);
         core.rotation.x += 0.005 * m; core.rotation.y += 0.008 * m;
-        shell.rotation.x -= 0.003 * m; shell.rotation.y -= 0.002 * m;
+        shell.rotation.x -= 0.003 * sm; shell.rotation.y -= 0.002 * sm;
         const pulse = c.pulse ? (0.13 + 0.10 * Math.sin(t * 0.012)) : 0;   // speaking bloom cadence
         const amp = 0.05 + (boost.current - 1) * 0.05 + (c.base - 1) * 0.03 + lvl * 0.30 + pulse;
         const s = 1 + Math.sin(t * 0.002) * amp + lvl * 0.18; core.scale.set(s, s, s);

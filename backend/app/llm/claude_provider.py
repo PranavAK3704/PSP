@@ -18,6 +18,26 @@ from typing import Optional
 from .base import LLMProvider
 
 
+# Newer Claude models REMOVED the sampling parameters — sending `temperature` to one is a hard 400,
+# not a warning. They also run adaptive thinking by default, and `max_tokens` caps thinking + answer
+# together, so a budget sized for the answer alone truncates mid-reply. Both traps are silent until
+# someone swaps the model id (e.g. LLM_MODEL_AUDIT=claude-opus-5 off the back of the cost doc), so
+# the provider adapts instead of trusting the caller to know.
+_NO_SAMPLING = ("opus-5", "opus-4-8", "opus-4-7", "sonnet-5", "fable-5", "mythos-5")
+_THINKS_BY_DEFAULT = ("opus-5", "opus-4-8", "opus-4-7", "opus-4-6",
+                      "sonnet-5", "sonnet-4-6", "fable-5", "mythos-5")
+_MAX_TOKENS = 1500
+_MAX_TOKENS_THINKING = 8000
+
+
+def _limits(model: str) -> tuple[bool, int]:
+    """(send_temperature, max_tokens) for this model id."""
+    m = (model or "").lower()
+    thinks = any(k in m for k in _THINKS_BY_DEFAULT)
+    return (not any(k in m for k in _NO_SAMPLING),
+            _MAX_TOKENS_THINKING if thinks else _MAX_TOKENS)
+
+
 class ClaudeProvider(LLMProvider):
     name = "claude"
 
@@ -42,12 +62,14 @@ class ClaudeProvider(LLMProvider):
         user = prompt
         if json_mode:
             user = prompt + "\n\nRespond with ONLY valid JSON, no prose, no markdown fences."
+        send_temp, max_tokens = _limits(model)
         kwargs = dict(
             model=model,
-            max_tokens=1500,
-            temperature=self.temperature,
+            max_tokens=max_tokens,
             messages=[{"role": "user", "content": user}],
         )
+        if send_temp:
+            kwargs["temperature"] = self.temperature
         if system:
             kwargs["system"] = system
         msg = client.messages.create(**kwargs)
@@ -63,7 +85,10 @@ class ClaudeProvider(LLMProvider):
         can append it and continue — identical contract to the Gemini/OpenAI providers."""
         client = self._client()
         messages = _to_anthropic_messages(contents)
-        kwargs = dict(model=model, max_tokens=1500, temperature=self.temperature, messages=messages)
+        send_temp, max_tokens = _limits(model)
+        kwargs = dict(model=model, max_tokens=max_tokens, messages=messages)
+        if send_temp:
+            kwargs["temperature"] = self.temperature
         if system:
             kwargs["system"] = system
         if tools:

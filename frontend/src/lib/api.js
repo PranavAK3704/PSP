@@ -75,6 +75,10 @@ export const getHealth = () => apiGet("/api/health");
 export const getCaptains = () => apiGet("/api/captains");
 export const getLedger = () => apiGet("/api/ledger");
 export const getCaptainCases = (id) => apiGet(`/api/captain/${id}/cases`);
+
+// Captain 360 — real per-captain loss/debit ledger (valmo.db), separate from the seeded chat captains.
+export const getDemoCaptains = () => apiGet("/api/demo/captains");
+export const getCaptainLosses = (id) => apiGet(`/api/captain/${id}/losses`);
 // SOP compile now streams stages (SSE) so the UI can animate the structuring/tiering.
 export const compileSopStream = (sop_text, onStage, onEnd) =>
   stream({ url: "/api/sop/compile", method: "POST", body: { sop_text } }, onStage, onEnd);
@@ -136,32 +140,6 @@ export function uploadFramework(file) {
   return apiPostForm("/api/framework/upload", fd);
 }
 
-// ── Kapture-ticket Auditing: dedicated rubric + coverage/adherence + batch ──
-export const getKaptureRubric = () => apiGet("/api/kapture/rubric");
-export const saveKaptureRubric = (dimensions) => apiPost("/api/kapture/rubric", { dimensions });
-export function uploadKaptureRubric(file) {
-  const fd = new FormData(); fd.append("file", file);
-  return apiPostForm("/api/kapture/rubric/upload", fd);
-}
-export function uploadKaptureCsv(file) {
-  const fd = new FormData(); fd.append("file", file);
-  return apiPostForm("/api/kapture/upload", fd);
-}
-export const streamKaptureRun = ({ run_id, rows }, onTicket, onEnd) =>
-  stream({ url: "/api/kapture/run", method: "POST", body: { run_id, rows } }, onTicket, onEnd);
-export const getKaptureScores = () => apiGet("/api/kapture/scores");
-export const getKaptureCalibration = () => apiGet("/api/kapture/calibration");
-// Download the scored tickets as CSV (optionally scoped to one run_id).
-export async function exportKaptureScores(run_id = "") {
-  const res = guard(await fetch(`/api/kapture/export?run_id=${encodeURIComponent(run_id)}`, { headers: authHeaders() }));
-  if (!res.ok) return;
-  const blob = await res.blob();
-  const href = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = href; a.download = `kapture_audit_${run_id || "all"}.csv`;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(href);
-}
 
 export const getL3 = () => apiGet("/api/l3/inbox");
 export const resolveL3 = (concern_id, resolution_note) => apiPost("/api/l3/resolve", { concern_id, resolution_note });

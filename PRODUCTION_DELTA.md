@@ -21,8 +21,7 @@ managed stack**. Part 2 (further down) keeps the detailed demo-vs-production tec
 
 **Kept — already production-shaped:** multi-stage Dockerfile; server-side RBAC enforcement; pbkdf2
 hashing; `/api/health`; the **no-LLM-SQL "select a whitelisted named query"** design; every
-integration behind a swappable adapter/config; the Kapture-audit redaction pattern; the
-reasoning/trust/governance IP.
+integration behind a swappable adapter/config; the reasoning/trust/governance IP.
 
 ## Migration tracks
 - **Track A — in-repo hardening (done / doable without Meesho infra):** ✅ random AUTH_SECRET
@@ -78,23 +77,29 @@ reasoning/trust/governance IP.
    without a token via `python scripts/prism_sidecar_mock.py`.
 4. **Governance:** data-classification sign-off (losses/COD = financial + partner PII) + retention;
    finance sign-off for real money-movement; functional-team owners for SOPs + the governance bands.
-5. **Kapture audit — RESOLVED (weights + auto-fail are in).** The real model came from
-   **"BAU Audits_Aspire"** (the sheet the QA team audits against): 7 quality parameters scored
-   **Pass/Fail on point weights summing to 100** (app-education 30, template 25, flow 12.5, simple
-   12.5, empathy 10, format 6, opening/closing 4) plus **8 zt_/fatal_ AUTO-FAIL gates** — any breach
-   ⇒ composite 0 / status FAIL. Live rubric is v6. Calibrated against **1,089 human-labelled audits**:
-   status agreement **90.6%**, engine fail **5.3%** vs human **5.1%**, avg quality **81**, κ 0.05.
-   Two honest caveats carried forward:
-   - **Fatal recall is ~11%** — the correctness/process fatals (tagging, reversal, assignment, wrong
-     TAT) are only visible in the CRM, not the email text. The **Kapture read-only evidence puller**
-     (`audit/kapture_browse.py`, verified against the live tenant) now fetches exactly that evidence,
-     so those gates can be made real; wiring the gates to it is the next step.
-   - **opening/closing + email_flow are HYBRID** — the team replies from the Kapture **notes tab**,
-     which mails the partner without the template greeting/signature, so those two parameters are
-     judged only on genuine email-format replies and marked NA otherwise. `reply_channel` is derived
-     from CRM fact by the evidence puller.
-   Still wanted from the QA org: sign-off that these weights + the auto-fail rule are current, and a
-   decision on whether notes-tab replies should have their own open/close convention.
+5. **Kapture ticket audit — REMOVED from the product (decision, Aug '26).** The QA-audit engine
+   (`audit/kapture*.py`, its 8 API routes, and the Auditing-Studio sub-tab) has been deleted. It is
+   not abandoned — the same analysis now runs **offline, over exported sheets, in an analyst-driven
+   Claude workspace**, which needs no CRM access and ships nothing to production.
+   **Why this is the right call for the prod push:** the audit was the single largest item on the
+   security surface — it held partner ticket transcripts at rest, required a stored **Kapture
+   credential + browser session**, and drove **Playwright automation against an internal CRM**. None
+   of that now needs a Security/DevOps argument, and the production image no longer carries a
+   credential for a system the service does not otherwise use.
+   **What is preserved:** the calibrated rubric (v6 — 7 Pass/Fail quality parameters weighted to 100,
+   plus 8 `zt_`/`fatal_` auto-fail gates) and the **1,814 scored tickets** remain in `backend/data/`
+   (gitignored, local) and the full implementation is in git history — recoverable with
+   `git checkout <sha> -- backend/app/audit/kapture.py` if the audit is ever brought back in-product.
+   The calibration result stands as evidence: **90.6% status agreement** with human auditors over
+   1,089 human-labelled audits, engine fail 5.3% vs human 5.1%.
+   **Two limits that informed the decision** (and that the offline workflow does not fix either):
+   fatal recall was only ~11%, because the correctness/process fatals (tagging, reversal, assignment,
+   wrong TAT) live in CRM fields rather than the email text; and opening/closing + email_flow had to
+   be judged hybrid, because the team now replies from the Kapture **notes tab**, which mails the
+   partner without the template greeting/signature.
+   **Consequence for the LLM key:** the audit was the driver for a metered audit key. The resolution
+   engine still needs an approved LLM path (Track B) — but the cost case must be re-based on
+   conversational volume, not audit volume.
 
 ## LLM options — measured, not assumed (Aug '26)
 

@@ -128,7 +128,7 @@ CHECKS = [
      '"resolution":{"action":"<a>"},"escalation":{"team":"<t>"}}',
      _v_json_keys("title", "checks", "resolution"), True),
 
-    ("audit_judge", "Audit judge (must fail an evasive reply)",
+    ("adversarial_verify", "Adversarial verify (must reject an evasive reply)",
      "You are a QA auditor. Strict JSON only.",
      'PARTNER: "My account was ON HOLD so the credit never arrived — bank statement attached. '
      'Please check and resolve." AGENT: "Your payment succeeded with UTR AXIS123. Please verify '
@@ -147,10 +147,7 @@ CHECKS = [
 
 def main() -> int:
     label = registry.active_model_label()
-    prov = registry.provisional_label()
     print(f"LLM: {label}")
-    if prov:
-        print(f"  PROVISIONAL bridge ({prov}) — results are for measurement only, never published.")
     print()
     print(f"{'node':20} {'check':38} {'sec':>6} {'valid':>6}  detail")
     print("-" * 100)
@@ -179,7 +176,7 @@ def main() -> int:
     if failed:
         print(f"UNUSABLE for: {', '.join(failed)}")
 
-    OUT.write_text(json.dumps({"llm": label, "provisional": bool(prov),
+    OUT.write_text(json.dumps({"llm": label,
                                "passed": passed, "total": n, "checks": rows}, indent=1))
     print(f"\nwrote {OUT.name}")
     return 0 if passed == n else 1

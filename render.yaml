@@ -20,6 +20,13 @@ services:
       - key: PSP_STATE_DIR
         value: /data
       # ── Dashboard-set secrets (never committed) ──
+      # ACTIVE provider is `claude` (backend/config/models.yaml), so ANTHROPIC_API_KEY is the
+      # one the running app actually needs. Declared here so a blueprint sync can never
+      # reconcile away a hand-added var — the VALUE is still dashboard-only (sync: false).
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # Legacy/alternative provider path — only read when models.yaml says provider: openai
+      # (or LLM_PROVIDER=openai overrides it). Kept so the swap seam stays one env var wide.
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_BASE_URL

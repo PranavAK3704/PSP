@@ -60,6 +60,7 @@ export default function CaptainPanel() {
   const [captains, setCaptains] = useState([]);
   const [captainId, setCaptainId] = useState("VLMO-CPT-4471");
   const [events, setEvents] = useState([]);
+  const [engineOpen, setEngineOpen] = useState(true);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState("idle");
@@ -125,6 +126,7 @@ export default function CaptainPanel() {
     if (taRef.current) taRef.current.style.height = "auto";   // collapse the composer back to one line
     setMessages((m) => [...m, { who: "captain", text: msg, atts }]);
     setEvents([]);
+    setEngineOpen(true);   // a turn is starting — surface the trace
     setBusy(true); setPhase("thinking");
     if (convoRef.current) setVstate("thinking");
     let cid = convIdRef.current;   // ref, not the frozen `active` — so the hands-free loop reuses one conversation
@@ -287,7 +289,7 @@ export default function CaptainPanel() {
   const shownCases = _cq ? cases.filter((c) => ((c.id||"")+" "+(c.intent||"")+" "+(c.team||"")+" "+(c.disposition||"")+" "+(c.entities?.awb||"")+" "+(c.amount_inr||"")).toLowerCase().includes(_cq)) : cases;
 
   return (
-    <div className="split">
+    <div className={engineOpen ? "split" : "split solo"}>
       {/* ── Left: rail + chat ── */}
       <div className="card" style={{ display: "flex", flexDirection: "row", overflow: "hidden" }}>
         {/* Conversation rail */}
@@ -440,27 +442,46 @@ export default function CaptainPanel() {
         </div>
       </div>
 
-      {/* ── Right: live Resolution Engine ── */}
-      <div className="card" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <div className="card-head">
-          <h3><Cpu size={15} /> Resolution Engine · live trace</h3>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className="mono faint" style={{ fontSize: 10 }}>
-              {phase === "thinking" ? "thinking…" : phase === "resolved" ? "resolved" : "idle"}</span>
-            <div style={{ width: 34, height: 34 }}><DecisionCore size={34} state={phase} /></div>
+      {/* ── Right: live Resolution Engine · collapsible ──
+          Collapsed it becomes a 44px rail, and `.split` drops to a single column so the chat
+          gets the full width. It opens itself the moment a turn starts — the trace is worth
+          seeing when there is something to see, and worth hiding when there isn't. */}
+      {engineOpen ? (
+        <div className="card" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div className="card-head">
+            <h3><Cpu size={15} /> Resolution Engine · live trace</h3>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span className="mono faint" style={{ fontSize: 10 }}>
+                {phase === "thinking" ? "thinking…" : phase === "resolved" ? "resolved" : "idle"}</span>
+              {/* the core is the *activity* indicator, so it exists only while there is activity */}
+              {phase !== "idle" && (
+                <div style={{ width: 56, height: 56, marginRight: -4 }}>
+                  <DecisionCore size={56} state={phase} />
+                </div>
+              )}
+              <button className="icon-btn" title="Collapse panel" onClick={() => setEngineOpen(false)}
+                style={{ width: 28, height: 28 }}><ChevronRight size={15} /></button>
+            </div>
+          </div>
+          <div style={{ overflow: "auto", padding: "14px 16px", flex: 1 }}>
+            <Pipeline events={events} />
           </div>
         </div>
-        <div style={{ overflow: "auto", padding: "14px 16px", flex: 1 }}>
-          <Pipeline events={events} />
-        </div>
-      </div>
+      ) : (
+        <button className="card engine-rail" title="Show the resolution engine"
+          onClick={() => setEngineOpen(true)}>
+          <Cpu size={16} />
+          <span className="mono engine-rail-label">RESOLUTION ENGINE</span>
+          {phase === "thinking" && <span className="engine-rail-dot" />}
+        </button>
+      )}
 
       {/* My Cases — roomy modular drawer (no cramped inline scroll, no overlap) */}
       {casesOpen && cases.length > 0 && (
         <div onClick={() => setCasesOpen(false)}
           style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,0.55)", display: "grid", placeItems: "center", padding: 20 }}>
           <div onClick={(e) => e.stopPropagation()} className="card"
-            style={{ width: "min(560px, 94vw)", maxHeight: "84vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            style={{ width: "min(760px, 94vw)", maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <div className="card-head">
               <h3><FolderOpen size={14} /> My cases · {cases.length}{openCases ? " · " + openCases + " open" : ""}</h3>
               <button className="icon-btn" onClick={() => setCasesOpen(false)} style={{ width: 30, height: 30 }}><X size={15} /></button>
@@ -471,31 +492,78 @@ export default function CaptainPanel() {
                 style={{ width: "100%", background: "var(--surface-0)", border: "1px solid var(--line)",
                   borderRadius: 8, padding: "10px 12px", color: "var(--text)", fontSize: 13, outline: "none" }} />
             </div>
-            <div style={{ overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ overflow: "auto", padding: "16px 20px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
               {shownCases.length === 0 && (
                 <div className="mono" style={{ padding: "22px 4px", color: "var(--text-faint)", fontSize: 12, textAlign: "center" }}>
                   Koi case nahi mila "{caseQ}" ke liye.
                 </div>
               )}
+              {/* One case = one card with a status stripe down the left. The old version packed
+                  id, status, intent and team into four tight lines at 10-12px, which read as a
+                  log dump; a partner opening this wants to know "what did I raise, where is it,
+                  when do I hear back" at a glance. So: the concern is the headline, status is a
+                  stripe plus a pill, and the metadata drops to a labelled footer row. */}
               {shownCases.map((c) => {
                 const resolved = c.status === "resolved";
+                const accent = resolved ? "var(--good)" : "var(--warn)";
+                const meta = [
+                  c.team && { k: "Team", v: c.team },
+                  c.entities?.awb && { k: "AWB", v: c.entities.awb },
+                  c.amount_inr && { k: "Amount", v: "\u20b9" + c.amount_inr },
+                  c.disposition && { k: "Disposition", v: c.disposition },
+                ].filter(Boolean);
                 return (
-                  <div key={c.id} style={{ padding: "12px 14px", borderRadius: 10, fontSize: 12.5,
+                  <div key={c.id} style={{ position: "relative", padding: "16px 18px 16px 20px",
+                    borderRadius: 12, overflow: "hidden",
                     border: "1px solid " + (flash[c.id] ? "var(--good)" : "var(--line)"),
-                    background: flash[c.id] ? "rgba(78,222,163,0.10)" : "var(--surface-2)" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                      <span className="mono" style={{ fontSize: 11, color: "var(--text-mute)" }}>{c.id}</span>
-                      <span className="mono" style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
-                        display: "inline-flex", alignItems: "center", gap: 4,
-                        color: resolved ? "var(--good)" : "var(--warn)",
+                    background: flash[c.id] ? "rgba(78,222,163,0.08)" : "var(--surface-2)" }}>
+                    {/* status stripe — colour carries the state before any text is read */}
+                    <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: accent }} />
+
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14 }}>
+                      <div style={{ fontSize: 15, lineHeight: 1.45, color: "var(--text)", fontWeight: 500 }}>
+                        {c.intent || "Concern raised"}
+                      </div>
+                      <span className="mono" style={{ flexShrink: 0, fontSize: 10, fontWeight: 700,
+                        letterSpacing: ".06em", padding: "5px 10px", borderRadius: 20,
+                        display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap",
+                        color: accent,
                         background: resolved ? "rgba(78,222,163,0.12)" : "rgba(255,185,95,0.12)" }}>
-                        {resolved ? <><CheckCircle2 size={11} /> RESOLVED</> : <><Clock size={11} /> OPEN · ~{c.eta_hours}h</>}</span>
+                        {resolved ? <><CheckCircle2 size={11} /> RESOLVED</> : <><Clock size={11} /> OPEN</>}
+                      </span>
                     </div>
-                    <div style={{ marginTop: 6, color: "var(--text)" }}>{c.intent}</div>
-                    <div className="mono" style={{ marginTop: 4, fontSize: 10, color: "var(--text-faint)" }}>
-                      {c.team}{c.entities?.awb ? " · AWB " + c.entities.awb : ""}</div>
+
+                    {!resolved && c.eta_hours != null && (
+                      <div className="mono" style={{ marginTop: 8, fontSize: 11.5, color: "var(--warn)" }}>
+                        Update expected in ~{c.eta_hours}h
+                      </div>
+                    )}
+
                     {resolved && c.resolution_note && (
-                      <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--line)", color: "var(--good)", fontSize: 12 }}>✓ {c.resolution_note}</div>)}
+                      <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 8,
+                        background: "rgba(78,222,163,0.07)", border: "1px solid rgba(78,222,163,0.18)",
+                        color: "var(--good)", fontSize: 13, lineHeight: 1.5 }}>
+                        {c.resolution_note}
+                      </div>
+                    )}
+
+                    {meta.length > 0 && (
+                      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line-soft)",
+                        display: "flex", flexWrap: "wrap", gap: "10px 22px" }}>
+                        {meta.map((m) => (
+                          <div key={m.k}>
+                            <div className="mono" style={{ fontSize: 9.5, letterSpacing: ".1em",
+                              textTransform: "uppercase", color: "var(--text-faint)" }}>{m.k}</div>
+                            <div className="mono" style={{ fontSize: 12, color: "var(--text-mute)", marginTop: 2 }}>{m.v}</div>
+                          </div>
+                        ))}
+                        <div style={{ marginLeft: "auto" }}>
+                          <div className="mono" style={{ fontSize: 9.5, letterSpacing: ".1em",
+                            textTransform: "uppercase", color: "var(--text-faint)" }}>Reference</div>
+                          <div className="mono" style={{ fontSize: 12, color: "var(--text-mute)", marginTop: 2 }}>{c.id}</div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

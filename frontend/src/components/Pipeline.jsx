@@ -1,5 +1,5 @@
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import DecisionCore from "./DecisionCore.jsx";
 import {
   Mic, Search, Database, GitBranch, ShieldCheck, Scale, Swords,
   Zap, MessageSquareHeart, Archive, AlertTriangle, CheckCircle2, XCircle,
@@ -191,13 +191,33 @@ export default function Pipeline({ events = [] }) {
   }
   const nodes = order.map((n) => map.get(n));
 
+  // Reveal one stage at a time. The backend streams events, but several can land in a single
+  // render — the pipeline then popped up fully formed, which reads as a canned screenshot
+  // rather than a system working. A release queue decouples *arrival* from *appearance*: nodes
+  // are held and let through on a timer, so a burst still unfolds step by step and the viewer
+  // can follow what the engine is doing. Later stages reveal a little quicker so a long trace
+  // does not drag.
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    if (!nodes.length) { setShown(0); return; }          // new turn — replay from the top
+    if (shown >= nodes.length) return;
+    const gap = shown === 0 ? 90 : shown < 4 ? 300 : 190;
+    const t = setTimeout(() => setShown((n) => n + 1), gap);
+    return () => clearTimeout(t);
+  }, [shown, nodes.length]);
+
+  const visible = nodes.slice(0, shown);
+
+  // Nothing running: stay quiet. A 220px orb spinning against an empty panel was the loudest
+  // thing on the page while also being the least informative — the core now belongs to an
+  // active query, so at rest we show a still glyph and get out of the way.
   if (!nodes.length) {
     return (
       <div className="empty">
         <div>
-          <DecisionCore size={220} />
-          <div className="big" style={{ marginTop: 4 }}>Decision core · idle</div>
-          <div style={{ fontSize: 13 }}>Send a captain message — watch every stage resolve, live.</div>
+          <div className="core-at-rest" aria-hidden="true" />
+          <div className="big" style={{ marginTop: 10 }}>Engine idle</div>
+          <div style={{ fontSize: 13 }}>Send a message — every stage appears here as it resolves.</div>
         </div>
       </div>
     );
@@ -206,7 +226,7 @@ export default function Pipeline({ events = [] }) {
   return (
     <div className="pipeline">
       <AnimatePresence>
-        {nodes.map((ev, i) => {
+        {visible.map((ev, i) => {
           const Icon = ICONS[ev.node] || CircleDot;
           const state = ev.status === "running" ? "running"
             : ev.node === "gate" && ev.data && !ev.data.passed ? "blocked"
@@ -216,7 +236,7 @@ export default function Pipeline({ events = [] }) {
               initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
               <div className="rail">
                 <div className="bead"><Icon size={15} /></div>
-                {i < nodes.length - 1 && <div className="wire" />}
+                {i < visible.length - 1 && <div className="wire" />}
               </div>
               <div className="pbody"><NodeBody ev={ev} /></div>
             </motion.div>

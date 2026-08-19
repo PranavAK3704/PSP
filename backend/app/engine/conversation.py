@@ -17,6 +17,7 @@ from typing import Iterator
 from ..llm import registry as llm_registry
 from ..substrate import captain_context as ctx
 from . import tools
+from .algo.entities import extract as extract_entities
 from .session import STORE
 
 MAX_STEPS = 6   # bounded agentic loop
@@ -244,6 +245,23 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
                    detail=f"{len(attachments)} file(s): " + ", ".join(a.get("filename", "file") for a in attachments)))
 
     yield _y(_evt("capture", "Capture", detail=f"Turn {sess.turns} · reading the message"))
+
+    # ── deterministic identifier extraction, before the model sees the turn ──────────
+    # Identifiers are strictly shaped (AWB = VL + 13 digits, UTR, hub code, ₹ amount), so a
+    # lexer reads them exactly and a model can only approximate. Extracting first means the
+    # model is handed facts instead of being asked to find them — it cannot mis-transcribe a
+    # 15-digit AWB, and the values that end up in the evidence trail are the ones the partner
+    # actually typed. This step makes no LLM call, which is why it carries no tier.
+    ents = extract_entities(message)
+    if ents.get("any"):
+        found = {k: v for k, v in ents.items()
+                 if v and k not in ("any", "redacted_present")}
+        yield _y(_evt("extract", "Identifiers extracted", detail=", ".join(
+            f"{k.replace('_', ' ')}: {', '.join(str(x) for x in v)}" for k, v in found.items()),
+            data={"entities": found, "method": "deterministic"}))
+        att_note += ("\n\n[Identifiers read from the message (exact, already parsed — use these "
+                     "rather than re-reading them): "
+                     + "; ".join(f"{k}={v}" for k, v in found.items()) + "]")
 
     sess.contents.append({"role": "user", "parts": [{"text": message + att_note}]})
     terminal_action, terminal_concern = "respond", None

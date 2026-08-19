@@ -335,8 +335,7 @@ class PrismProvider:
                                         "node": r.get("node")} for r in rows]}
 
     def get_loss_for_awb(self, awb: str) -> dict | None:
-        """Single-AWB loss record — the reversal-decision evidence, and the join the Kapture
-        audit engine needs to verify what an agent told a partner."""
+        """Single-AWB loss record — the reversal-decision evidence for a disputed debit."""
         rows = self.query("get_loss_for_awb", {"awb": awb})
         return rows[0] if rows else None
 

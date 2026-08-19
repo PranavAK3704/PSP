@@ -1,0 +1,113 @@
+"""READ-ONLY reader over the Kapture ticket export (backend/data/tickets.db).
+
+Built offline by scripts/build_tickets_db.py (PII already scrubbed at build time — no names,
+phones, or transcripts are in this file). This module opens the file `mode=ro` and only ever
+runs SELECTs: it CANNOT write, so wiring it in adds no failure surface (a missing file just
+means available() is False and endpoints report that). Separate file from valmo.db by design.
+
+The dump is a support-landscape dataset (140k tickets, ~82% WhatsApp), not a per-captain ledger:
+the structured per-ticket identifiers are sparse, so this serves aggregates + a hub drill-down,
+which is what it can honestly support.
+"""
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+
+_DB = Path(__file__).resolve().parents[2] / "data" / "tickets.db"
+_con: sqlite3.Connection | None = None
+_mode: str | None = None
+
+
+def _init():
+    global _con, _mode
+    if _mode is not None:
+        return
+    if _DB.exists():
+        _con = sqlite3.connect(f"file:{_DB}?mode=ro", uri=True, check_same_thread=False)
+        _con.row_factory = sqlite3.Row
+        _mode = "local"
+    else:
+        _mode = "none"
+
+
+def source() -> str:
+    _init(); return _mode
+
+
+def available() -> bool:
+    _init(); return _mode == "local"
+
+
+def _q(sql: str, params: tuple = ()) -> list[dict]:
+    _init()
+    if _mode != "local":
+        return []
+    return [dict(r) for r in _con.execute(sql, params).fetchall()]
+
+
+def _counts(sql: str, params: tuple = ()) -> dict:
+    """{label: n} from a `SELECT x, COUNT(*) ...` query, skipping NULL/blank labels."""
+    out = {}
+    for r in _q(sql, params):
+        vals = list(r.values())
+        k = vals[0]
+        if k not in (None, ""):
+            out[str(k)] = vals[1]
+    return out
+
+
+def summary() -> dict:
+    """Whole-dump support snapshot: volume, SLA, channel, status, top dispositions/queues,
+    resolution time, monthly trend, and the (sparse) structured issue taxonomy."""
+    if not available():
+        return {"available": False, "source": source()}
+    total = _q("SELECT COUNT(*) n FROM tickets")[0]["n"]
+    within = _q("SELECT COUNT(*) n FROM tickets WHERE sla='Within SLA'")[0]["n"]
+    breached = _q("SELECT COUNT(*) n FROM tickets WHERE sla='Out of SLA'")[0]["n"]
+    art = _q("SELECT ROUND(AVG(CAST(art_hours AS REAL)),1) a FROM tickets WHERE art_hours IS NOT NULL")[0]["a"]
+    return {
+        "available": True, "source": source(), "total": total,
+        "sla": {"within": within, "breached": breached,
+                "within_pct": round(100 * within / (within + breached), 1) if (within + breached) else None},
+        "avg_resolution_hours": art,
+        "by_status": _counts("SELECT status, COUNT(*) FROM tickets GROUP BY status ORDER BY 2 DESC"),
+        "by_source": _counts("SELECT source, COUNT(*) FROM tickets GROUP BY source ORDER BY 2 DESC"),
+        "by_folder": _counts("SELECT folder_l1, COUNT(*) FROM tickets GROUP BY folder_l1 ORDER BY 2 DESC LIMIT 8"),
+        "by_queue": _counts("SELECT queue, COUNT(*) FROM tickets GROUP BY queue ORDER BY 2 DESC LIMIT 8"),
+        "by_sub_type": _counts("SELECT sub_type, COUNT(*) FROM tickets WHERE sub_type IS NOT NULL "
+                               "GROUP BY sub_type ORDER BY 2 DESC LIMIT 10"),
+        "monthly": _counts("SELECT substr(created_ts,1,7) m, COUNT(*) FROM tickets "
+                           "WHERE created_ts IS NOT NULL GROUP BY m ORDER BY m"),
+        "hubs_with_tickets": _q("SELECT COUNT(DISTINCT hub_code) n FROM tickets WHERE hub_code IS NOT NULL")[0]["n"],
+    }
+
+
+def top_hubs(limit: int = 12) -> list[dict]:
+    """Hubs ranked by ticket volume — the ones worth drilling into."""
+    return _q("SELECT hub_code, COUNT(*) tickets, "
+              " SUM(CASE WHEN sla='Out of SLA' THEN 1 ELSE 0 END) breached "
+              "FROM tickets WHERE hub_code IS NOT NULL "
+              "GROUP BY hub_code ORDER BY tickets DESC LIMIT ?", (int(limit),))
+
+
+def by_hub(hub_code: str, limit: int = 25) -> dict:
+    """Per-hub ticket context: counts, SLA, status split, top issues + recent rows (no PII)."""
+    if not available() or not hub_code:
+        return {"available": available(), "hub_code": hub_code, "tickets": 0}
+    hub = hub_code.strip()
+    total = _q("SELECT COUNT(*) n FROM tickets WHERE hub_code=?", (hub,))[0]["n"]
+    within = _q("SELECT COUNT(*) n FROM tickets WHERE hub_code=? AND sla='Within SLA'", (hub,))[0]["n"]
+    breached = _q("SELECT COUNT(*) n FROM tickets WHERE hub_code=? AND sla='Out of SLA'", (hub,))[0]["n"]
+    recent = _q("SELECT ticket_no, created_ts, resolved_ts, status, source, queue, "
+                " sub_type, sub_sub_type, sla, art_hours "
+                "FROM tickets WHERE hub_code=? ORDER BY created_ts DESC LIMIT ?", (hub, int(limit)))
+    return {
+        "available": True, "hub_code": hub, "tickets": total,
+        "sla": {"within": within, "breached": breached,
+                "within_pct": round(100 * within / (within + breached), 1) if (within + breached) else None},
+        "by_status": _counts("SELECT status, COUNT(*) FROM tickets WHERE hub_code=? GROUP BY status ORDER BY 2 DESC", (hub,)),
+        "top_issues": _counts("SELECT sub_sub_type, COUNT(*) FROM tickets WHERE hub_code=? AND sub_sub_type IS NOT NULL "
+                              "GROUP BY sub_sub_type ORDER BY 2 DESC LIMIT 6", (hub,)),
+        "recent": recent,
+    }

@@ -339,7 +339,14 @@ export default function CaptainPanel() {
               className="mono" style={{ background: "var(--surface-0)", color: "var(--text-mute)",
                 border: "1px solid var(--line)", borderRadius: 8, padding: "5px 8px", fontSize: 11,
                 maxWidth: 210, minWidth: 0, flexShrink: 1 }}>
-              {captains.map((c) => <option key={c.captain_id} value={c.captain_id}>{c.name} · {c.hub_name}</option>)}
+              {/* Fall back to the id when there is no name. The real-ledger provider has no
+                  name column — inventing one would attach a fake identity to a real partner —
+                  so the label degrades to "20020388788 · LZ5" rather than rendering " · LZ5". */}
+              {captains.map((c) => (
+                <option key={c.captain_id} value={c.captain_id}>
+                  {[c.name || c.captain_id, c.hub_name].filter(Boolean).join(" · ")}
+                </option>
+              ))}
             </select>
           </div>
 

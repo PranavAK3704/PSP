@@ -27,9 +27,17 @@ def _select_provider():
     Deliberately does NOT fall back to canned data if Prism is selected but unreachable: silently
     serving seed rows under a real provenance label would let the engine make money decisions on
     fake data. Prism raises instead (see prism_provider.PrismError)."""
-    if os.environ.get("PSP_DATA_PROVIDER", "demo").strip().lower() == "prism":
+    choice = os.environ.get("PSP_DATA_PROVIDER", "demo").strip().lower()
+    if choice == "prism":
         from .adapters.prism_provider import PrismProvider
         return PrismProvider()
+    if choice == "localdb":
+        # The real loss ledger (valmo.db / the same tables on Turso), keyed on real partner_id.
+        # Needs no Meesho access, so unlike prism it can actually be switched on today. Like
+        # prism it does NOT fall back to seed: if the DB is missing, get_profile returns {} and
+        # the captain reads as unknown, which is the truthful outcome.
+        from .adapters.local_db_provider import LocalDbProvider
+        return LocalDbProvider()
     return DemoDataProvider()
 
 

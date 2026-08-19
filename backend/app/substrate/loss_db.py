@@ -202,3 +202,175 @@ def _i(v) -> int:
         return int(float(v or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _amt(v) -> float:
+    """Money cell → float. Same Hrana reason as _i(): attribution_amount arrives as "244.0"."""
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _has(table: str) -> bool:
+    return table in _all_tables()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PARTNER-KEYED readers — the engine's captain context, from real data.
+#
+# Everything above is AWB-keyed ("is THIS debit wrong?"). These are the inverse: what does
+# THIS captain carry. They exist for LocalDbProvider (adapters/local_db_provider.py), which
+# replaces the three fictional SEED captains in the resolution engine — so unlike the panel
+# readers deleted in 52d0001, these have a caller on the money path.
+#
+# `attribution` is the only partner-keyed table (`losses` has no partner column at all, just
+# awb + location), and idx_attribution_partner_id exists, so these are index-served rather
+# than full scans over a million rows.
+#
+# WHAT THIS DATA DOES NOT CONTAIN, and is therefore never invented here: captain NAME, TIER,
+# LANGUAGE, COD pendency, and shipment/scan state. The seed provider had all five because a
+# human wrote them. Returning a plausible name for a real partner_id would be a fabrication
+# attached to a real identity, which is worse than a missing field — so those keys are simply
+# absent and callers already treat them as optional.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# attribution.loss_type → the reason_l1 vocabulary the SOPs and policies are written against.
+_LT_TO_REASON = {"facility": "hardstop", "shipment shortage": "shipment_shortage",
+                 "bag shortage": "bag_shortage", "in transit": "intransit"}
+
+
+def _is_reversal_row(r: dict) -> bool:
+    """A row is a reversal if the ledger says so by type, state, or payout status — any one of
+    the three, because the export is inconsistent about which it populates."""
+    return ((r.get("attribution_type") or "").lower() == "loss_reversal"
+            or "reversal" in (r.get("attribution_state") or "").lower()
+            or (r.get("current_status") or "").upper() == "REVERSED")
+
+
+def partner_profile(partner_id: str) -> dict:
+    """Identity we can actually evidence: the partner id, their hub, and their debit history
+    window. Deliberately no name/tier/language — see the module note above."""
+    if not available() or not partner_id or not _has("attribution"):
+        return {}
+    rows = _query(
+        "SELECT entity_id, COUNT(*) AS n, MIN(attribution_date) AS first_seen,"
+        " MAX(attribution_date) AS last_seen"
+        " FROM attribution WHERE partner_id = ? AND entity_id IS NOT NULL AND entity_id != ''"
+        " GROUP BY entity_id ORDER BY n DESC LIMIT 1",
+        (str(partner_id).strip(),))
+    if not rows:
+        return {}
+    r = rows[0]
+    hub = (r.get("entity_id") or "").strip()
+    return {"captain_id": str(partner_id), "hub": hub, "hub_name": hub,
+            "debits_on_record": _i(r.get("n")),
+            "first_debit": r.get("first_seen") or "", "last_debit": r.get("last_seen") or "",
+            "_source": "valmo.db attribution ledger"}
+
+
+def partner_losses(partner_id: str, limit: int = 200) -> list[dict]:
+    """The captain's loss/debit rows in the shape the engine's context expects."""
+    if not available() or not partner_id or not _has("attribution"):
+        return []
+    rows = _query(
+        "SELECT awb, loss_type, entity_id, attribution_amount, attribution_date,"
+        " attribution_state, attribution_type, current_status, metadata_reason,"
+        " metadata_attribution_marked_by, cn_number, dn_number"
+        " FROM attribution WHERE partner_id = ?"
+        " ORDER BY attribution_date DESC, awb LIMIT ?",
+        (str(partner_id).strip(), int(limit)))
+    out = []
+    for r in rows:
+        lt = (r.get("loss_type") or "").lower()
+        out.append({
+            "awb": r.get("awb") or "",
+            "loss_type": _LT_TO_REASON.get(lt, lt or "others"),
+            "attributed_node": r.get("entity_id") or "",
+            "loss_date": r.get("attribution_date") or "",
+            "reason_l1": (r.get("metadata_reason") or "").strip() or _LT_TO_REASON.get(lt, "others"),
+            "amount_inr": _amt(r.get("attribution_amount")),
+            "status": (r.get("current_status") or "").upper(),
+            "attribution_state": r.get("attribution_state") or "",
+            "is_reversal": _is_reversal_row(r),
+            "marked_by": r.get("metadata_attribution_marked_by") or "",
+            "cn_number": r.get("cn_number") or "", "dn_number": r.get("dn_number") or "",
+        })
+    return out
+
+
+def partner_ledger(partner_id: str, limit: int = 100) -> list[dict]:
+    """The loss rows as ledger entries. A reversal is a CREDIT back to the captain; an
+    attributed loss is a DEBIT. There are no payout credits in this export, so the ledger is
+    honestly debit-side-only rather than padded with invented payouts."""
+    entries = []
+    for l in partner_losses(partner_id, limit=limit):
+        rev = l["is_reversal"]
+        entries.append({
+            "id": (l["cn_number"] or l["dn_number"] or l["awb"] or "")[:24],
+            "type": "credit" if rev else "debit",
+            "amount_inr": l["amount_inr"],
+            "date": l["loss_date"],
+            "reason": ("loss_reversal" if rev else l["loss_type"]),
+            "awb": l["awb"],
+            "status": l["status"].lower() or "posted",
+            "narration": ("Loss reversed — credited back" if rev
+                          else f"Loss debit — {l['loss_type'].replace('_', ' ')}"),
+        })
+    return entries
+
+
+def known_partners(limit: int = 12) -> list[str]:
+    """Real partner ids with enough history to be worth opening a conversation about."""
+    if not available() or not _has("attribution"):
+        return []
+    rows = _query(
+        "SELECT partner_id, COUNT(*) AS n FROM attribution"
+        " WHERE partner_id IS NOT NULL AND partner_id != ''"
+        " GROUP BY partner_id HAVING n BETWEEN 5 AND 40 ORDER BY n DESC LIMIT ?",
+        (int(limit),))
+    return [str(r["partner_id"]) for r in rows]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AGGREGATES — corpus-level only, for the Data Foundation panel. No partner is
+# identifiable from any of this, which is what makes the panel safe to show.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def corpus_stats() -> dict:
+    """Shape of the loss corpus: row counts, disposition mix, and the money lifecycle."""
+    st = {"source": source(), "available": available(), "tables": {}, "dispositions": {},
+          "lifecycle": {}, "money": {}, "reversal_rate_pct": 0.0}
+    if not available():
+        return st
+    for t in ("losses", "attribution", "qc_fail"):
+        if _has(t):
+            try:
+                st["tables"][t] = _i(_query(f"SELECT COUNT(*) AS n FROM {t}", ())[0]["n"])
+            except Exception:  # noqa: BLE001 — a panel must never take the app down
+                st["tables"][t] = None
+    if not _has("attribution"):
+        return st
+    try:
+        for r in _query("SELECT loss_type, COUNT(*) AS n FROM attribution"
+                        " GROUP BY loss_type ORDER BY n DESC LIMIT 12", ()):
+            key = (r.get("loss_type") or "unknown").strip() or "unknown"
+            st["dispositions"][key] = _i(r.get("n"))
+        for r in _query("SELECT current_status, COUNT(*) AS n, SUM(attribution_amount) AS amt"
+                        " FROM attribution GROUP BY current_status ORDER BY n DESC LIMIT 12", ()):
+            key = (r.get("current_status") or "unknown").strip() or "unknown"
+            st["lifecycle"][key] = _i(r.get("n"))
+            st["money"][key] = round(_amt(r.get("amt")))
+        rev = _i(_query("SELECT COUNT(*) AS n FROM attribution"
+                        " WHERE attribution_type = 'loss_reversal'"
+                        " OR current_status = 'REVERSED'", ())[0]["n"])
+        tot = st["tables"].get("attribution") or 0
+        st["reversal_rate_pct"] = round(100.0 * rev / tot, 2) if tot else 0.0
+        st["reversals"] = rev
+        st["partners"] = _i(_query("SELECT COUNT(DISTINCT partner_id) AS n FROM attribution"
+                                  " WHERE partner_id IS NOT NULL AND partner_id != ''", ())[0]["n"])
+        st["hubs"] = _i(_query("SELECT COUNT(DISTINCT entity_id) AS n FROM attribution"
+                               " WHERE entity_id IS NOT NULL AND entity_id != ''", ())[0]["n"])
+    except Exception as e:  # noqa: BLE001
+        st["error"] = type(e).__name__
+    return st

@@ -256,11 +256,13 @@ def health():
     # Which account-data provider is live (canned demo vs the Prism data lake) + its reachability.
     provider = ctx.data_provider()
     ds["account_provider"] = getattr(provider, "source", "unknown")
+    # Keyed `provider_status`, not `prism`: LocalDbProvider also implements status(), so the old
+    # key reported a localdb probe under the name of a provider that was not running.
     if hasattr(provider, "status"):
         try:
-            ds["prism"] = provider.status()
+            ds["provider_status"] = provider.status()
         except Exception as e:  # noqa: BLE001 — health must never throw
-            ds["prism"] = {"ok": False, "detail": type(e).__name__}
+            ds["provider_status"] = {"ok": False, "detail": type(e).__name__}
     # `key_configured` is presence-only (never the value). Without it a keyless deploy looks
     # perfectly healthy here and only fails on the first real turn — see registry.key_configured.
     key_ok = llm_registry.key_configured()
@@ -484,9 +486,25 @@ def captain_cases(captain_id: str):
     return {"cases": l3.cases(captain_id)}
 
 
-# Distinct from /api/captains (the seeded chat captains): these read the REAL loss-attribution
-# ledger so the panel demonstrably runs on live data — a million loss rows, 10k attributions
-# with reversal state — not seed rows.
+# ── Data Foundation — CORPUS-LEVEL aggregates over both databases ────────────────────────────
+# Deliberately aggregate-only: no partner id, no AWB, no per-captain drill-down. That is what
+# makes it safe to display, and it is the lesson from the panel deleted in 52d0001, which
+# listed every captain behind a picker and so could never travel into a captain-facing widget.
+@app.get("/api/data/foundation", dependencies=[_authed])
+def data_foundation():
+    from .substrate import loss_db, tickets_db
+    t = tickets_db.summary()
+    return {
+        "losses": loss_db.corpus_stats(),
+        "tickets": {k: t.get(k) for k in ("available", "source", "total", "sla",
+                                          "avg_resolution_hours", "by_status", "by_source",
+                                          "by_queue", "by_sub_type", "monthly",
+                                          "hubs_with_tickets")},
+        "top_hubs": tickets_db.top_hubs(),
+        "engine_provider": getattr(ctx.data_provider(), "source", "unknown"),
+    }
+
+
 # ── Support tickets — READ-ONLY analytics over the Kapture export (tickets.db) ───────────────
 # 140k tickets, PII scrubbed at build time. SELECT-only: these endpoints cannot write anything,
 # and a missing tickets.db just reports available:false. Aggregate + per-hub drill-down.

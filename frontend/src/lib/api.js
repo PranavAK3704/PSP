@@ -180,6 +180,9 @@ export function uploadFramework(file) {
 export const getL3 = () => apiGet("/api/l3/inbox");
 export const resolveL3 = (concern_id, resolution_note) => apiPost("/api/l3/resolve", { concern_id, resolution_note });
 export const getInsights = () => apiGet("/api/insights");
+// Data Foundation — corpus-level aggregates over BOTH databases. Aggregates only: no partner
+// id, AWB or per-captain breakdown, which is what makes it safe to display.
+export const getDataFoundation = () => apiGet("/api/data/foundation");
 export const getAudit = () => apiGet("/api/audit");
 export const getKt = () => apiGet("/api/kt");
 export const checkSopConformance = (policy) => apiPost("/api/sop/conformance", { policy });

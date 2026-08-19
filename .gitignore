@@ -6,7 +6,12 @@ backend/.env
 !backend/.env.example
 
 # ── Large / external data (loss data lives in Turso in prod) ─────────────────
-backend/data/*.db
+# Path-anchored patterns only covered backend/data/, so a stray DB one directory up (sqlite3
+# silently CREATES the file when a `cd` fails and you open a relative name) was stageable.
+# These match anywhere in the tree.
+*.db
+*.sqlite
+*.sqlite3
 backend/data/*.csv
 
 # ── Build + vendor artifacts ─────────────────────────────────────────────────

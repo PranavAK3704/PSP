@@ -56,6 +56,22 @@
   --accent-line: var(--signal-line);
   --accent-glow: var(--signal-glow);
 
+  /* ── CHART-MARK tokens — deliberately NOT the accent tokens above ──────────────────────────
+     The tokens above are TEXT colours: light (OKLCH L 0.72–0.83) so they stay legible as type
+     on a dark surface. Chart fills are a different job, and running the palette validator made
+     that measurable — every one of those tokens FAILS the dark-mode lightness band (L 0.48–0.67)
+     because a fill that light flattens against its neighbours and loses separation under
+     colour-vision deficiency.
+     These four are stepped into the band and validated as a set: CVD separation ΔE 12.8
+     (protan) / 13.8 (tritan) against a target of 8, normal-vision floor 19.6 against 15, and
+     every one clears 3:1 contrast on --surface-1. Do not "simplify" these back to the text
+     tokens — that reintroduces a measured failure. */
+  --c-teal: #0f9c8f;      /* magnitude, ticket side */
+  --c-amber: #c2871f;     /* magnitude, money/loss side */
+  --c-rose: #c43e60;      /* status: failed */
+  --c-violet: #8563d9;    /* status: reversed */
+  --c-track: rgba(255,255,255,0.07);   /* unfilled bar track */
+
   --sans: "Inter", system-ui, sans-serif;
   --serif: "Inter", system-ui, sans-serif;   /* display = Inter tight */
   --mono: "JetBrains Mono", ui-monospace, monospace;
@@ -437,3 +453,52 @@ pre.json .s { color: var(--good); }
   .engine-core-stage { animation: none; }
 }
 
+
+/* ── Data Foundation panel ────────────────────────────────────────────────────
+   Marks follow the dataviz mark spec: thin bars, 4px rounded data-end anchored to the
+   baseline, a 2px surface gap between adjacent fills, recessive track, and a direct label on
+   every row so identity is never carried by colour alone. */
+.df-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
+.df-tiles { display: flex; flex-wrap: wrap; gap: 10px; }
+.df-tile { flex: 1 1 140px; min-width: 140px; background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.df-tile .lab { font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--text-faint); display: flex; align-items: center; gap: 6px; }
+/* Hero number: tabular figures so digits don't jitter between refreshes. */
+.df-tile .val { font-size: 22px; font-weight: 800; margin-top: 5px; color: var(--text);
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.df-tile .sub { font-family: var(--mono); font-size: 10px; color: var(--text-faint); margin-top: 2px; }
+
+/* Horizontal magnitude bars — one hue per chart, length carries the comparison. */
+.df-row { display: grid; grid-template-columns: minmax(96px, 34%) 1fr auto; gap: 10px;
+  align-items: center; padding: 4px 0; }
+.df-row .k { font-family: var(--mono); font-size: 11px; color: var(--text-mute);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.df-row .v { font-family: var(--mono); font-size: 11px; color: var(--text);
+  font-variant-numeric: tabular-nums; text-align: right; min-width: 62px; }
+.df-bar { height: 9px; background: var(--c-track); border-radius: 3px; overflow: hidden; }
+.df-bar > i { display: block; height: 100%; border-radius: 0 4px 4px 0;  /* 4px rounded data-end */
+  background: var(--df-hue, var(--c-teal)); transition: width .5s cubic-bezier(.2,.8,.2,1); }
+
+/* Lifecycle = parts of a whole → ONE stacked bar, 2px surface gaps between segments,
+   with a labelled legend beneath (never colour alone). */
+.df-stack { display: flex; height: 13px; border-radius: 4px; overflow: hidden;
+  background: var(--c-track); gap: 2px; }
+.df-stack > span { display: block; height: 100%; min-width: 2px; }
+.df-legend { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 11px; }
+.df-legend .li { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono);
+  font-size: 10.5px; color: var(--text-mute); }
+.df-legend .sw { width: 9px; height: 9px; border-radius: 2.5px; flex: none; }
+.df-legend b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* SLA meter — a single proportion, so a meter rather than a chart. */
+.df-meter { height: 11px; border-radius: 4px; background: var(--c-track); overflow: hidden; }
+.df-meter > i { display: block; height: 100%; border-radius: 0 4px 4px 0; background: var(--c-teal); }
+
+.df-note { font-family: var(--mono); font-size: 10px; color: var(--text-faint); line-height: 1.6;
+  margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.df-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+.df-table th { text-align: left; font-weight: 700; font-size: 9.5px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-faint); padding: 7px 10px; background: var(--surface-2); }
+.df-table td { padding: 7px 10px; border-top: 1px solid var(--line-soft); color: var(--text-mute); }
+.df-table td.n { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }

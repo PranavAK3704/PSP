@@ -19,6 +19,12 @@ services:
       # Local cache dir; durable truth is Turso (see durable_state.py). Ephemeral on free tier.
       - key: PSP_STATE_DIR
         value: /data
+      # Account data for the resolution engine: `localdb` reads the REAL loss-attribution
+      # ledger (the same Turso tables the loss data already lives in) keyed on real
+      # partner_id, instead of the three hand-written seed captains. Rollback is this one
+      # value — set it to `demo` to go back to seed, or `prism` once a client token exists.
+      - key: PSP_DATA_PROVIDER
+        value: localdb
       # ── Dashboard-set secrets (never committed) ──
       # ACTIVE provider is `claude` (backend/config/models.yaml), so ANTHROPIC_API_KEY is the
       # one the running app actually needs. Declared here so a blueprint sync can never

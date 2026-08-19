@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import DataFoundation from "./DataFoundation.jsx";
 import { getInsights, getAudit, getKt, submitKt, reviewKt, compileSopStream, getLedger, checkSopConformance,
   approveSop, saveSopDraft, deleteSop, extractSop, compileBlueprintStream, getBlueprints, saveBlueprint, approveBlueprint,
   getConcernTrace, exportLedger, getAuditRubric, saveAuditRubric, runAudit, runAuditBatch, getAuditScores,
@@ -2038,13 +2039,14 @@ export function KnowledgeBase() {
 
 const SC_TABS = [
   ["command", "Command Deck", "space_dashboard"],
+  ["data", "Data Foundation", "database"],
   ["knowledge", "Knowledge Base", "menu_book"],
   ["authoring", "Authoring Studio", "edit_note"],
   ["auditing", "Auditing Studio", "fact_check"],
   ["governance", "Governance", "gavel"],
   ["concernlog", "Concern Log", "receipt_long"],
 ];
-const SC_COMP = { command: Command, knowledge: KnowledgeBase, authoring: AuthoringStudio, auditing: AuditingStudio, governance: GovernanceFramework, concernlog: Ledger };
+const SC_COMP = { command: Command, data: DataFoundation, knowledge: KnowledgeBase, authoring: AuthoringStudio, auditing: AuditingStudio, governance: GovernanceFramework, concernlog: Ledger };
 export default function SupportCommand() {
   const [tab, setTab] = useState("command");
   const C = SC_COMP[tab];

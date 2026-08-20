@@ -59,6 +59,17 @@ def get_context(captain_id: str) -> dict:
     # hence the capability check rather than a signature change that would break it.
     losses = (_data.get_losses(captain_id, profile.get("hub_code") or "")
               if getattr(_data, "accepts_hub_code", False) else _data.get_losses(captain_id))
+    # A provider that can aggregate in the DB supplies `summary` — counts and totals computed
+    # over the FULL ledger rather than over the row-capped slice above. This is what the
+    # engine sends to the model (see engine/tools.captain_aggregate); the rows stay local for
+    # the trace and the panel. Capability-checked rather than added to the contract, the same
+    # way `accepts_hub_code` is, so the two providers that cannot do it are untouched.
+    summary = {}
+    if hasattr(_data, "get_summary"):
+        try:
+            summary = _data.get_summary(captain_id) or {}
+        except Exception:  # noqa: BLE001 — an aggregate is an optimisation, never a dependency
+            summary = {}
     return {
         "captain_id": captain_id,
         "profile": profile,
@@ -66,6 +77,7 @@ def get_context(captain_id: str) -> dict:
         "losses": losses,                              # Metabase
         "cash": _data.get_cash(captain_id),            # Metabase
         "shipments": _log10.get_shipments(captain_id), # Log10
+        "summary": summary,                            # aggregates for the model (never rows)
         "_sources": {"account": _data.source, "shipments": _log10.source},
     }
 

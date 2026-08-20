@@ -162,7 +162,9 @@ export async function exportLedger(format = "csv") {
 export const getAuditRubric = () => apiGet("/api/audit/rubric");
 export const saveAuditRubric = (dimensions) => apiPost("/api/audit/rubric", { dimensions });
 export const runAudit = (concern_id) => apiPost("/api/audit/run", { concern_id });
-export const runAuditBatch = (limit = 10) => apiPost("/api/audit/run_batch", { limit });
+// Each unit of `limit` is one deep-tier LLM call, so the default is deliberately small and
+// the backend rejects anything over 20 at the request boundary.
+export const runAuditBatch = (limit = 5) => apiPost("/api/audit/run_batch", { limit });
 export const getAuditScores = () => apiGet("/api/audit/scores");
 
 // ── Auditing Studio: dynamic, editable Governance Framework ──

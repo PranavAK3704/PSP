@@ -46,7 +46,13 @@ Return ONLY JSON:
 }}"""
 
 
-def verify(decision: dict, grounded_evidence: list[dict], reasoning: str) -> dict:
+def verify(decision: dict, grounded_evidence: list[dict], reasoning: str, turn=None) -> dict:
+    """`turn` is the caller's per-turn spend meter (llm/meter.TurnMeter), threaded down so this
+    call is inside the per-turn dollar ceiling. It has to be: the verifier fires once PER
+    DISPUTED AWB, on the deep tier, within a single turn — that fan-out is the exact shape a
+    step budget cannot see and is the reason a dollar ceiling exists. Without the meter here,
+    the ceiling would only have covered the conversation loop and the reported turn cost would
+    have understated the truth by the verifier's share."""
     provider, model = llm_registry.for_node("adversarial_verify")
     checks = "\n".join(f"- {c['description']}: {c.get('result', '?')}" for c in decision.get("checks_run", []))
     evidence = "\n".join(f"- {e['label']}: {e['value']}" for e in grounded_evidence)
@@ -58,6 +64,7 @@ def verify(decision: dict, grounded_evidence: list[dict], reasoning: str) -> dic
                 evidence=evidence or "(none)", reasoning=reasoning,
             ),
             model=model, node="adversarial_verify", system=_SYSTEM, json_mode=True,
+            turn=turn,
         )
         v = _parse_json(res.text)
     except Exception as e:  # noqa: BLE001

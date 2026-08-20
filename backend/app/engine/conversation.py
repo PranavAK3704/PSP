@@ -14,13 +14,18 @@ from __future__ import annotations
 
 from typing import Iterator
 
+from ..llm import meter as llm_meter
 from ..llm import registry as llm_registry
 from ..substrate import captain_context as ctx
-from . import tools
+from . import dataplane, tools
 from .algo.entities import extract as extract_entities
 from .session import STORE
 
-MAX_STEPS = 6   # bounded agentic loop
+# Bounded agentic loop. 4, down from 6: each extra step resends the ENTIRE history plus the
+# ~5,300-token stable prefix (system prompt + 5 tool schemas), so step 6 is the most expensive
+# step in the turn and the least likely to be productive. A turn that has not converged in 4
+# steps is a turn the deterministic router or an escalation should be handling.
+MAX_STEPS = 4
 
 _SYSTEM = """You are Valmo's Partner Advocate — the AI support agent for Valmo delivery
 partners (captains). You are warm, respectful, and firmly on the captain's side.
@@ -57,9 +62,16 @@ HOW YOU WORK
     unless that exact condition is met. If you can't yet check a branch (e.g. you don't have the
     FE's Log10 status), explain the steps and what needs checking / what you'll ask — do not
     default to the terminal form.
-  • get_captain_context — only when the captain's OWN records matter; cite only what's
-    relevant to their question (never volunteer unrelated debits).
-  • run_data_query — for live/past data ("where is my shipment", "last payout").
+  • get_captain_context — a SUMMARY of the captain's own account: how many debits, how many
+    still open, totals, the loss-type mix, their hub. Use it to learn WHETHER they have debits
+    and of what kind. It gives you counts, NOT individual records — there are no AWBs, dates
+    or debit ids in it, so never try to list or cite a specific debit from it, and never
+    volunteer debits they did not raise. To work one specific debit, ask for its AWB and call
+    apply_policy.
+  • run_data_query — for live/past data ("where is my shipment", "last payout"). It returns a
+    composed `answer` computed from the real records: relay it faithfully in the captain's
+    language, add nothing to it, and when it says a data source is not connected, believe it —
+    say so and escalate rather than quoting a figure you do not have.
   • apply_policy — the ONLY way to move money or resolve a money case (reverse a wrong
     loss/debit, clear a COD pendency). You may NOT state, promise, or imply a reversal/credit
     yourself. You need just ONE identifier for the case — an AWB, OR the amount, OR a txn id
@@ -223,13 +235,21 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
 
     sess = STORE.get_or_create(conversation_id, captain_id)
     sess.turns += 1
+    # Bound the history BEFORE this turn's content is added, so the trim never has to reason
+    # about a half-built turn. Cuts only at a safe boundary — see session.Session.trim.
+    dropped = sess.trim()
     context = ctx.get_context(captain_id)
     if not context:
         yield _y(_evt("error", "Unknown captain", detail=f"No context for {captain_id}"))
         return
 
     provider, model = llm_registry.for_node("classify")   # tool-use tier
-    if not hasattr(provider, "chat"):
+    # `hasattr(provider, "chat")` no longer answers this: LLMProvider now declares a `chat`
+    # stub so every provider inherits `chat_metered`, which made the old check always pass
+    # and a genuinely tool-less provider fail as a "transport" error ("try again in a
+    # moment") instead of as the config problem it is. Compare against the base method.
+    from ..llm.base import LLMProvider
+    if getattr(type(provider), "chat", None) is LLMProvider.chat:
         yield _y(_evt("error", "Provider lacks tool-calling", detail="Use Gemini/Claude provider"))
         return
 
@@ -244,13 +264,16 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
         yield _y(_evt("capture", "Attachments received", tier="fast",
                    detail=f"{len(attachments)} file(s): " + ", ".join(a.get("filename", "file") for a in attachments)))
 
-    yield _y(_evt("capture", "Capture", detail=f"Turn {sess.turns} · reading the message"))
+    yield _y(_evt("capture", "Capture",
+                  detail=f"Turn {sess.turns} · reading the message"
+                         + (f" · trimmed {dropped} old history entr"
+                            f"{'y' if dropped == 1 else 'ies'}" if dropped else "")))
 
     # ── deterministic identifier extraction, before the model sees the turn ──────────
-    # Identifiers are strictly shaped (AWB = VL + 13 digits, UTR, hub code, ₹ amount), so a
-    # lexer reads them exactly and a model can only approximate. Extracting first means the
-    # model is handed facts instead of being asked to find them — it cannot mis-transcribe a
-    # 15-digit AWB, and the values that end up in the evidence trail are the ones the partner
+    # Identifiers are strictly shaped (AWB = VL+13 or VLR+12 digits, UTR, hub code, ₹ amount),
+    # so a lexer reads them exactly and a model can only approximate. Extracting first means
+    # the model is handed facts instead of being asked to find them — it cannot mis-transcribe
+    # a 15-digit AWB, and the values that end up in the evidence trail are the ones the partner
     # actually typed. This step makes no LLM call, which is why it carries no tier.
     ents = extract_entities(message)
     if ents.get("any"):
@@ -263,13 +286,29 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
                      "rather than re-reading them): "
                      + "; ".join(f"{k}={v}" for k, v in found.items()) + "]")
 
+    # The allow-list for the data-plane subset test: every identifier this captain has typed,
+    # this turn and every earlier one. Computed from the RAW message, before att_note is
+    # appended, so the engine's own annotations can never widen it.
+    sess.supplied |= dataplane.supplied(message)
+    allowed_tokens = set(sess.supplied)
+
+    # Per-turn spend accounting, held EXPLICITLY. Not a contextvar and not a thread-local:
+    # sse_starlette drives this generator through iterate_in_threadpool, so successive
+    # __next__ calls can land on different threads and ambient state would reset mid-turn.
+    tm = llm_meter.TurnMeter()
+
     sess.contents.append({"role": "user", "parts": [{"text": message + att_note}]})
     terminal_action, terminal_concern = "respond", None
 
     for step in range(MAX_STEPS):
         try:
-            content, _ = provider.chat(sess.contents, model=model, system=system_prompt,
-                                       tools=tools.DECLARATIONS)
+            # chat_metered, not chat: it applies the dollar ceiling and BILLS THE USAGE.
+            # This line used to be `content, _ = provider.chat(...)` — the underscore threw
+            # away the only token count the loop ever sees, which is why nothing in the
+            # platform could say what a turn cost.
+            content, _usage = provider.chat_metered(
+                sess.contents, model=model, node="classify", system=system_prompt,
+                tools=tools.DECLARATIONS, turn=tm)
         except Exception as e:  # noqa: BLE001 — graceful degradation (BRD §11)
             yield _y(_evt("explain", "Model provider unavailable", status="blocked", tier="fast",
                        detail=f"{type(e).__name__}: {str(e)[:280]}"))
@@ -285,7 +324,25 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
             # an auth error either. Each branch names what it is and who can fix it.
             emsg = str(e).lower()
             status = getattr(getattr(e, "response", None), "status_code", None)
-            if "credit balance" in emsg or "quota" in emsg or "billing" in emsg:
+            if isinstance(e, llm_meter.BudgetExhausted):
+                # FIRST in the chain and matched by TYPE, not by string. It must not fall
+                # through to the "credit balance" branch below: that one tells the reader the
+                # Anthropic account is empty, when in fact OUR OWN ceiling stopped the call
+                # and the account is fine. Two different people fix those two things.
+                kind = "budget"
+                # There are TWO ceilings and raising the wrong one changes nothing, so the
+                # reply names the one that actually fired (meter.check tags the exception with
+                # its scope). Saying "raise LLM_BUDGET_USD" after a PER-TURN stop sent the
+                # operator to an env var that had no effect on the thing they just hit.
+                which = getattr(e, "env_var", "LLM_BUDGET_USD")
+                scope = ("this single turn" if getattr(e, "scope", "") == "per_turn"
+                         else "this deployment")
+                reply = ("I've stopped short of this one on purpose: the spend ceiling for "
+                         f"{scope} has been reached, so I won't make another model call until "
+                         "it's raised. Nothing is broken and no credit is lost — the ceiling "
+                         "exists so a runaway loop can't drain the account. Whoever runs the "
+                         f"deploy can raise {which}.")
+            elif "credit balance" in emsg or "quota" in emsg or "billing" in emsg:
                 kind = "billing"
                 reply = ("I can't reason about this right now: the AI account behind me has run out "
                          "of credits. Nothing else is broken — the knowledge base, resolution engine "
@@ -328,9 +385,18 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
             holder["concern_id"] = concern["id"]
             if concern.get("id"):
                 holder.setdefault("concern_ids", []).append(concern["id"])
+            # What the turn cost, measured rather than estimated. It goes into the TRACE,
+            # which _persist_trace saves under this turn's concern id — so the Concern Log can
+            # show cost-per-resolution by replaying the trace. It is not a field on the
+            # concern record itself.
+            cost = tm.summary()
+            yield _y(_evt("cost", "Turn cost", tier="fast",
+                          detail=f"${cost['cost_usd']:.4f} · {cost['calls']} model call(s) · "
+                                 f"{cost['tokens_in']:,} in / {cost['tokens_out']:,} out",
+                          data=cost))
             yield _y({"node": "reply", "label": "Reply", "status": "done", "detail": reply,
                    "data": {"reply": reply, "decision_action": terminal_action,
-                            "concern_id": concern["id"]}})
+                            "concern_id": concern["id"], "cost": cost}})
             return
 
         # execute tool calls, feed results back. EVERY call gets a functionResponse — even on
@@ -340,8 +406,8 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
         for fc in calls:
             name, cargs = fc.get("name", ""), fc.get("args", {}) or {}
             try:
-                result, events, concern, action = tools.dispatch(name, cargs, captain_id, context, channel,
-                                                                 attachments=attachments)
+                result, events, concern, action = tools.dispatch(
+                    name, cargs, captain_id, context, channel, attachments=attachments, turn=tm)
             except Exception as e:  # noqa: BLE001 — a tool bug must not poison the conversation
                 result, events, concern, action = {"error": f"{type(e).__name__}: {str(e)[:150]}"}, [], None, None
                 yield _y(_evt("explain", f"Tool {name} failed", status="blocked", tier="fast", detail=str(e)[:200]))
@@ -352,6 +418,27 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
                 holder["concern_id"] = concern.get("id")
                 if concern.get("id"):   # a turn can create >1 concern (multi-intent) — keep them all
                     holder.setdefault("concern_ids", []).append(concern["id"])
+            # ── the data-plane boundary, checked where it is actually crossed ────────
+            # This line is the ONLY place a tool result becomes part of what gets sent to
+            # the model, so it is the only place worth checking. The rule is a subset test,
+            # not a blanket ban: an identifier the captain themselves typed is already in
+            # the model's context and echoing it is not new exposure — anything else is.
+            # See engine/dataplane.py for the full reasoning.
+            #
+            # Defensive by construction: the projections in tools.py mean this should never
+            # fire, so a hit is a genuine regression (a new tool, a widened query, a changed
+            # provider) and it surfaces as a trace event rather than silently crossing the
+            # wire. Wrapped so the guard itself can never break a turn.
+            try:
+                leaks = dataplane.violations(result, allowed_tokens)
+                if leaks:
+                    result = dataplane.redact(result, allowed_tokens)
+                    yield _y(_evt("guard", "Data-plane guard", status="blocked", tier="fast",
+                                  detail=f"redacted {len(leaks)} unsupplied identifier(s) from "
+                                         f"{name} before sending",
+                                  data={"tool": name, "leaks": leaks}))
+            except Exception:  # noqa: BLE001 — a guard must never be the thing that fails
+                pass
             resp_parts.append({"functionResponse": {"name": name, "response": result}})
         sess.contents.append({"role": "user", "parts": resp_parts})
 
@@ -359,10 +446,15 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
     yield _y(_evt("explain", "Answer warmly", tier="fast", detail="Composed reply",
                data={"reply": "Main ispe thoda aur check kar raha hoon — ek moment dijiye."}))
     holder["concern_id"] = (terminal_concern or {}).get("id")
+    cost = tm.summary()
+    yield _y(_evt("cost", "Turn cost", tier="fast",
+                  detail=f"${cost['cost_usd']:.4f} · {cost['calls']} model call(s) · step budget hit",
+                  data=cost))
     yield _y({"node": "reply", "label": "Reply", "status": "done",
            "detail": "", "data": {"reply": "Main ispe thoda aur check kar raha hoon.",
                                   "decision_action": terminal_action,
-                                  "concern_id": (terminal_concern or {}).get("id")}})
+                                  "concern_id": (terminal_concern or {}).get("id"),
+                                  "cost": cost}})
 
 
 def _log_info_concern(conversation_id, captain_id, message, reply, channel) -> dict:

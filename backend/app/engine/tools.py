@@ -30,16 +30,28 @@ DECLARATIONS = [
     },
     {
         "name": "get_captain_context",
-        "description": "Fetch THIS captain's own grounded records (profile, ledger debits, "
-                       "losses, shipments). Call only when the captain's own account is relevant. "
-                       "Only cite records that relate to what they asked — do not volunteer "
-                       "unrelated debits.",
+        "description": "A SUMMARY of THIS captain's own account: how many debits are on record, "
+                       "how many are still open, totals debited / recovered / reversed, the mix of "
+                       "loss types, their hub, and whether COD data is available at all. Call it "
+                       "when you need to know WHETHER the captain has debits and of what kind — "
+                       "e.g. before asking them which one they mean. It returns COUNTS AND TOTALS, "
+                       "not individual records: there are no AWBs, dates or debit ids in it, so do "
+                       "not try to cite or list specific debits from it. To work one specific "
+                       "debit, ask the captain for its AWB and call apply_policy, which looks the "
+                       "real record up itself. If cod_data_available is false, the cash system is "
+                       "not connected — never state a COD figure, escalate instead.",
         "parameters": {"type": "object", "properties": {}},
     },
     {
         "name": "run_data_query",
-        "description": "Run a read-only query for live/past data. query_name is one of: "
-                       "shipment_status, scan_history, payout_status, loss_summary, cod_status.",
+        "description": "Run a read-only, named query for live/past data and get back a composed "
+                       "ANSWER (one or two sentences of plain fact) plus how many rows it matched. "
+                       "query_name is one of: shipment_status, scan_history, payout_status, "
+                       "loss_summary, cod_status. Relay the `answer` faithfully in the captain's "
+                       "language — it is computed from the real records, so do not embellish it, "
+                       "and do not claim anything it does not say. When the answer states that a "
+                       "data source is not connected, that is the truth: say so and escalate "
+                       "rather than guessing a figure.",
         "parameters": {"type": "object", "properties": {
             "query_name": {"type": "string"},
             "awb": {"type": "string", "description": "optional AWB for scan_history"}},
@@ -113,6 +125,15 @@ _DOMAIN_TEAM = {
 }
 
 
+# ── history-size controls ────────────────────────────────────────────────────
+# Tuned against the corpus, not guessed. See the note in the search_sops branch: these two
+# numbers are multiplied by conversation length, which is what makes them worth tuning at
+# all. The retrieval cutoff in store.retrieve() already discards tangential chunks, so k=4
+# is 4 RELEVANT hits rather than a truncated top-8.
+SEARCH_K = 4
+SNIPPET_CHARS = 320
+
+
 def _evt(node, label, status="done", tier=None, detail="", data=None):
     return {"node": node, "label": label, "status": status, "tier": tier,
             "detail": detail, "data": data or {}}
@@ -128,6 +149,98 @@ def _act(decision: dict) -> dict:
     return {"applied": True, "detail": "Responded (no money movement)"}
 
 
+def _money(v) -> float:
+    """A ledger amount → float, never raising. The aggregate SUMS these, and a single
+    malformed cell (a provider quirk, a '1,450' with a comma, a None) must not turn the whole
+    tool call into an error — the old pass-through shape never parsed them at all, so this is
+    a new raise site unless it is guarded."""
+    if isinstance(v, (int, float)):
+        return float(v)
+    try:
+        return float(str(v or 0).replace(",", "").replace("₹", "").strip() or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def captain_aggregate(context: dict) -> dict:
+    """The captain's own records, PROJECTED to counts and totals for the model.
+
+    What changed and why: this used to return `profile.name`, every debit row with its id /
+    amount / date / reason / awb, and — the widest hole — `context["losses"]` completely
+    unprojected, which under LocalDbProvider carries real AWBs and
+    `metadata_attribution_marked_by` (real Meesho employee first names). All of it then sat
+    in `sess.contents` permanently and was resent on every later step and every later turn.
+
+    None of it was needed. The model uses this tool to decide WHAT TO DO — is there a debit
+    at all, is it still open, is money already back — and every one of those decisions is
+    answerable from a count. Individual rows are only ever needed for a specific AWB the
+    captain named, and that path is `apply_policy`, which looks the row up itself.
+
+    `profile.name` is dropped outright: replies are in Hinglish and address the captain
+    directly, the frontend already knows their name locally, and under LocalDbProvider there
+    IS no name — the provider refuses to invent one.
+
+    Provider-agnostic by construction: computed from the context dict, so it is identical
+    under DemoDataProvider, PrismProvider and LocalDbProvider. If the active provider can
+    supply a precomputed summary (LocalDbProvider reads the materialised `captain_summary`
+    table), that is preferred for the money fields and the row-derived counts are used to
+    fill what only the context knows.
+    """
+    p = context.get("profile", {}) or {}
+    ledger = context.get("ledger", []) or []
+    losses = context.get("losses", []) or []
+    shipments = context.get("shipments", []) or []
+    cash = context.get("cash", {}) or {}
+
+    debits = [d for d in ledger if d.get("type") == "debit"]
+    credits = [d for d in ledger if d.get("type") == "credit"]
+    open_debits = [d for d in debits if str(d.get("status", "")).lower() in ("", "pending", "posted")]
+    # NOT every credit is a loss reversal. Under LocalDbProvider a credit IS a reversal
+    # (partner_ledger stamps reason="loss_reversal"), but the demo provider's credits are
+    # WEEKLY PAYOUTS — counting those as reversals told the model a loss had been reversed
+    # when the captain had simply been paid, which is the kind of wrong fact it would then
+    # relay with confidence. Split them by reason and report both.
+    reversals = [d for d in credits if "reversal" in str(d.get("reason", "")).lower()]
+    payouts = [d for d in credits if d not in reversals]
+
+    mix: dict[str, int] = {}
+    for l in losses:
+        k = str(l.get("loss_type") or "other")
+        mix[k] = mix.get(k, 0) + 1
+
+    out = {
+        "hub": p.get("hub_name") or p.get("hub") or "",
+        "debits_on_record": len(debits),
+        "open_debits": len(open_debits),
+        "total_debited_inr": round(sum(_money(d.get("amount_inr")) for d in debits)),
+        "reversals": len(reversals),
+        "reversed_inr": round(sum(_money(d.get("amount_inr")) for d in reversals)),
+        "payout_credits": len(payouts),
+        "credited_inr": round(sum(_money(d.get("amount_inr")) for d in payouts)),
+        "loss_type_mix": mix,
+        "open_shipments": len(shipments),
+        "shipments_off_manifest_path": sum(
+            1 for s in shipments if s.get("on_correct_manifest_path") is False),
+    }
+    # COD is present-or-absent, never defaulted to 0: LocalDbProvider returns {} on purpose
+    # because valmo.db holds no cash data, and "₹0 pending" is a specific, checkable, false
+    # claim about a captain's cash position that the model would go on to quote.
+    out["cod_pendency_inr"] = cash.get("cod_pendency_inr") if "cod_pendency_inr" in cash else None
+    out["cod_data_available"] = "cod_pendency_inr" in cash
+
+    # A provider-supplied summary is authoritative for the money fields — it is computed in
+    # SQL over the full ledger rather than over the (row-capped) context slice.
+    summary = context.get("summary") or {}
+    for k in ("debits_on_record", "open_debits", "total_debited_inr", "recovered_inr",
+              "pending_inr", "failed_inr", "reversals", "reversed_inr", "loss_type_mix",
+              "first_debit", "last_debit"):
+        if summary.get(k) not in (None, "", {}):
+            out[k] = summary[k]
+    if summary.get("hub"):
+        out["hub"] = summary["hub"]
+    return out
+
+
 def _attachment_evidence(attachments: list | None) -> list:
     """Turn captain-uploaded attachment metadata into evidence rows for the worked case."""
     return [{"label": f"Attachment: {a.get('filename', 'file')}",
@@ -136,13 +249,22 @@ def _attachment_evidence(attachments: list | None) -> list:
 
 
 def dispatch(name: str, args: dict, captain_id: str, context: dict, channel: str = "chat",
-             attachments: list | None = None):
+             attachments: list | None = None, turn=None):
+    """`turn` is the caller's per-turn spend meter, threaded through to apply_policy because
+    the adversarial verifier it runs is an LLM call INSIDE the turn — see verifier.verify."""
     if name == "search_sops":
-        hits = store.retrieve(args.get("query", ""), k=8)
+        # k=4 and a 320-char snippet, down from k=8 / 700. This is the largest PERMANENT
+        # contributor to history growth in the platform: a search_sops result is appended to
+        # sess.contents and resent in full on every later step and every later turn, so its
+        # size is multiplied by the length of the conversation, not paid once. Measured at
+        # k=8 it was ~1,143 tokens carried forever per search.
+        # The 700 was dead code besides — store.retrieve already truncates at 500, so the
+        # slice never fired and the real cap was invisible at this call site.
+        hits = store.retrieve(args.get("query", ""), k=SEARCH_K)
         # NOTE: we intentionally do NOT extract form links separately — a form/link
         # in an SOP is usually conditional on a specific branch. Keep it inline in the
         # snippet so the model only offers it when its stated condition is met.
-        result = {"results": [{"title": h["title"], "snippet": h["text"][:700],
+        result = {"results": [{"title": h["title"], "snippet": h["text"][:SNIPPET_CHARS],
                                "type": h.get("knowledge_type", "procedure"),  # policy=rigid rule we own; procedure=functional/supply-chain process
                                "source": h["source_repo"]} for h in hits]}
         ev = _evt("knowledge", "Retrieve SOP knowledge", tier="fast",
@@ -152,36 +274,42 @@ def dispatch(name: str, args: dict, captain_id: str, context: dict, channel: str
         return result, [ev], None, None
 
     if name == "get_captain_context":
-        p = context.get("profile", {})
-        result = {
-            "profile": {"name": p.get("name"), "hub": p.get("hub_name"), "tier": p.get("tier")},
-            "debits": [{"id": d["id"], "amount_inr": d["amount_inr"], "date": d["date"],
-                        "reason": d.get("reason"), "awb": d.get("awb")}
-                       for d in context.get("ledger", []) if d.get("type") == "debit"],
-            "losses": context.get("losses", []),
-            "shipments": [{"awb": s["awb"], "status": s["status"],
-                           "on_manifest_path": s.get("on_correct_manifest_path")}
-                          for s in context.get("shipments", [])],
-            "cod_pendency_inr": context.get("cash", {}).get("cod_pendency_inr", 0),
-        }
-        ev = _evt("ground", "Ground in live data", detail="Assembled grounded Captain Context",
-                  data={"profile": p, "source": context.get("_sources", {})})
+        result = captain_aggregate(context)
+        # The ROWS go here — to the trace, which is local, auditable, and never sent to the
+        # model. This is the correct home for them: a reviewer replaying the concern needs
+        # to see exactly which debits the aggregate was computed from.
+        ev = _evt("ground", "Ground in live data",
+                  detail=f"{result['debits_on_record']} debit(s) on record · "
+                         f"{result['open_debits']} open · aggregates only to the model",
+                  data={"profile": context.get("profile", {}),
+                        "source": context.get("_sources", {}),
+                        "aggregate": result,
+                        "rows": {"ledger": context.get("ledger", []),
+                                 "losses": context.get("losses", [])}})
         return result, [ev], None, None
 
     if name == "run_data_query":
         qn = args.get("query_name", "")
-        rows = data_queries._run(qn, {"awb": args.get("awb")}, context)
-        ev = _evt("query", "Data query (LLM picks, DB runs)", tier="fast",
-                  detail=f"ran '{qn}' → {len(rows)} row(s)", data={"query": qn, "rows": rows})
-        return {"query": qn, "rows": rows}, [ev], None, None
+        answer, rows = data_queries.run_and_compose(qn, {"awb": args.get("awb")}, context)
+        ev = _evt("query", "Data query (LLM picks, DB runs, CODE composes)", tier="fast",
+                  detail=f"ran '{qn}' → {len(rows)} row(s) → composed answer",
+                  data={"query": qn, "answer": answer, "rows": rows})
+        # The model gets the composed sentence and the row count. Not the rows — a tool
+        # result is appended to sess.contents permanently and resent on every later step.
+        return {"query": qn, "answer": answer, "rows_found": len(rows)}, [ev], None, None
 
     if name == "apply_policy":
-        return _apply_policy(args, captain_id, context, channel, attachments=attachments)
+        return _apply_policy(args, captain_id, context, channel, attachments=attachments, turn=turn)
 
     if name == "escalate_case":
         return _escalate_case(args, captain_id, context, channel, attachments=attachments)
 
-    return {"error": f"unknown tool {name}"}, [], None, None
+    # An unknown tool name left NO trace event at all, so the one failure mode that means
+    # "the model called something that doesn't exist" was the one invisible to a reviewer.
+    return ({"error": f"unknown tool {name}", "available": [d["name"] for d in DECLARATIONS]},
+            [_evt("explain", "Unknown tool requested", status="blocked", tier="fast",
+                  detail=f"the model called '{name}', which is not a declared tool",
+                  data={"tool": name})], None, None)
 
 
 def _escalate_case(args: dict, captain_id: str, context: dict, channel: str, attachments: list | None = None):
@@ -241,7 +369,8 @@ def _capture_gap(intent: str, reason: str, captain_id: str):
                  data={"kt_id": kt["id"], "auto_gap": True})]
 
 
-def _apply_policy(args: dict, captain_id: str, context: dict, channel: str, attachments: list | None = None):
+def _apply_policy(args: dict, captain_id: str, context: dict, channel: str,
+                  attachments: list | None = None, turn=None):
     disposition = args.get("disposition", "")
     entities = {k: args.get(k) for k in ("awb", "amount_inr", "txn_id") if args.get(k) is not None}
     events = []
@@ -260,7 +389,7 @@ def _apply_policy(args: dict, captain_id: str, context: dict, channel: str, atta
 
     verifier_agrees = None
     if verdict["passed"] and verdict["requires_adversarial_verify"]:
-        v = verifier.verify(decision, decision["evidence_trail"], decision["reason"])
+        v = verifier.verify(decision, decision["evidence_trail"], decision["reason"], turn=turn)
         verifier_agrees = v["agrees"]
         events.append(_evt("verify", "Adversarial verifier", tier="deep",
                            detail=("AGREES" if v["agrees"] else "REFUTES") + f" — {v['reason']}", data=v))

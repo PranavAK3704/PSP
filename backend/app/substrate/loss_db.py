@@ -320,6 +320,150 @@ def partner_ledger(partner_id: str, limit: int = 100) -> list[dict]:
     return entries
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CAPTAIN SUMMARY — the aggregate the engine sends to the model instead of rows.
+#
+# `partner_losses` above is the ROW reader: it exists for the panel and the trace, both of
+# which are local and auditable. It is NOT what goes to the model — it carries awb,
+# entity_id, and metadata_attribution_marked_by (real Meesho employee first names), and a
+# tool result lands in the conversation history permanently. See engine/dataplane.py.
+#
+# This is the projection the model gets: counts and totals, nothing quotable. It answers
+# "what does this captain carry" — enough to decide what to DO — while carrying no value
+# that identifies a person or another shipment.
+#
+# The lifecycle vocabulary comes from the real column, not from a guess:
+#   SUCCEEDED  the debit was recovered from the captain      (7,509 rows)
+#   PENDING    requested, not yet recovered — still open     (2,318)
+#   FAILED     recovery attempt failed                       (167)
+#   REVERSED   reversed back to the captain                  (6)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# A reversal row is NOT a debit. It was being counted as both — COUNT(*) included it in
+# `debits` while the reversal CASE also counted it in `reversals` — so a partner whose entire
+# history had been reversed was reported to the model as "4 debits on record, ₹1,036 debited"
+# with recovered+pending+failed all zero, a total that reconciled with nothing. 5 partners in
+# the current ledger are affected. It also broke the invariant that the aggregate is identical
+# whichever provider computes it: the Python path in tools.captain_aggregate types a reversal
+# as a CREDIT and excludes it, so SQL and Python disagreed and SQL won.
+_IS_REV = "(current_status = 'REVERSED' OR attribution_type = 'loss_reversal')"
+
+_SUMMARY_SQL = f"""
+SELECT SUM(CASE WHEN {_IS_REV} THEN 0 ELSE 1 END)                      AS debits,
+       -- Every lifecycle bucket EXCLUDES reversal rows, not just the total. A reversal can
+       -- carry current_status='SUCCEEDED' while attribution_type='loss_reversal' (the export
+       -- populates the two inconsistently), so keying the buckets on status alone counted
+       -- the reversed amount as recovered — which left total_debited ≠ recovered+pending+failed
+       -- by exactly the reversed amount for 2 of the 5 affected partners.
+       SUM(CASE WHEN current_status = 'PENDING'   AND NOT {_IS_REV} THEN 1 ELSE 0 END) AS open_n,
+       SUM(CASE WHEN current_status = 'PENDING'   AND NOT {_IS_REV} THEN attribution_amount ELSE 0 END) AS pending_amt,
+       SUM(CASE WHEN current_status = 'SUCCEEDED' AND NOT {_IS_REV} THEN attribution_amount ELSE 0 END) AS recovered_amt,
+       SUM(CASE WHEN current_status = 'FAILED'    AND NOT {_IS_REV} THEN attribution_amount ELSE 0 END) AS failed_amt,
+       SUM(CASE WHEN {_IS_REV} THEN 1 ELSE 0 END)                      AS reversals,
+       SUM(CASE WHEN {_IS_REV} THEN attribution_amount ELSE 0 END)      AS reversed_amt,
+       SUM(CASE WHEN {_IS_REV} THEN 0 ELSE attribution_amount END)      AS total_amt,
+       MIN(attribution_date)                                           AS first_debit,
+       MAX(attribution_date)                                           AS last_debit
+  FROM attribution WHERE partner_id = ?
+"""
+
+# Which loss types, and how many of each — the model needs the MIX to route, never the rows.
+_SUMMARY_MIX_SQL = ("SELECT loss_type, COUNT(*) AS n FROM attribution"
+                    " WHERE partner_id = ? GROUP BY loss_type ORDER BY n DESC LIMIT 6")
+
+
+def captain_summary(partner_id: str) -> dict:
+    """Aggregates for one partner, computed in SQL. Empty dict if unknown/unavailable.
+
+    Deliberately contains NO awb, NO partner_id, and NO marked_by. `hub` is included: a
+    3-letter facility code is not a person, it is what routes an escalation to the owning
+    team, and the Data Foundation panel already publishes hub codes on that reasoning.
+    """
+    if not available() or not partner_id or not _has("attribution"):
+        return {}
+    pid = str(partner_id).strip()
+    rows = _query(_SUMMARY_SQL, (pid,))
+    # `debits` is now 0 for a partner whose every row was reversed, so emptiness has to be
+    # judged on whether the partner exists AT ALL, not on the debit count — otherwise a
+    # fully-reversed captain reads as an unknown captain.
+    if not rows or (not _i(rows[0].get("debits")) and not _i(rows[0].get("reversals"))):
+        return {}
+    r = rows[0]
+    prof = partner_profile(pid)
+    mix = {}
+    for m in _query(_SUMMARY_MIX_SQL, (pid,)):
+        key = _LT_TO_REASON.get((m.get("loss_type") or "").lower(),
+                                (m.get("loss_type") or "other").lower() or "other")
+        mix[key] = mix.get(key, 0) + _i(m.get("n"))
+    return {
+        "hub": prof.get("hub", ""),
+        "debits_on_record": _i(r.get("debits")),
+        "open_debits": _i(r.get("open_n")),
+        "total_debited_inr": round(_amt(r.get("total_amt"))),
+        "recovered_inr": round(_amt(r.get("recovered_amt"))),
+        "pending_inr": round(_amt(r.get("pending_amt"))),
+        "failed_inr": round(_amt(r.get("failed_amt"))),
+        "reversals": _i(r.get("reversals")),
+        "reversed_inr": round(_amt(r.get("reversed_amt"))),
+        "loss_type_mix": mix,
+        "first_debit": r.get("first_debit") or "",
+        "last_debit": r.get("last_debit") or "",
+        "source": source(),
+    }
+
+
+def read_captain_summary(partner_id: str) -> dict:
+    """The engine's read path: the MATERIALISED `captain_summary` row if the build script
+    has run, else computed live from `attribution`.
+
+    Materialising matters on the remote path. Computing live is two aggregate queries; over
+    Turso that is two HTTPS round-trips on every turn that touches captain context, and the
+    query set is fixed, so the result can be computed once by
+    scripts/build_captain_summary.py and read with a single indexed lookup. Falling back to
+    the live computation rather than to {} means the table is an OPTIMISATION, never a
+    dependency — a deploy that forgot to run the build script is slower, not broken.
+    """
+    if not available() or not partner_id:
+        return {}
+    pid = str(partner_id).strip()
+    if _has("captain_summary"):
+        try:
+            rows = _query("SELECT * FROM captain_summary WHERE partner_id = ?", (pid,))
+            if rows:
+                r = dict(rows[0])
+                out = {
+                    "hub": r.get("hub") or "",
+                    "debits_on_record": _i(r.get("debits_on_record")),
+                    "open_debits": _i(r.get("open_debits")),
+                    "total_debited_inr": round(_amt(r.get("total_debited_inr"))),
+                    "recovered_inr": round(_amt(r.get("recovered_inr"))),
+                    "pending_inr": round(_amt(r.get("pending_inr"))),
+                    "failed_inr": round(_amt(r.get("failed_inr"))),
+                    "reversals": _i(r.get("reversals")),
+                    "reversed_inr": round(_amt(r.get("reversed_inr"))),
+                    "loss_type_mix": _parse_mix(r.get("loss_type_mix")),
+                    "first_debit": r.get("first_debit") or "",
+                    "last_debit": r.get("last_debit") or "",
+                    "source": source(), "materialised_at": r.get("computed_at") or "",
+                }
+                return out
+        except Exception:  # noqa: BLE001 — a stale/malformed table must not break the turn
+            pass
+    return captain_summary(pid)
+
+
+def _parse_mix(v) -> dict:
+    """loss_type_mix is stored as JSON text (Turso stores everything as TEXT)."""
+    import json
+    if isinstance(v, dict):
+        return v
+    try:
+        out = json.loads(v or "{}")
+        return out if isinstance(out, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def known_partners(limit: int = 12) -> list[str]:
     """Real partner ids with enough history to be worth opening a conversation about."""
     if not available() or not _has("attribution"):

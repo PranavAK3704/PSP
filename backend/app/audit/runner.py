@@ -29,6 +29,20 @@ from . import rubric as rubric_mod
 _STORE = durable_path("audits.json")
 _lock = threading.Lock()
 
+# ── spend bounds ─────────────────────────────────────────────────────────────
+# A batch audit is the only ×N fan-out of a deep-tier model anywhere in this codebase,
+# so it is the only place a single request can drain the API credit. Three bounds,
+# deliberately layered, because each one alone leaks:
+#   MAX_BATCH        — the request-boundary cap (mirrored as a pydantic Field in main.py)
+#   DEFAULT_BATCH    — a small default, so an omitted `limit` is cheap rather than 10 calls
+#   MAX_CALLS_PER_BATCH — bounds the RETRIES. `limit` bounds only the first attempt per
+#                    concern; with MAX_ATTEMPTS=2 a "limit=20" batch could still cost 40
+#                    calls. This caps the batch in units of what is actually billed.
+MAX_BATCH = 20
+DEFAULT_BATCH = 5
+MAX_ATTEMPTS = 2
+MAX_CALLS_PER_BATCH = 24
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -159,18 +173,35 @@ def _coerce_result(parsed: dict, rubric: dict) -> dict:
     return per_dimension
 
 
-def audit_concern(concern_id: str) -> dict:
-    """Judge one concern against the current rubric, persist + return the result."""
+def audit_concern(concern_id: str, _budget: dict | None = None) -> dict:
+    """Judge one concern against the current rubric, persist + return the result.
+
+    A judge that never returned usable JSON is an ERROR — it is NOT a score of zero.
+    This used to fall through to `_coerce_result({})`, which produces 0.0 on every
+    dimension, a composite of 0, and then PERSISTED it. Once stored, a transport
+    failure is indistinguishable from a genuinely terrible resolution: the dashboard
+    reads "the agent performed terribly", the zero drags the running average down
+    permanently, and the concern is marked audited so it never gets re-judged. So a
+    failed judge now writes nothing and says so.
+
+    `_budget` is the batch-level call ledger (see MAX_CALLS_PER_BATCH); None means an
+    unbudgeted single audit, which costs at most MAX_ATTEMPTS calls by construction.
+    """
     concern = _get_concern(concern_id)
     if not concern:
-        return {"error": f"concern {concern_id} not found"}
+        return {"concern_id": concern_id, "error": f"concern {concern_id} not found"}
     trace = trace_log.get(concern_id)
     rubric = rubric_mod.get_rubric()
     prompt = _build_prompt(concern, trace, rubric)
 
     provider, model = llm_registry.for_node("sop_compile")   # deep tier, same as compilers
-    parsed, overall = {}, ""
-    for attempt in range(2):   # robust to a JSON parse miss — one retry
+    parsed, overall, last_err = {}, "", ""
+    for _attempt in range(MAX_ATTEMPTS):   # robust to a JSON parse miss — one retry
+        if _budget is not None and _budget.get("calls", 0) >= MAX_CALLS_PER_BATCH:
+            last_err = last_err or "batch LLM-call budget exhausted before this attempt"
+            break
+        if _budget is not None:            # count BEFORE the call — a failed call still bills
+            _budget["calls"] = _budget.get("calls", 0) + 1
         try:
             res = provider.generate(prompt, model=model, node="sop_compile",
                                     system=_SYSTEM, json_mode=True)
@@ -180,9 +211,15 @@ def audit_concern(concern_id: str) -> dict:
             if isinstance(parsed, dict) and parsed.get("per_dimension"):
                 overall = str(parsed.get("overall_rationale", "")).strip()
                 break
-        except Exception:  # noqa: BLE001 — retry once, then fall back to zeros
+            last_err = "judge returned JSON with no per_dimension block"
+        except Exception as e:  # noqa: BLE001 — retry once, then report the failure
+            last_err = f"{type(e).__name__}: {e}"[:300]
             parsed = {}
-    per_dimension = _coerce_result(parsed if isinstance(parsed, dict) else {}, rubric)
+    if not (isinstance(parsed, dict) and parsed.get("per_dimension")):
+        return {"concern_id": concern_id, "judge_failed": True,
+                "error": last_err or "judge returned no usable JSON"}
+
+    per_dimension = _coerce_result(parsed, rubric)
     composite = _composite(per_dimension, rubric)
 
     result = {
@@ -203,21 +240,40 @@ def audit_concern(concern_id: str) -> dict:
     return result
 
 
-def audit_batch(limit: int = 10) -> dict:
+def audit_batch(limit: int = DEFAULT_BATCH) -> dict:
     """Audit the most recent `limit` UN-audited concerns (sampling — not everything).
-    Returns a summary {audited, results, skipped_already_audited}."""
+    Returns a summary {audited, results, skipped_already_audited}.
+
+    `limit` is clamped here as well as at the request boundary: this function is also
+    reachable from scripts and the REPL, where no pydantic validator runs.
+    """
+    try:
+        n = int(limit)
+    except (TypeError, ValueError):
+        n = DEFAULT_BATCH
+    n = min(MAX_BATCH, max(1, n))
+
     audited_ids = {a.get("concern_id") for a in _load()}
     todo = []
     for c in concern_log.all_concerns():   # newest first
         cid = c.get("id")
         if cid and cid not in audited_ids:
             todo.append(cid)
-        if len(todo) >= max(1, int(limit or 10)):
+        if len(todo) >= n:
             break
-    results = [audit_concern(cid) for cid in todo]
-    ok = [r for r in results if "error" not in r]
+    budget = {"calls": 0}
+    results = [audit_concern(cid, _budget=budget) for cid in todo]
+    ok = [r for r in results if "composite" in r]
+    # Three outcomes, reported separately: scored, the judge failed, or the concern vanished
+    # between listing and auditing. Folding the last two together would attribute a race to
+    # the model.
+    judge_failed = [r for r in results if r.get("judge_failed")]
     return {
         "audited": len(ok),
+        "failed": len(judge_failed),
+        "not_found": len(results) - len(ok) - len(judge_failed),
+        "llm_calls": budget["calls"],
+        "limit_applied": n,
         "avg_composite": round(sum(r["composite"] for r in ok) / len(ok)) if ok else None,
         "results": results,
         "already_audited": len(audited_ids),

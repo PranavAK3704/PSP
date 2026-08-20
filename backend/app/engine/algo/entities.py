@@ -16,9 +16,20 @@ import re
 from typing import Any
 
 # ── AWB ────────────────────────────────────────────────────────────────────────
-# Valmo AWBs are "VL" + 13 digits. Anchored on a word boundary and length-bounded because
-# free text contains long digit runs (transaction refs, UTRs) that a loose \d+ would eat.
-_AWB = re.compile(r"\bVL\d{13}\b", re.I)
+# Valmo AWBs come in TWO shapes: "VL" + 13 digits and "VLR" + 12 digits. Anchored on a word
+# boundary and length-bounded because free text contains long digit runs (transaction refs,
+# UTRs) that a loose \d+ would eat.
+# THE TRAP, and it was live: this used to be `\bVL\d{13}\b` alone, which is *structurally*
+# unable to match a VLR awb — the character after "VL" is "R", not a digit, so the pattern
+# fails at the third character every time. Measured against the full 1,000,001-row ledger:
+# 743,770 VL (74.38%) matched, 256,229 VLR (25.62%) could never match. Worse, VLR is the
+# shape partners actually TYPE — the surviving awb tokens in the scrubbed ticket corpus run
+# 24 VLR to 2 VL — so the miss was concentrated exactly on live traffic. The two shapes
+# together reach 999,999 of 1,000,001 rows (99.9998%); the residue is one 'VALGS'+11 and one
+# 'VL'+10, both single rows, and neither is worth loosening a fixed-length pattern for.
+# No false-positive risk is added: both branches are a fixed prefix plus a fixed digit run,
+# and the alternation is ordered so VL is tried first (VLR can only match via its own branch).
+_AWB = re.compile(r"\b(?:VL\d{13}|VLR\d{12})\b", re.I)
 
 # ── hub / location codes ───────────────────────────────────────────────────────
 # THE TRAP: hub codes are 3-letter uppercase tokens, and matching that shape against free

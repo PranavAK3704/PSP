@@ -1164,7 +1164,17 @@ function AuditScores() {
   }
   async function auditBatch() {
     setBusy(true);
-    try { const r = await runAuditBatch(10); flash(`Audited ${r.audited} concern${r.audited === 1 ? "" : "s"}${r.avg_composite != null ? ` · avg ${r.avg_composite}` : ""}.`); await loadScores(); }
+    // A judge that failed is reported as failed, never folded into the audited count — the
+    // whole point of the runner's error path is that a transport failure must not look like
+    // a score. `llm_calls` is shown because it is what the batch actually cost.
+    try {
+      const r = await runAuditBatch();
+      flash(`Audited ${r.audited} concern${r.audited === 1 ? "" : "s"}`
+        + `${r.avg_composite != null ? ` · avg ${r.avg_composite}` : ""}`
+        + `${r.failed ? ` · ${r.failed} judge failure${r.failed === 1 ? "" : "s"} (not scored)` : ""}`
+        + `${r.llm_calls ? ` · ${r.llm_calls} LLM call${r.llm_calls === 1 ? "" : "s"}` : ""}.`);
+      await loadScores();
+    }
     finally { setBusy(false); }
   }
   async function auditOne() {

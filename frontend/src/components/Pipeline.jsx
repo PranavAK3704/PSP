@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Mic, Search, Database, GitBranch, ShieldCheck, Scale, Swords,
   Zap, MessageSquareHeart, Archive, AlertTriangle, CheckCircle2, XCircle,
-  CircleDot, Sparkles, BookOpen, HelpCircle, Clock,
+  CircleDot, Sparkles, BookOpen, HelpCircle, Clock, ShieldAlert, Receipt,
 } from "lucide-react";
 
 const ICONS = {
@@ -12,6 +12,9 @@ const ICONS = {
   knowledge: BookOpen, explain: MessageSquareHeart, learn: Archive, resolved: CheckCircle2,
   gather: HelpCircle, need_input: Clock, friction: AlertTriangle, query: Database,
   stream: Database, firstpass: Search, compose: Sparkles, nudge: MessageSquareHeart, clear: CheckCircle2,
+  // `guard` is its own node, NOT a second "ground" event: this list is collapsed by node id
+  // below (latest wins), so two events sharing a name silently overwrite each other.
+  guard: ShieldAlert, cost: Receipt,
 };
 
 export function ConfidenceDial({ value = 0, threshold = 0.8 }) {
@@ -78,10 +81,29 @@ function NodeBody({ ev }) {
         </div>
       )}
 
-      {ev.node === "ground" && d.profile && (
+      {/* Grounding shows what the MODEL received — the aggregate — not the rows. The rows are in
+          this event's `data.rows` for anyone replaying the concern, but they never left the box,
+          which is the whole point of the projection (see backend engine/dataplane.py). Under the
+          real-data provider there is no captain name at all: the provider refuses to invent one. */}
+      {ev.node === "ground" && (d.aggregate || d.profile) && (
         <div className="kv">
-          <span className="tag">{d.profile.name}</span>
-          <span className="tag">{d.profile.hub_name}</span>
+          {d.aggregate ? (
+            <>
+              <span className="tag">{d.aggregate.debits_on_record} debits</span>
+              <span className="tag">{d.aggregate.open_debits} open</span>
+              {d.aggregate.total_debited_inr > 0 &&
+                <span className="tag">₹{Number(d.aggregate.total_debited_inr).toLocaleString("en-IN")} debited</span>}
+              {d.aggregate.reversals > 0 && <span className="tag">{d.aggregate.reversals} reversed</span>}
+              {d.aggregate.hub && <span className="tag">hub {d.aggregate.hub}</span>}
+              {d.aggregate.cod_data_available === false &&
+                <span className="tag" style={{ color: "var(--warn)", borderColor: "var(--warn)" }}>no COD data</span>}
+              {(d.rows?.losses || []).length > 0 &&
+                <span className="tag" style={{ color: "var(--text-faint)" }}>
+                  {(d.rows.losses || []).length} row(s) held locally
+                </span>}
+            </>
+          ) : null}
+          {d.profile?.name && <span className="tag">{d.profile.name}</span>}
           {d.ledger_lines != null && <span className="tag">{d.ledger_lines} ledger lines</span>}
           {/* `source` may be a string OR an object ({account, shipments}) — never render the raw
               object (React throws "Objects are not valid as a React child"). */}
@@ -147,10 +169,44 @@ function NodeBody({ ev }) {
         </div>
       )}
 
+      {/* The composed answer is what the model got; the rows stayed here. */}
       {ev.node === "query" && (
+        <>
+          <div className="kv">
+            <span className="tag" style={{ color: "var(--info)" }}>query: {d.query}</span>
+            <span className="tag">{(d.rows || []).length} row(s)</span>
+            <span className="tag" style={{ color: "var(--text-faint)" }}>composed in code</span>
+          </div>
+          {d.answer && (
+            <div className="evidence-card" style={{ borderLeftColor: "var(--info)" }}>
+              <div className="er">{d.answer}</div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* What the turn actually cost, priced at list rate from the real token counts. */}
+      {ev.node === "cost" && (
         <div className="kv">
-          <span className="tag" style={{ color: "var(--info)" }}>query: {d.query}</span>
-          <span className="tag">{(d.rows || []).length} row(s)</span>
+          <span className="tag" style={{ color: "var(--good)" }}>${Number(d.cost_usd || 0).toFixed(4)}</span>
+          <span className="tag">{d.calls} model call{d.calls === 1 ? "" : "s"}</span>
+          <span className="tag">{Number(d.tokens_in || 0).toLocaleString()} in / {Number(d.tokens_out || 0).toLocaleString()} out</span>
+          {d.budget_remaining_usd != null &&
+            <span className="tag" style={{ color: "var(--text-faint)" }}>
+              ${Number(d.budget_remaining_usd).toFixed(2)} budget left
+            </span>}
+        </div>
+      )}
+
+      {/* The data-plane guard only ever renders when something tried to cross the boundary. */}
+      {ev.node === "guard" && (
+        <div className="kv">
+          {(d.leaks || []).slice(0, 4).map((l, i) => (
+            <span key={i} className="tag" style={{ color: "var(--warn)", borderColor: "var(--warn)" }}>
+              {l.kind} redacted
+            </span>
+          ))}
+          {d.tool && <span className="tag">from {d.tool}</span>}
         </div>
       )}
 

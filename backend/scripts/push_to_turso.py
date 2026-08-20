@@ -6,6 +6,7 @@ queries Turso when TURSO_DATABASE_URL + TURSO_AUTH_TOKEN are set.
 
 Usage:
   python scripts/push_to_turso.py --url libsql://<db>.turso.io --token <token> [--limit N]
+  python scripts/push_to_turso.py --tables captain_summary        # just one derived table
 
 --limit caps rows per table (handy for a fast first push; omit for everything). HTTP bulk
 insert of the full 1M-row losses table is slow — for the full set, a subset db
@@ -24,6 +25,9 @@ def main():
     ap.add_argument("--token", default=os.environ.get("TURSO_AUTH_TOKEN"))
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--db", default=str(DB))
+    # Without this, pushing a small derived table means re-pushing the 1M-row losses export
+    # alongside it — hours of HTTPS round-trips to move a few hundred rows.
+    ap.add_argument("--tables", default="", help="comma-separated table names (default: all)")
     a = ap.parse_args()
     if not a.url or not a.token:
         sys.exit("need --url and --token (or TURSO_DATABASE_URL / TURSO_AUTH_TOKEN)")
@@ -34,6 +38,12 @@ def main():
     local.row_factory = sqlite3.Row
 
     tables = [r[0] for r in local.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+    if a.tables:
+        want = [t.strip() for t in a.tables.split(",") if t.strip()]
+        missing = [t for t in want if t not in tables]
+        if missing:
+            sys.exit(f"not in {a.db}: {', '.join(missing)} (have: {', '.join(tables)})")
+        tables = want
     print("pushing tables:", tables, flush=True)
     for t in tables:
         cols = [r[1] for r in local.execute(f"PRAGMA table_info({t})")]
@@ -50,10 +60,14 @@ def main():
                     print(f"  {t}: {n} rows…", flush=True)
         if batch:
             th.batch(a.url, a.token, batch)
-        try:
-            th.execute(a.url, a.token, f'CREATE INDEX IF NOT EXISTS idx_{t}_awb ON {t}("awb")')
-        except Exception as e:  # noqa: BLE001 — table may not have awb
-            print(f"  ({t}: index skipped: {e})")
+        # Index whichever key the table is actually read by — awb for the AWB-keyed exports,
+        # partner_id for the partner-keyed ones. Both are attempted; the wrong one just fails.
+        for col in ("awb", "partner_id"):
+            try:
+                th.execute(a.url, a.token,
+                           f'CREATE INDEX IF NOT EXISTS idx_{t}_{col} ON {t}("{col}")')
+            except Exception as e:  # noqa: BLE001 — table may not have this column
+                print(f"  ({t}: {col} index skipped: {str(e)[:60]})")
         print(f"  ✓ {t}: {n} rows", flush=True)
     local.close()
     print("done — the engine queries Turso when TURSO_DATABASE_URL + TURSO_AUTH_TOKEN are set.", flush=True)

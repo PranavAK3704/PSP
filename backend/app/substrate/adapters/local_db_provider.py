@@ -64,6 +64,19 @@ class LocalDbProvider:
     def get_losses(self, captain_id: str) -> list[dict]:
         return loss_db.partner_losses(captain_id)
 
+    def get_summary(self, captain_id: str) -> dict:
+        """Counts and totals over the captain's FULL debit history, aggregated in SQL.
+
+        This is the value the engine sends to the model instead of rows (see
+        engine/dataplane.py). Two reasons it is computed here rather than by summing
+        get_losses() in Python: the row reader is capped at 200 rows so a Python sum would
+        silently under-report a heavier partner, and read_captain_summary prefers the
+        materialised `captain_summary` table, which turns two Turso round-trips per turn into
+        one indexed lookup. It falls back to computing live, so the table is an optimisation
+        and never a dependency.
+        """
+        return loss_db.read_captain_summary(captain_id)
+
     def get_cash(self, captain_id: str) -> dict:
         """EMPTY BY DESIGN — valmo.db holds no COD pendency or CMS deposit data. Returning
         {"cod_pendency_inr": 0} would be a lie shaped like a fact: zero pendency is a specific,

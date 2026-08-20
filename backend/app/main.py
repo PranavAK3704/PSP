@@ -22,7 +22,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -38,6 +38,7 @@ from .engine import conversation, dispositions          # noqa: E402
 from .knowledge import blueprints, governance, sop_compiler, store  # noqa: E402
 from .kt import engine as kt_engine                     # noqa: E402
 from .l3 import platform as l3                          # noqa: E402
+from .llm import meter as llm_meter                     # noqa: E402
 from .llm import registry as llm_registry               # noqa: E402
 from .ledger import concern_log, trace_log               # noqa: E402
 from .monitor import monitor                             # noqa: E402
@@ -186,7 +187,14 @@ class AuditRunIn(BaseModel):
 
 
 class AuditBatchIn(BaseModel):
-    limit: int = 10
+    # Bounded at the REQUEST BOUNDARY, not just inside the runner. Every unit of `limit`
+    # is one deep-tier LLM call, and this route sits behind _authed — any logged-in
+    # session, not just an author. An unvalidated `limit` therefore let one request spend
+    # the entire API credit (limit=500 → 500+ Opus calls), and because the call blocks for
+    # minutes it would hit a proxy timeout BEFORE finishing — the money spent with nobody
+    # watching the result. le=20 keeps the worst case bounded; audit_runner clamps again
+    # for callers that don't come through FastAPI.
+    limit: int = Field(audit_runner.DEFAULT_BATCH, ge=1, le=audit_runner.MAX_BATCH)
 
 
 class LoginIn(BaseModel):
@@ -266,11 +274,23 @@ def health():
     # `key_configured` is presence-only (never the value). Without it a keyless deploy looks
     # perfectly healthy here and only fails on the first real turn — see registry.key_configured.
     key_ok = llm_registry.key_configured()
+    # Spend is health. A deployment sitting at 100% of its ceiling answers every request
+    # normally right up until the first chat turn, at which point it fails — the same
+    # invisible-until-it-matters shape as a missing key, so it is reported the same way.
+    try:
+        spend = llm_meter.totals()
+    except Exception:  # noqa: BLE001 — health must never throw
+        spend = None
     return {"ok": True, "provider": llm_registry.active_provider_name(),
             "llm": {"model": llm_registry.active_model_label(),
                     "key_configured": key_ok,
                     **({} if key_ok else {"detail": "No API key set for the active provider — "
                                                     "chat will fail until it is configured."}),
+                    **({"spend": spend} if spend else {}),
+                    **({"detail_budget": f"LLM budget exhausted (${spend['spent_usd']:.2f} of "
+                                         f"${spend['budget_usd']:.2f}) — chat will refuse to call "
+                                         f"the model until LLM_BUDGET_USD is raised."}
+                       if spend and spend["remaining_usd"] <= 0 else {}),
                     },
             "knowledge": store.corpus_stats(), "data": ds}
 

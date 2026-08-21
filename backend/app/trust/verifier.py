@@ -54,6 +54,11 @@ def verify(decision: dict, grounded_evidence: list[dict], reasoning: str, turn=N
     the ceiling would only have covered the conversation loop and the reported turn cost would
     have understated the truth by the verifier's share."""
     provider, model = llm_registry.for_node("adversarial_verify")
+    # Who PROPOSED vs who VERIFIED, on the same event. The trace already carried the verifier's
+    # model, but with nothing to compare it against — and a lone model id does not show that two
+    # different vendors looked at the decision. That contrast is the whole claim.
+    proposed_by = llm_registry.label_for_node("classify")
+    verified_by = f"{provider.name}:{model}"
     checks = "\n".join(f"- {c['description']}: {c.get('result', '?')}" for c in decision.get("checks_run", []))
     evidence = "\n".join(f"- {e['label']}: {e['value']}" for e in grounded_evidence)
     try:
@@ -70,14 +75,28 @@ def verify(decision: dict, grounded_evidence: list[dict], reasoning: str, turn=N
     except Exception as e:  # noqa: BLE001
         # Trust spine: the verifier being unavailable must NEVER auto-approve money.
         # Fail CLOSED — treat as "did not agree" → the pipeline escalates to a human.
+        # Fail CLOSED, but say WHY in a way that cannot be mistaken for disagreement. Naming
+        # the provider matters now that this node can be a different vendor from the rest of the
+        # pipeline: "gemini unreachable" is a config fact someone can act on, whereas
+        # "verifier unavailable" reads as the skeptic having refused.
+        key_ok = llm_registry.key_configured(provider.name)
+        why = ("no API key configured for it" if not key_ok
+               else f"{type(e).__name__}: {str(e)[:120]}")
         return {"agrees": False, "confidence": 0.0,
-                "reason": f"adversarial verifier unavailable ({type(e).__name__}) — failing closed to human review",
-                "model": model, "provider": provider.name, "input_tokens": 0, "output_tokens": 0}
+                "reason": (f"adversarial verifier ({verified_by}) could not be reached — {why}. "
+                           f"Failing closed to human review; this is NOT the verifier disagreeing."),
+                "model": model, "provider": provider.name,
+                "proposed_by": proposed_by, "verified_by": verified_by,
+                "unavailable": True, "key_configured": key_ok,
+                "input_tokens": 0, "output_tokens": 0}
     agrees = bool(v.get("agrees", False))
     return {
         "agrees": agrees,
         "confidence": float(v.get("confidence", 0.0) or 0.0),
         "reason": v.get("reason", ""),
         "model": res.model, "provider": provider.name,
+        "proposed_by": proposed_by, "verified_by": verified_by,
+        "independent": proposed_by.split(":")[0] != verified_by.split(":")[0],
+        "unavailable": False,
         "input_tokens": res.input_tokens, "output_tokens": res.output_tokens,
     }

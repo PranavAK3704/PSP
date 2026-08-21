@@ -6,6 +6,7 @@ Uses the REST API directly (no SDK dependency) so the demo runs anywhere with
 from __future__ import annotations
 
 import json
+import time
 from typing import Optional
 
 import requests
@@ -13,6 +14,20 @@ import requests
 from .base import LLMProvider
 
 _BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+
+# ── ONE retry, on transient status codes only ────────────────────────────────────────────────
+# This provider had a bare `raise_for_status()` and no retry at all, unlike the OpenAI and
+# Claude providers. That was survivable while Gemini was a demo stand-in. It is not survivable
+# now that `adversarial_verify` routes here: `verifier.verify` fails CLOSED, which is correct
+# for production — a skeptic that cannot be reached must never auto-approve money — but it means
+# a single transient 429 converts a clean reversal into an escalation, and on a stage that reads
+# as the verifier having DISAGREED.
+#
+# So: retry once, only on codes that are actually transient, and keep failing closed after it.
+# Deliberately not a longer ladder — the verifier runs inside a turn the captain is waiting on,
+# and a 30-second retry chain is its own kind of failure.
+_RETRY_STATUS = (429, 500, 502, 503, 504)
+_RETRY_SLEEP_S = 1.5
 
 
 class GeminiProvider(LLMProvider):
@@ -30,8 +45,7 @@ class GeminiProvider(LLMProvider):
         if system:
             body["systemInstruction"] = {"parts": [{"text": system}]}
 
-        resp = requests.post(url, json=body, timeout=60)
-        resp.raise_for_status()
+        resp = _post_with_retry(url, body)
         data = resp.json()
 
         try:
@@ -58,8 +72,7 @@ class GeminiProvider(LLMProvider):
             body["systemInstruction"] = {"parts": [{"text": system}]}
         if tools:
             body["tools"] = [{"function_declarations": tools}]
-        resp = requests.post(url, json=body, timeout=90)
-        resp.raise_for_status()
+        resp = _post_with_retry(url, body, timeout=90)
         data = resp.json()
         try:
             content = data["candidates"][0]["content"]
@@ -89,3 +102,17 @@ def _parse_json(text: str):
             except json.JSONDecodeError:
                 pass
     return {}
+
+
+def _post_with_retry(url: str, body: dict, timeout: int = 60):
+    """POST once, retry once on a transient status, then raise. See the note at the top.
+
+    A non-transient status (400 bad request, 403 bad key) raises immediately — retrying a
+    rejected request wastes the captain's time and tells the operator nothing new.
+    """
+    resp = requests.post(url, json=body, timeout=timeout)
+    if resp.status_code in _RETRY_STATUS:
+        time.sleep(_RETRY_SLEEP_S)
+        resp = requests.post(url, json=body, timeout=timeout)
+    resp.raise_for_status()
+    return resp

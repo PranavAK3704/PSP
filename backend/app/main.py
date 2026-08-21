@@ -281,9 +281,24 @@ def health():
         spend = llm_meter.totals()
     except Exception:  # noqa: BLE001 — health must never throw
         spend = None
+    # Per-node routing, not one global label. `adversarial_verify` can now be a different
+    # VENDOR from the rest of the pipeline, which means a second credential that can be missing
+    # on its own — and if it is, every money decision fails closed and reads as the verifier
+    # disagreeing. Reporting it here makes that a config fact anyone can check first.
+    try:
+        route = llm_registry.routing()
+        missing = sorted({v["provider"] for v in route.values() if not v["key_configured"]})
+        independence = llm_registry.independence_status()
+    except Exception:  # noqa: BLE001 — health must never throw
+        route, missing, independence = {}, [], None
     return {"ok": True, "provider": llm_registry.active_provider_name(),
             "llm": {"model": llm_registry.active_model_label(),
                     "key_configured": key_ok,
+                    "routing": route,
+                    **({"verifier_independence": independence} if independence else {}),
+                    **({"detail_keys": f"no API key for: {', '.join(missing)} — nodes routed "
+                                       f"there will fail (the verifier fails CLOSED, so money "
+                                       f"decisions become escalations)"} if missing else {}),
                     **({} if key_ok else {"detail": "No API key set for the active provider — "
                                                     "chat will fail until it is configured."}),
                     **({"spend": spend} if spend else {}),

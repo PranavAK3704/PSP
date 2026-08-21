@@ -30,6 +30,38 @@ nodes:
   monitor_compose:     fast   # compose a proactive nudge
   sop_compile:         deep   # plain SOP -> Executable Policy (authoring)
 
+# ─── VERIFIER INDEPENDENCE ───────────────────────────────────────────────────
+# Per-node PROVIDER override. Everything else runs on `provider:` above; these nodes are
+# deliberately routed elsewhere.
+#
+# `adversarial_verify` is the skeptic that has to agree before a money decision stands. Left on
+# the global provider it was the same vendor AND the same model (`deep` tier) as the rest of the
+# pipeline — a second opinion in form only, since a verifier sharing the proposer's weights
+# shares its blind spots. Routing it to Gemini makes the disagreement possible.
+#
+# Override at deploy time with LLM_PROVIDER_ADVERSARIAL_VERIFY (env wins over this file).
+# Needs GEMINI_API_KEY; /api/health reports per-node key presence so a missing one is visible
+# BEFORE the first money decision rather than as a fail-closed escalation.
+# CURRENT VALUE IS `claude` because the GEMINI_API_KEY in backend/.env returns 401 on every
+# auth mechanism (query ?key=, x-goog-api-key, Bearer) with "Expected OAuth 2 access token" —
+# i.e. it is not a usable Gemini API key. Routing a FAIL-CLOSED verifier at a provider that
+# 401s turns every money decision into an escalation that looks like the skeptic disagreeing,
+# so the default stays on something that works.
+#
+# TO ACTIVATE REAL INDEPENDENCE: put a working key in GEMINI_API_KEY and change the line below
+# to `gemini` (or set LLM_PROVIDER_ADVERSARIAL_VERIFY=gemini, which needs no file edit).
+# /api/health.llm.verifier_independence reports which of the two is live, so this never claims
+# an independence it does not have.
+node_providers:
+  adversarial_verify: claude
+
+# Per-node model, PROVIDER-SCOPED — an unscoped id would follow the node across a vendor
+# boundary if its provider degraded, giving `claude:gemini-2.5-pro`.
+node_models:
+  adversarial_verify:
+    gemini: gemini-2.5-pro
+    claude: claude-opus-5
+
 # Tier -> concrete model id, per provider.
 tiers:
   openai:                            # legacy demo path via the hackathon gateway — kept

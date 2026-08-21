@@ -1,0 +1,135 @@
+{
+ "_provenance": {
+  "fixture": true,
+  "branch": "qc_failed",
+  "contract_source": "log10-backend-valmo-develop :: TrackingService ConsignmentTrackingController + WaybillTrackingResponse",
+  "real_awb": "VLR082508257481",
+  "derived_from_real_columns": [
+   "waybillNo <- losses.awb (VLR082508257481)",
+   "BOOKING.eventTime <- created_date",
+   "INWARD_SCAN.eventTime <- facility_inscan",
+   "CONSIGNMENT_MARKED_LOST.eventTime <- lost_date"
+  ],
+  "synthesised": [
+   "SEC_QC_FAILED at +1d, no later pass",
+   "user / DRS identifiers",
+   "POD links (empty list)",
+   "all values inside event `data`"
+  ],
+  "not_real_data": "The AWB and the dates listed under derived_from_real_columns come from a real losses row. The scan EVENTS around them do not exist in that export and were constructed to exercise one branch. Served as log10-fixture, never as log10."
+ },
+ "status": {
+  "code": 200,
+  "message": "SUCCESS"
+ },
+ "response": {
+  "tracking": [
+   {
+    "eventTime": 1782172800000,
+    "eventType": "BOOKING",
+    "user": {
+     "id": 90210,
+     "name": "hub-ops",
+     "username": "svc.ops",
+     "location": {
+      "id": 1001,
+      "name": "hub"
+     }
+    },
+    "data": {}
+   },
+   {
+    "eventTime": 1782259200000,
+    "eventType": "INWARD_SCAN",
+    "user": {
+     "id": 90210,
+     "name": "LM-DC",
+     "username": "svc.ops",
+     "location": {
+      "id": 1001,
+      "name": "LM-DC"
+     }
+    },
+    "data": {}
+   },
+   {
+    "eventTime": 1782345600000,
+    "eventType": "SEC_QC_FAILED",
+    "user": {
+     "id": 90210,
+     "name": "QC-BAY",
+     "username": "svc.ops",
+     "location": {
+      "id": 1001,
+      "name": "QC-BAY"
+     }
+    },
+    "data": {
+     "qcDetails": "SYNTHETIC"
+    }
+   },
+   {
+    "eventTime": 1782777600000,
+    "eventType": "CONSIGNMENT_MARKED_LOST",
+    "user": {
+     "id": 90210,
+     "name": "hub-ops",
+     "username": "svc.ops",
+     "location": {
+      "id": 1001,
+      "name": "hub"
+     }
+    },
+    "data": {}
+   }
+  ],
+  "consignment": {
+   "id": null,
+   "waybillNo": "VLR082508257481",
+   "description": null,
+   "totalShipmentCount": 1,
+   "totalWeight": null,
+   "totalChargableWeight": null,
+   "consignmentAmount": 268.0,
+   "payableAmount": 0.0,
+   "expectedDeliveryDate": 1782604800000,
+   "location": {
+    "id": null,
+    "name": null
+   },
+   "partner": {
+    "id": 268,
+    "name": "Valmo"
+   },
+   "partnerId": 268,
+   "customerPickupLoc": null,
+   "bookingDate": 1782172800000,
+   "bookingOfficeLoc": null,
+   "consignmentStatus": "RTO",
+   "flowType": "REVERSE",
+   "updatedAt": 1782259200000,
+   "customerPromiseDate": 1782604800000,
+   "attempts": 0,
+   "shipper": {
+    "name": "Meesho Seller",
+    "address": null,
+    "primaryNumber": "0000000000",
+    "secondaryNumber": "0000000000"
+   },
+   "consignee": {
+    "name": "Customer",
+    "address": null,
+    "primaryNumber": "0000000000",
+    "secondaryNumber": "0000000000"
+   },
+   "shipperPincode": null,
+   "consigneePincode": null,
+   "customerId": null,
+   "customerName": null,
+   "customerPhoneNumber": null,
+   "customerEmailId": null,
+   "consignmentPODBO": []
+  },
+  "drses": []
+ }
+}

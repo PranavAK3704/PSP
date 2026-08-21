@@ -9,6 +9,8 @@ from __future__ import annotations
 from ..knowledge import policies as pol
 from ..substrate import captain_context as ctx
 from ..substrate import loss_db
+from ..substrate.adapters.log10 import predicates as scan_pred
+from ..tri import Tri
 
 
 def _int(v):
@@ -52,6 +54,8 @@ def execute(disposition: str, context: dict, entities: dict) -> dict:
     if awb:
         row = loss_db.get_loss_by_awb(awb)
         if row:
+            global _ctx_captain
+            _ctx_captain = context.get("captain_id", "")
             disp = pol.reason_l1_to_disposition(row.get("reason_l1", ""))
             policy = pol.get_policy(disp) or pol.get_policy("hardstop_loss")
             pend = loss_db.get_pendency(awb)
@@ -70,6 +74,9 @@ def execute(disposition: str, context: dict, entities: dict) -> dict:
     return {"action": "escalate", "disposition": disposition, "confidence": 0.3,
             "reason": "Policy present but no deterministic executor wired — escalating safely",
             "evidence_trail": [], "checks_run": [], "evidence_present": [], "policy": policy}
+
+
+_ctx_captain = ""      # set by execute() so _eval_real_loss can reach the scan source
 
 
 def _eval_real_loss(row: dict, policy: dict, awb: str, pend: dict | None = None,
@@ -123,6 +130,36 @@ def _eval_real_loss(row: dict, policy: dict, awb: str, pend: dict | None = None,
                             + (f" · misroute {pend.get('misroute_type')}" if (pend.get('misroute_type') or '').strip() else ""),
                    "source": "pendency"})
     reversal_signal = bool(inscan) or attr_changed
+
+    # ── the typed scan timeline, as EVIDENCE on the money path ───────────────────────
+    # This branch decides every real reversal, and it decides from two COLUMNS:
+    # `facility_inscan` (a date) and `attribution_changed` (a flag). Neither says whether the
+    # shipment actually moved on afterwards — a facility in-scan with no onward connection looks
+    # identical to one followed by a clean handover.
+    #
+    # The timeline knows the difference, so it is recorded here. DELIBERATELY ADDITIVE: it does
+    # not change the decision. Feeding a scan verdict into the 0.92 reverse branch is a real
+    # behaviour change on the money path, and it needs its own review and its own regression run
+    # against the pinned branch mix — not a quiet edit inside another change. What it does buy
+    # today is that every reversal now carries the scan evidence a reviewer would ask for, and
+    # a CONTRADICTION between the column and the timeline is visible instead of invisible.
+    scan_note = None
+    try:
+        _t = _tracking_for((_ctx_captain or ""), awb)
+        if _t is not None and _t.ok and _t.events:
+            _conn, _row = scan_pred.forward_connection_within(_t)
+            ev.append({**_row, "ref": f"log10_scans#{awb}"})
+            ev.append({**scan_pred.timeline_summary(_t), "ref": f"log10_scans#{awb}"})
+            if reversal_signal and _conn is Tri.NO:
+                # The column says there is a reversal signal; the timeline says the shipment
+                # never connected onward. Both are facts about the same shipment and they point
+                # opposite ways. Flagged, not resolved — resolving it is a policy decision.
+                scan_note = ("column signal and scan timeline DISAGREE — "
+                             f"{_row['value']}. Worth a human look.")
+                ev.append({"label": "Signal conflict", "value": scan_note,
+                           "verdict": Tri.UNKNOWN.value, "source": "log10_scans"})
+    except Exception:  # noqa: BLE001 — scan evidence is additive; never break the money path
+        pass
 
     # 0) A credit note already issued ⇒ already reversed/credited.
     if cn_issued:
@@ -216,18 +253,20 @@ def _exec_hardstop(policy: dict, context: dict, entities: dict) -> dict:
                            "ref": f"payments_ledger#{debit['id']}", "source": "get_payments_ledger"})
     present.append("ledger_debit")
 
-    scans = ctx.get_scans(cap_id, awb)
+    # ── the scan timeline, TYPED ─────────────────────────────────────────────────────
+    # This used to read two precomputed booleans out of the seed fixture
+    # (`connected_within_tat`, `hardstop_sop_followed`) — the engine never looked at an event
+    # type at all, while the reply string below *named* INWARD_SCAN and MANIFEST_SCAN as prose.
+    # Now the verdicts are DERIVED from the events, and the crucial change is three-valued:
+    # `bool(scans and scans.get(...))` turned "no scan data" into False, i.e. into evidence
+    # AGAINST the captain, when the truth was "we cannot see the scans".
+    tracking = _tracking_for(cap_id, awb)
     loss = next((l for l in context.get("losses", []) if l.get("awb") == awb), None)
 
-    if scans:
+    if tracking is not None and tracking.ok and tracking.events:
         present.append("scan_trail")
-        last = scans["events"][-1] if scans.get("events") else {}
-        evidence_trail.append({
-            "label": "AWB scan trail",
-            "value": f"{awb}: in-scan {scans.get('inscan_date')} at {scans.get('hub')}; "
-                     f"{len(scans.get('events', []))} scans; connected_within_TAT="
-                     f"{scans.get('connected_within_tat')}",
-            "ref": f"log10_scans#{awb}", "source": "get_shipment_scan_history"})
+        evidence_trail.append({**scan_pred.timeline_summary(tracking),
+                               "ref": f"log10_scans#{awb}"})
     if loss:
         present.append("loss_event")
         evidence_trail.append({
@@ -244,19 +283,52 @@ def _exec_hardstop(policy: dict, context: dict, entities: dict) -> dict:
                        "passed": c1_ok})
 
     # ── Check 2: attributable to partner? (the key SOP check) ──
-    connected = bool(scans and scans.get("connected_within_tat"))
-    sop_followed = bool(scans and scans.get("hardstop_sop_followed", True))
-    if scans is None:
-        c2_result, c2_pass, attributable = "INCONCLUSIVE — no scan trail", False, None
-    elif connected and sop_followed:
-        c2_result = "FAILS Valmo-side — in-scan within TAT & hardstop SOP followed → NOT partner's fault"
+    # Three outcomes, not two. The old code had `attributable = None` for "no scans" but got
+    # there via `bool(...)`, so an absent timeline and a timeline showing no movement produced
+    # the same `False` for `connected` — and the escalation reason said "breach attributable"
+    # in both cases. On a money decision those are opposite claims about the captain.
+    connected, conn_row = scan_pred.forward_connection_within(tracking)
+    if not any(r.get("label") == conn_row["label"] and r.get("value") == conn_row["value"]
+               for r in evidence_trail):
+        evidence_trail.append({**conn_row, "ref": f"log10_scans#{awb}"})
+
+    # Process-breach signals from the SAME timeline. These replace `hardstop_sop_followed`,
+    # which was a field that exists in no real dataset — it was written into the seed file by
+    # hand. A misroute or a tamper IS a recorded process breach; a boolean someone typed is not.
+    misrouted, mis_row = scan_pred.misroute_within(tracking)
+    tampered, tam_row = scan_pred.tampered(tracking)
+    for row in (mis_row, tam_row):
+        # Only surface a finding or an unknown — and never the SAME row twice. When there is no
+        # timeline at all every predicate returns the same "no tracking data" row, which would
+        # otherwise print three identical lines and read like three separate problems.
+        if row.get("verdict") == Tri.NO.value:
+            continue
+        if any(r.get("label") == row["label"] and r.get("value") == row["value"]
+               for r in evidence_trail):
+            continue
+        evidence_trail.append({**row, "ref": f"log10_scans#{awb}"})
+
+    breach = Tri.YES if Tri.YES in (misrouted, tampered) else (
+        Tri.UNKNOWN if Tri.UNKNOWN in (misrouted, tampered) else Tri.NO)
+
+    if connected is Tri.UNKNOWN:
+        # NOT "attributable". We cannot see the scans, so we cannot say whose fault it is.
+        c2_result = f"UNDETERMINED — {conn_row['value']}"
+        c2_pass, attributable = False, None
+    elif connected is Tri.YES and breach is not Tri.YES:
+        c2_result = ("Valmo-side — the shipment connected onward within TAT and no misroute or "
+                     "tamper is recorded → NOT the partner's fault")
         c2_pass, attributable = True, False
+    elif connected is Tri.YES and breach is Tri.YES:
+        c2_result = "Connected within TAT, but a misroute/tamper is on record — needs a human"
+        c2_pass, attributable = False, None
     else:
-        c2_result = "Scans show breach attributable to partner"
+        c2_result = f"Attributable — {conn_row['value']}"
         c2_pass, attributable = False, True
     checks_run.append({"id": "attributable_to_partner",
                        "description": "Is the loss attributable to the partner?",
-                       "result": c2_result, "passed": c2_pass})
+                       "result": c2_result, "passed": c2_pass,
+                       "verdict": connected.value})
 
     # ── Check 3: within reversal cap ──
     cap = policy["resolution"]["cap_inr"]
@@ -266,13 +338,16 @@ def _exec_hardstop(policy: dict, context: dict, entities: dict) -> dict:
 
     # Decision: reverse only if all deterministic checks pass and loss is NOT the partner's fault.
     if c1_ok and c2_pass and c3_ok and attributable is False:
+        # The reason is built from what the predicate ACTUALLY FOUND. The old text hardcoded
+        # "INWARD_SCAN on {date} and a forward MANIFEST_SCAN within the LM-forward D5 TAT",
+        # asserting specific event types regardless of which events the timeline held — a
+        # sentence that could be false while every number in it was right.
         reason = (
-            f"The ₹{amount} debit was AUTO-marked by the SLA job as '{(loss or {}).get('reason_l1', 'not_connected')}'. "
-            f"However Log10 scans — the authoritative source of truth — show INWARD_SCAN on "
-            f"{scans.get('inscan_date')} and a forward MANIFEST_SCAN within the LM-forward D5 TAT "
-            f"(connected_within_TAT=True, hardstop SOP followed). The auto-marking is therefore "
-            f"erroneous and Valmo-side; per SOP HS_1_1 this debit is not attributable to the partner "
-            f"and must be reversed."
+            f"The ₹{amount} debit was AUTO-marked by the SLA job as "
+            f"'{(loss or {}).get('reason_l1', 'not_connected')}'. The scan timeline — the "
+            f"authoritative source — shows {conn_row['value']}, and no misroute or tamper is on "
+            f"record. The auto-marking is therefore erroneous and Valmo-side; per SOP HS_1_1 "
+            f"this debit is not attributable to the partner and should be raised for reversal."
         )
         return {"action": "reverse_debit", "disposition": "hardstop_loss",
                 "amount_inr": amount, "awb": awb, "debit_id": debit["id"],
@@ -282,13 +357,52 @@ def _exec_hardstop(policy: dict, context: dict, entities: dict) -> dict:
                 "evidence_present": present, "policy": policy}
 
     # Ambiguous / inconclusive → escalate with the fully-worked case (never guess).
+    # The REASON distinguishes the three ways of getting here, because they need three different
+    # follow-ups and they used to share one sentence:
+    #   attributable is None  → we could not see enough to decide (or a breach needs a human)
+    #   attributable is True  → the scans are evidence against reversal
+    #   a cap/evidence failure→ the decision was blocked on policy, not on the shipment
+    if attributable is None:
+        why = (f"I can't determine from the scan record whether this was our fault or not — "
+               f"{conn_row['value']}. I've sent the worked case to the Losses & Debits team so a "
+               f"human can check the shipment directly.")
+    elif attributable is True:
+        why = (f"The scan record doesn't support a reversal on its own — {conn_row['value']}. "
+               f"I've sent the full case to the Losses & Debits team for review rather than "
+               f"closing it here.")
+    else:
+        why = ("The deterministic checks couldn't all be satisfied, so I've escalated the worked "
+               "case to the Losses & Debits team rather than deciding it here.")
     return {"action": "escalate", "disposition": "hardstop_loss",
             "amount_inr": amount, "awb": awb, "debit_id": debit["id"],
             "confidence": 0.45,
-            "reason": "Checks could not be fully satisfied (scans inconclusive or breach attributable) "
-                      "— escalating the worked case to the Losses & Debits team.",
+            "reason": why,
+            "attributable": None if attributable is None else bool(attributable),
+            "scan_verdict": connected.value,
             "evidence_trail": evidence_trail, "checks_run": checks_run,
             "evidence_present": present, "policy": policy}
+
+
+def _tracking_for(captain_id: str, awb: str):
+    """The typed scan timeline for an AWB, from whichever source is configured.
+
+    ONE code path for fixtures, live, and the legacy seed captains — the seed blob is lifted
+    into the same `Tracking` shape rather than being handled separately. That is deliberate: two
+    branches would let the typed path and the boolean path drift, and the whole point is that
+    the seed captains now flow through the same predicates a real fixture does.
+
+    Returns None when there is nothing to read, which the predicates render as UNKNOWN.
+    """
+    try:
+        from ..substrate.adapters.log10 import Log10Connector, dto as log10_dto
+        conn = Log10Connector()
+        t = conn.get_tracking(awb)
+        if t is not None and t.ok and t.events:
+            return t
+        # Nothing typed for this AWB — fall back to a seed captain's legacy blob, LIFTED.
+        return log10_dto.from_legacy_scans(ctx.get_scans(captain_id, awb), awb)
+    except Exception:  # noqa: BLE001 — a scan-source failure must read as UNKNOWN, not crash
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

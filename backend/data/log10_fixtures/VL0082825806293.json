@@ -1,0 +1,75 @@
+{
+ "_provenance": {
+  "fixture": true,
+  "branch": "empty_timeline",
+  "contract_source": "log10-backend-valmo-develop :: TrackingService ConsignmentTrackingController + WaybillTrackingResponse",
+  "real_awb": "VL0082825806293",
+  "derived_from_real_columns": [
+   "waybillNo <- losses.awb (VL0082825806293)",
+   "BOOKING.eventTime <- created_date",
+   "INWARD_SCAN.eventTime <- facility_inscan"
+  ],
+  "synthesised": [
+   "tracking deliberately EMPTY, so every predicate must return UNKNOWN",
+   "user / DRS identifiers",
+   "POD links (empty list)",
+   "all values inside event `data`"
+  ],
+  "not_real_data": "The AWB and the dates listed under derived_from_real_columns come from a real losses row. The scan EVENTS around them do not exist in that export and were constructed to exercise one branch. Served as log10-fixture, never as log10."
+ },
+ "status": {
+  "code": 200,
+  "message": "SUCCESS"
+ },
+ "response": {
+  "tracking": [],
+  "consignment": {
+   "id": null,
+   "waybillNo": "VL0082825806293",
+   "description": null,
+   "totalShipmentCount": 1,
+   "totalWeight": null,
+   "totalChargableWeight": null,
+   "consignmentAmount": 204.0,
+   "payableAmount": 0.0,
+   "expectedDeliveryDate": 1764460800000,
+   "location": {
+    "id": null,
+    "name": null
+   },
+   "partner": {
+    "id": 268,
+    "name": "Valmo"
+   },
+   "partnerId": 268,
+   "customerPickupLoc": null,
+   "bookingDate": 1763683200000,
+   "bookingOfficeLoc": null,
+   "consignmentStatus": "IN",
+   "flowType": "REVERSE",
+   "updatedAt": 1764115200000,
+   "customerPromiseDate": 1764460800000,
+   "attempts": 0,
+   "shipper": {
+    "name": "Meesho Seller",
+    "address": null,
+    "primaryNumber": "0000000000",
+    "secondaryNumber": "0000000000"
+   },
+   "consignee": {
+    "name": "Customer",
+    "address": null,
+    "primaryNumber": "0000000000",
+    "secondaryNumber": "0000000000"
+   },
+   "shipperPincode": null,
+   "consigneePincode": null,
+   "customerId": null,
+   "customerName": null,
+   "customerPhoneNumber": null,
+   "customerEmailId": null,
+   "consignmentPODBO": []
+  },
+  "drses": []
+ }
+}

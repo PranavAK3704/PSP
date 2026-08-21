@@ -27,6 +27,9 @@ QUERIES = {
     "payout_status": "The captain's most recent payout/credit (Metabase)",
     "loss_summary": "Summary of losses/debits marked against the captain (Metabase)",
     "cod_status": "COD pendency + latest CMS deposit (Metabase)",
+    "load_status": ("Why this captain's hub is getting the load it is getting — the order "
+                    "waterfall, which stage lost the orders, the four performance levers "
+                    "against their targets, and the ₹ at stake (Growth Dashboard)"),
 }
 
 
@@ -50,6 +53,34 @@ def _run(name: str, params: dict, context: dict) -> list[dict]:
         return [{"awb": l["awb"], "loss_type": l["loss_type"], "date": l["loss_date"],
                  "reason": l["reason_l1"], "attributed_node": l["attributed_node"]}
                 for l in context.get("losses", [])]
+    if name == "load_status":
+        # ONE row, already shaped. The two growth endpoints are read by the connector during
+        # get_context; this arm only projects what came back. Server-side verdicts are passed
+        # THROUGH (is_good, banner_type, the counts, right_panel statuses) and never recomputed
+        # — see adapters/growth/contract.py for which fields are whose.
+        from ..substrate.adapters.growth import contract as gc
+        g = context.get("growth") or {}
+        if not g.get("available"):
+            return []
+        ym, osum = g.get("your_metrics") or {}, g.get("order_summary") or {}
+        dominant, dominant_n = gc.dominant_reason(osum)
+        return [{
+            "hub": g.get("hub_code", ""),
+            "window": f"{ym.get('start_date', '?')}–{ym.get('end_date', '?')}",
+            "current_orders": ym.get("current_orders"),
+            "max_potential": ym.get("max_potential"),
+            "is_good": ym.get("is_good"),
+            "banner_type": osum.get("banner_type"),
+            "waterfall": {k: osum.get(k) for k in gc.WATERFALL},
+            "dominant_reason": dominant,
+            "dominant_count": dominant_n,
+            "extra_earnings_loss": osum.get("extra_earnings_loss"),
+            "reasons": osum.get("reasons") or [],
+            "levers": [{"title": l["title"], "current": l["current"], "target": l["target"],
+                        "status": l["status"].value, "why": l["why"]}
+                       for l in gc.levers(ym)],
+        }]
+
     if name == "cod_status":
         cash = context.get("cash", {})
         # `{}` from the provider means the cash system is NOT CONNECTED; a present key with
@@ -194,12 +225,70 @@ def _compose_cod_status(rows: list[dict], params: dict, src: dict) -> str:
     return out
 
 
+def _compose_load_status(rows: list[dict], params: dict, src: dict) -> str:
+    """Why the load is what it is, in the vocabulary the dashboard already uses.
+
+    Reads only server-side verdicts and the levers' own targets. The `why` strings come from
+    the panel's METRIC_TARGET_TOOLTIPS — the authored explanation a captain never opens the
+    tooltip to see, which is the whole value PSP adds over the dashboard itself.
+    """
+    if not rows:
+        return (f"No growth-dashboard data came back for this captain's hub "
+                f"(source: {src.get('growth', '?')}). That could mean the hub has no data this "
+                f"cycle, or that the growth source has nothing for it — this query cannot tell "
+                f"the two apart, so do not assert either.")
+    r = rows[0]
+    w = r.get("waterfall") or {}
+    hub, window = r.get("hub", "?"), r.get("window", "?")
+    cur, mx = r.get("current_orders"), r.get("max_potential")
+
+    parts = [f"Hub {hub}, {window}: {_plural(cur or 0, 'order')} manifested out of a maximum "
+             f"potential of {mx}."]
+
+    # The waterfall, stage by stage, with bar4's SIGN respected — the same number means orders
+    # won or orders lost depending on which way it points.
+    b4 = w.get("bar4_value")
+    stages = [f"{w.get('missed_in_allocation')} lost before allocation",
+              f"{w.get('current_eligible')} eligible after that"]
+    if isinstance(b4, (int, float)) and b4:
+        stages.append(f"{abs(int(b4))} {'extra orders won' if b4 > 0 else 'lost to a capacity cut'}")
+    parts.append("Order flow: " + ", ".join(stages) + f", {w.get('final_manifested')} finally manifested.")
+
+    # A green hub is NOT a grievance. `is_good` is the server's own verdict, so when it says the
+    # hub is fine, the dominance line is suppressed — otherwise "126 orders lost at allocation"
+    # sits next to "every lever is meeting target" and reads as a contradiction.
+    dom = None if r.get("is_good") is True else r.get("dominant_reason")
+    if dom == "allocation_miss":
+        parts.append(f"The biggest single loss is at allocation — {r.get('dominant_count')} orders — "
+                     f"which is decided by hub performance before any order reaches you.")
+    elif dom == "capacity_loss":
+        parts.append(f"The biggest single loss is a capacity cut — {r.get('dominant_count')} orders — "
+                     f"which is applied when performance stays below the floor.")
+
+    # Only levers the panel's own rule says are DEFINITELY missing target. UNKNOWN is excluded:
+    # an unreadable value is not a finding to put in front of a captain.
+    missing = [l for l in r.get("levers", []) if l["status"] == "NO"]
+    if missing:
+        parts.append("Levers below target: " + "; ".join(
+            f"{l['title']} at {l['current']} against a target of {l['target']} ({l['why']})"
+            for l in missing) + ".")
+    elif r.get("is_good") is True:
+        parts.append("Every performance lever is meeting its target, so there is no performance "
+                     "reason for a shortfall here — say so plainly rather than inventing one.")
+
+    loss = r.get("extra_earnings_loss")
+    if isinstance(loss, (int, float)) and loss > 0:
+        parts.append(f"Estimated earnings forgone this cycle: {_inr(loss)}.")
+    return " ".join(str(p) for p in parts)
+
+
 _COMPOSERS = {
     "shipment_status": _compose_shipment_status,
     "scan_history": _compose_scan_history,
     "payout_status": _compose_payout_status,
     "loss_summary": _compose_loss_summary,
     "cod_status": _compose_cod_status,
+    "load_status": _compose_load_status,
 }
 
 

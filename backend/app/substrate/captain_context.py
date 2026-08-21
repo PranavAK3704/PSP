@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 
+from .adapters.growth import GrowthConnector
 from .adapters.log10_connector import Log10Connector
 from .adapters.mock_connectors import DemoDataProvider
 
@@ -43,11 +44,20 @@ def _select_provider():
 
 _data = _select_provider()      # Meesho account data — demo (canned) by default; Prism data lake opt-in
 _log10 = Log10Connector()       # Log10 scans/shipments (canned today; live calls when LOG10_* env is set)
+# Orders & Planning, from the captain panel's own growth-dashboard endpoints. HUB-keyed, which
+# is why it needs no join: the profile already carries the hub. Fixture-backed today; the
+# source label says so, and the composers print it.
+_growth = GrowthConnector()
 
 
 def data_provider():
     """The active account-data provider (for /api/health and diagnostics)."""
     return _data
+
+
+def growth_provider():
+    """The Growth Dashboard connector (for /api/health, the widget, and diagnostics)."""
+    return _growth
 
 
 def get_context(captain_id: str) -> dict:
@@ -70,15 +80,25 @@ def get_context(captain_id: str) -> dict:
             summary = _data.get_summary(captain_id) or {}
         except Exception:  # noqa: BLE001 — an aggregate is an optimisation, never a dependency
             summary = {}
+    # Growth dashboard, keyed on the hub the profile already carries. Wrapped because O&P is
+    # additive: a missing or malformed fixture must degrade to "no growth data for this hub",
+    # never break a loss conversation that has nothing to do with load.
+    hub = (profile.get("hub") or profile.get("hub_name") or "").strip()
+    try:
+        growth = _growth.growth(hub) if hub else {}
+    except Exception:  # noqa: BLE001 — includes the deliberate NotImplementedError under live
+        growth = {}
     return {
         "captain_id": captain_id,
         "profile": profile,
+        "growth": growth,                              # Orders & Planning (hub-keyed)
         "ledger": _data.get_ledger(captain_id),        # Metabase
         "losses": losses,                              # Metabase
         "cash": _data.get_cash(captain_id),            # Metabase
         "shipments": _log10.get_shipments(captain_id), # Log10
         "summary": summary,                            # aggregates for the model (never rows)
-        "_sources": {"account": _data.source, "shipments": _log10.source},
+        "_sources": {"account": _data.source, "shipments": _log10.source,
+                     "growth": _growth.source},
     }
 
 

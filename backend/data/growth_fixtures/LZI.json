@@ -1,0 +1,83 @@
+{
+ "_provenance": {
+  "fixture": true,
+  "why": "healthy hub: all four levers meeting target, extra orders won, banner green. The control case — a load question here must not be answered with an invented problem.",
+  "contract_source": "valmo-partner-webview :: src/modules/captain/growth-dashboard/typings/growth-dashboard.d.ts",
+  "numbers_from": [
+   "waterfall arithmetic consistent with the panel's bar assembly"
+  ],
+  "synthesised": [
+   "hub_code LZI (a real hub from valmo.db)",
+   "all growth figures",
+   "date windows"
+  ],
+  "not_real_data": "These are fixture payloads shaped to the real contract. The hub code is a real hub from valmo.db attribution.entity_id; the growth figures are NOT this hub's real figures. Served as growth-dashboard-fixture, never as growth-dashboard."
+ },
+ "your_metrics": {
+  "success": true,
+  "error_msg": "",
+  "hub_code": "LZI",
+  "start_date": "23/03/2026",
+  "end_date": "30/03/2026",
+  "current_orders": 1180,
+  "max_potential": 1210,
+  "order_share": 61.2,
+  "order_share_delta": 4.4,
+  "order_change_text": "96 Orders Increased due to strong Day-0 performance",
+  "is_good": true,
+  "pilot_rate_card": {
+   "current": "₹13",
+   "target": "₹15"
+  },
+  "rto_performance": {
+   "current": "12%",
+   "target": "19%"
+  },
+  "day0_attempt": {
+   "current": "91%",
+   "target": "70%"
+  },
+  "pendency": {
+   "current": "1.1 Days",
+   "target": "2.5 Days"
+  }
+ },
+ "order_summary": {
+  "success": true,
+  "error_msg": "",
+  "start_date": "23/03/2026",
+  "end_date": "30/03/2026",
+  "max_potential": 1210,
+  "missed_in_allocation": 126,
+  "current_eligible": 1084,
+  "bar4_value": 96,
+  "final_manifested": 1180,
+  "extra_earnings_loss": 0,
+  "reasons": [],
+  "financial_summary": "You are getting nearly all the orders your polygon can generate.",
+  "banner_type": "green",
+  "right_panel": {
+   "allocation_miss": {
+    "count": 126,
+    "metrics": [
+     {
+      "label": "RTO Performance:",
+      "value": "12%",
+      "status": "good",
+      "comparison": "well under the 19% target"
+     },
+     {
+      "label": "Pilot Rate Card (CPS):",
+      "value": "₹13",
+      "status": "good",
+      "comparison": "under neighbouring DCs at ₹15"
+     }
+    ]
+   },
+   "extra_orders": {
+    "count": 96,
+    "message": "Extra orders from 3PL."
+   }
+  }
+ }
+}

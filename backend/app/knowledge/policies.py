@@ -194,6 +194,23 @@ def registry() -> dict[str, dict]:
     return _load_all()
 
 
+def invalidate() -> int:
+    """Drop the cached registry so a newly-promoted policy takes effect. Returns the new count.
+
+    Needed because `registry()` is `lru_cache`d and `_load_all()` overlays
+    `data/knowledge/policies.json` on top of `_SEED`. Without this, writing that file changes
+    nothing until the process restarts — which is exactly the trap that made the overlay look
+    like a dead seam: it works, but only across a restart, so nobody noticed it worked.
+    """
+    registry.cache_clear()
+    return len(registry())
+
+
+def store_path():
+    """Where a promoted policy is written (see scripts/promote_policy.py)."""
+    return _STORE
+
+
 def get_policy(disposition: str) -> dict | None:
     return registry().get(disposition)
 

@@ -1,0 +1,197 @@
+[
+ {
+  "id": "pol_low_load_growth_dashboard",
+  "title": "Low load / load below promise / load fluctuation — explain from Growth Dashboard",
+  "domain": "orders",
+  "disposition": "load_planning",
+  "version": "v1.0",
+  "trigger": {
+   "keywords": [
+    "low load",
+    "my load is low",
+    "fewer orders",
+    "load below promised",
+    "load below what was promised",
+    "load fluctuation",
+    "load keeps fluctuating",
+    "why am I not getting orders",
+    "volume dropped",
+    "hub getting fewer orders",
+    "high load fluctuation"
+   ],
+   "preconditions": [
+    "Concern is a forward Orders & Planning load complaint (Section 4.2.1-4.2.3), L1 owned",
+    "TAT 12h for low load / below-promise; TAT 24h for load fluctuation; Priority P1",
+    "NOT a money dispute and NOT a loss/debit dispute — nothing is paid or reversed under this SOP",
+    "Captain's hub is resolvable from their profile",
+    "Request is not a pin code add/remove (serviceable area / polygon-correction) request"
+   ]
+  },
+  "required_evidence": [
+   "growth_your_metrics",
+   "growth_order_summary",
+   "order_waterfall",
+   "performance_levers",
+   "right_panel_counts"
+  ],
+  "checks": [
+   {
+    "id": "hub-resolved",
+    "description": "Is the captain's hub readable from their profile so the growth dashboard can be queried?",
+    "reads": [
+     "captain_profile.hub"
+    ],
+    "expect": "A non-empty hub id is present on the captain profile"
+   },
+   {
+    "id": "growth-data-present",
+    "description": "Does the hub return growth data from both dashboard endpoints?",
+    "reads": [
+     "GET /v1/captain/growth-dashboard/{hub}/your-metrics",
+     "GET /v1/captain/growth-dashboard/{hub}/order-summary"
+    ],
+    "expect": "Both endpoints return growth data for the hub; if no growth data, do not guess — escalate to Orders & Planning (L2) stating the hub's growth data could not be read"
+   },
+   {
+    "id": "waterfall-complete",
+    "description": "Is the full order waterfall readable (maximum potential, orders missed in allocation, current eligible, capacity-cut-or-extra-orders, final manifested)?",
+    "reads": [
+     "order_waterfall.maximum_potential",
+     "order_waterfall.orders_missed_in_allocation",
+     "order_waterfall.current_eligible",
+     "order_waterfall.capacity_cut_or_extra_orders",
+     "order_waterfall.final_manifested"
+    ],
+    "expect": "All five waterfall values are readable before any answer is sent"
+   },
+   {
+    "id": "use-dashboard-verdict",
+    "description": "Is the verdict taken from the dashboard's own computed fields rather than re-derived by the engine?",
+    "reads": [
+     "dashboard.is_good",
+     "dashboard.banner_type",
+     "dashboard.per_metric_status",
+     "right_panel.section_counts"
+    ],
+    "expect": "is_good, banner_type, per_metric_status and right_panel counts are read as-is; verdict is never recomputed and never branched on display sentences (order_change_text, financial_summary)"
+   },
+   {
+    "id": "stage-attribution",
+    "description": "Which stage lost the orders — is one right-panel section carrying the larger count?",
+    "reads": [
+     "right_panel.section_counts"
+    ],
+    "expect": "Exactly one of 'Orders Missed in Allocation' (lost BEFORE allocation → answer is the failing lever(s)) or 'Orders Missed in Capacity Cut' (capacity reduced because performance stayed below the floor → state the cut's applies-from and applies-to dates) carries the larger count; if neither section carries a count, escalate to Orders & Planning (L2)"
+   },
+   {
+    "id": "lever-readout",
+    "description": "For each of the four levers, is the current value and its target readable so failing levers can be named with the reason the target is what it is?",
+    "reads": [
+     "levers.pilot_rate_card_cps (current value + target)",
+     "levers.rto_performance (current value + target)",
+     "levers.day0_attempt_pct (current value + target)",
+     "levers.pendency_doh (current value + target)",
+     "dashboard.per_metric_status"
+    ],
+    "expect": "Every lever below target is named with current value, target and rationale — Pilot Rate Card (CPS): target rate card is calculated based on your neighbouring DCs rate; RTO Performance: target RTO is computed based on the best 3PL in your area; Day-0 Attempt %: keep your performance above 70% to avoid capacity cut; Pendency (DOH): clear pendencies within 2.5 days to avoid capacity cut. A lever whose value could not be read is reported as 'could not be read' — never assumed passing or failing"
+   },
+   {
+    "id": "all-levers-on-target",
+    "description": "If every lever meets its target and the dashboard says the hub is performing (is_good = true), is the plain honest answer given without manufacturing a problem?",
+    "reads": [
+     "dashboard.is_good",
+     "dashboard.per_metric_status",
+     "levers.pilot_rate_card_cps (current value + target)",
+     "levers.rto_performance (current value + target)",
+     "levers.day0_attempt_pct (current value + target)",
+     "levers.pendency_doh (current value + target)"
+    ],
+    "expect": "When is_good is true and no lever is below target, the captain is told plainly that the hub is performing well and that load may still be lower than expected because volume follows demand in their polygon"
+   },
+   {
+    "id": "earnings-forgone-quoted",
+    "description": "Is the estimated earnings forgone for the cycle readable and quoted in rupees?",
+    "reads": [
+     "estimated_earnings_forgone"
+    ],
+    "expect": "Estimated earnings forgone for the cycle is read from the dashboard and quoted in INR in the reply"
+   },
+   {
+    "id": "not-out-of-scope",
+    "description": "Is this within scope — i.e. the captain is not disputing the targets themselves and not asking for a pin code to be added/removed from their serviceable area?",
+    "reads": [
+     "captain_profile.hub",
+     "GET /v1/captain/growth-dashboard/{hub}/order-summary"
+    ],
+    "expect": "No target dispute and no pin code add/remove request; either of those escalates (pin code = separate polygon-correction SOP, not this one)"
+   },
+   {
+    "id": "evaluation-window",
+    "description": "Is the next evaluation window readable so the captain knows when performance is re-assessed?",
+    "reads": [
+     "next_evaluation_window"
+    ],
+    "expect": "Next evaluation window is read and stated in the reply"
+   }
+  ],
+  "resolution": {
+   "action": "Explain-only: read the Growth Dashboard for the captain's hub, take the dashboard's own verdict (is_good, banner_type, per_metric_status, right_panel counts), attribute the loss to the correct stage (allocation vs capacity cut, with cut applies-from/to dates), name every lever below target with its current value, target and the reason for that target, quote the estimated earnings forgone in rupees and the next evaluation window, then send the captain reply. No payment, reversal, credit or debit is made under this SOP. Close at L1 within TAT 12h (24h for load fluctuation).",
+   "params": {
+    "idempotent": true
+   },
+   "cap_inr": null
+  },
+  "captain_reply": "Aapke hub {hub} ko is cycle mein {current_orders} orders mile, maximum potential {max_potential} tha. {stage_reason} Jo cheezein target se peeche hain: {failing_levers}. Ismein aapka lagbhag {earnings_loss} ka nuksan hua. In levers ko target tak laayiye — load performance ke hisaab se badhta hai, aur agla evaluation window {window} hai.",
+  "links": {
+   "your_metrics_endpoint": "GET /v1/captain/growth-dashboard/{hub}/your-metrics",
+   "order_summary_endpoint": "GET /v1/captain/growth-dashboard/{hub}/order-summary"
+  },
+  "escalation": {
+   "team": "Orders & Planning (L2)",
+   "handover": "L1 reads Growth Dashboard (/v1/captain/growth-dashboard/{hub}/your-metrics and /v1/captain/growth-dashboard/{hub}/order-summary) → if the hub has no growth data, escalate to Orders & Planning (L2) saying the hub's growth data could not be read → if neither right-panel section carries a count, escalate to Orders & Planning (L2) → if the captain disputes the targets themselves, escalate to Orders & Planning (L2) → if the captain asks for a pin code to be added or removed from their serviceable area, route to the separate polygon-correction SOP (not this one). Escalation TAT 24h."
+  },
+  "partner_rights": [
+   "true-cause attribution — the captain is entitled to know which specific metric reduced their load and what the target is; never tell a captain their load is low without naming the reason the system already computed",
+   "radical transparency — quote the actual waterfall counts, each lever's current value vs target, the reason each target is set where it is, and the estimated earnings forgone in rupees",
+   "presumption of good faith — a low-load complaint is treated as a genuine performance/allocation question, not as an attempt to game orders",
+   "guaranteed SLAs — L1 TAT 12h (24h for load fluctuation), escalated Orders & Planning (L2) TAT 24h, Priority P1",
+   "right to appeal + a human — a captain disputing the targets themselves goes to Orders & Planning (L2)",
+   "consistency — the dashboard's computed verdict (is_good, banner_type, per_metric_status, right_panel counts) is read as-is and never re-derived per agent; display sentences are never branched on",
+   "no silent policy changes — targets are stated with their basis (neighbouring DCs rate, best 3PL in area, 70% Day-0, 2.5 days pendency) and never promise a load increase; load follows demand and performance",
+   "auto error-correction — an unreadable lever is reported as unreadable, never assumed passing or failing"
+  ],
+  "source_sop_ref": "manual_compile",
+  "compiled_by": "sop_compiler",
+  "required_evidence_authored": [
+   "captain_profile.hub",
+   "GET /v1/captain/growth-dashboard/{hub}/your-metrics",
+   "GET /v1/captain/growth-dashboard/{hub}/order-summary",
+   "order_waterfall.maximum_potential",
+   "order_waterfall.orders_missed_in_allocation",
+   "order_waterfall.current_eligible",
+   "order_waterfall.capacity_cut_or_extra_orders",
+   "order_waterfall.final_manifested",
+   "levers.pilot_rate_card_cps (current value + target)",
+   "levers.rto_performance (current value + target)",
+   "levers.day0_attempt_pct (current value + target)",
+   "levers.pendency_doh (current value + target)",
+   "right_panel.section_counts (Orders Missed in Allocation, Orders Missed in Capacity Cut)",
+   "dashboard.is_good",
+   "dashboard.banner_type",
+   "dashboard.per_metric_status",
+   "estimated_earnings_forgone",
+   "next_evaluation_window",
+   "capacity_cut_effective_from_to"
+  ],
+  "identify_any": [
+   "hub"
+  ],
+  "required_inputs": [
+   {
+    "field": "hub",
+    "label": "Hub / DC code",
+    "where": "captain profile"
+   }
+  ]
+ }
+]

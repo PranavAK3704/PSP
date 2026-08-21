@@ -35,6 +35,15 @@ def _find_disputed_debit(context: dict, amount: int | None, awb: str | None) -> 
 
 
 def execute(disposition: str, context: dict, entities: dict) -> dict:
+    # ORDERS & PLANNING first, BEFORE the AWB branch. A load question is never answered by a
+    # per-shipment lookup, and captains routinely paste an unrelated AWB into the same message
+    # ("mera load kam hai, aur VL… ka kya hua"). Letting the AWB branch win there would answer
+    # a loss question the captain did not ask and silently drop the one they did.
+    if disposition == "load_planning":
+        policy = pol.get_policy("load_planning")
+        if policy:
+            return _exec_load_planning(policy, context, entities)
+
     # DATA-GROUNDED PATH: if the captain gave an AWB, look it up in the real loss data
     # (valmo.db). The row's reason_l1 — not the LLM's guess — decides the disposition/policy,
     # and the real signals (facility_inscan / attribution_changed / loss_percentage) decide
@@ -280,3 +289,177 @@ def _exec_hardstop(policy: dict, context: dict, entities: dict) -> dict:
                       "— escalating the worked case to the Losses & Debits team.",
             "evidence_trail": evidence_trail, "checks_run": checks_run,
             "evidence_present": present, "policy": policy}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ORDERS & PLANNING (forward) — "why is my load low"
+#
+# The one queue that resolves with NO stub: the resolution IS the reply. `respond` is not in
+# `gate.MONEY_ACTIONS`, so `money_moving` is False, `requires_adversarial_verify` is False, and
+# no money is ever at stake. That is why this can reach 0.9 honestly while the loss path cannot.
+#
+# Everything here READS the Growth Dashboard's own verdicts and never re-derives them:
+# `is_good`, `banner_type`, the five waterfall counts, the right-panel section counts, and the
+# per-metric statuses inside right_panel are all computed server-side. The only thing computed
+# locally is each LEVER's status, and that is a verbatim mirror of the captain panel's own
+# client-side rule (see adapters/growth/contract.py) — because the wire carries no status for
+# the four levers, only `{current, target}`.
+#
+# ── DIVERGENCE FROM SOURCE, recorded deliberately ───────────────────────────────────────────
+# 1) The Metabase "Pin x Polygon" query this replaced had a real bug in its remark builder: the
+#    `cps_delta` branch emitted "Improve your RTO Performance by [ocf_delta/0.65]%" — reached
+#    via CPS, naming RTO, computing from OCF. Three defects in one sentence. Nothing here
+#    replicates it: a lever is named only from its own value and its own target.
+# 2) `growth-dashboard`'s `is_good` is measured against an ABSOLUTE TARGET. The Metabase
+#    `L1_remarks` column branched on RANK against competitors. The two can disagree about the
+#    same hub on the same day, and neither is wrong — they answer different questions. Do not
+#    reconcile them later by assuming one is stale.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _exec_load_planning(policy: dict, context: dict, entities: dict) -> dict:
+    """Explain a hub's load from the Growth Dashboard. Never moves money.
+
+    `evidence_present` is built ONLY from what was actually read — deliberately NOT the
+    `present = policy["required_evidence"]` shortcut `_eval_real_loss` uses at :83-84, which
+    declares the policy's own requirements satisfied and so makes the gate's evidence check
+    incapable of ever failing. Here a missing waterfall really does block.
+    """
+    from ..substrate.adapters.growth import contract as gc
+    from ..tri import Tri
+
+    g = context.get("growth") or {}
+    hub = g.get("hub_code") or (context.get("profile") or {}).get("hub") or ""
+    team = (policy.get("escalation") or {}).get("team", "Orders & Planning (L2)")
+    checks: list[dict] = []
+    present: list[str] = []
+    ev: list[dict] = []
+
+    def _out(action, conf, reason):
+        return {"action": action, "disposition": "load_planning", "confidence": conf,
+                "reason": reason, "evidence_trail": ev, "checks_run": checks,
+                "evidence_present": present, "policy": policy, "hub": hub}
+
+    # ── check 1 — is there growth data for this hub at all? ──────────────────────────
+    ym, osum = (g.get("your_metrics") or {}), (g.get("order_summary") or {})
+    have = bool(g.get("available")) and bool(ym) and bool(osum)
+    checks.append({"id": "hub_in_growth_data",
+                   "description": "The captain's hub returns data from both growth endpoints",
+                   "result": f"PASS — hub {hub}" if have else
+                             f"FAIL — no growth data for hub {hub or '(unknown)'}",
+                   "passed": have})
+    if not have:
+        return _out("escalate", 0.4,
+                    f"I couldn't read the Growth Dashboard for hub {hub or 'this captain'}, so I "
+                    f"can't say what reduced the load. Routing to {team} to check it directly.")
+    present += ["growth_your_metrics", "growth_order_summary"]
+    ev.append({"label": "Growth source", "value": f"hub {hub} · {g.get('source', '?')}",
+               "ref": g.get("endpoints", {}).get("order_summary", ""), "source": "growth_dashboard"})
+
+    # ── check 2 — is the waterfall complete, and is any lever readable? ──────────────
+    wf = {k: osum.get(k) for k in gc.WATERFALL}
+    wf_ok = all(isinstance(v, (int, float)) for v in wf.values())
+    checks.append({"id": "order_waterfall_complete",
+                   "description": "All five stages of the order waterfall are readable",
+                   "result": ("PASS — " + " → ".join(str(wf[k]) for k in gc.WATERFALL)) if wf_ok
+                             else "FAIL — " + ", ".join(
+                                 f"{k}={wf[k]!r}" for k in gc.WATERFALL
+                                 if not isinstance(wf[k], (int, float))),
+                   "passed": wf_ok})
+    if not wf_ok:
+        return _out("escalate", 0.4,
+                    f"The order breakdown for hub {hub} is incomplete, so I can't attribute the "
+                    f"shortfall to a stage. Routing to {team}.")
+    present.append("order_waterfall")
+    ev.append({"label": "Order waterfall",
+               "value": " → ".join(f"{k.replace('_', ' ')} {wf[k]}" for k in gc.WATERFALL),
+               "source": "growth_dashboard"})
+
+    levers = gc.levers(ym)
+    readable = [l for l in levers if l["status"] is not Tri.UNKNOWN]
+    unreadable = [l["title"] for l in levers if l["status"] is Tri.UNKNOWN]
+    checks.append({"id": "performance_levers_readable",
+                   "description": "At least one performance lever has a readable value and target",
+                   "result": f"PASS — {len(readable)}/{len(levers)} readable"
+                             + (f"; unreadable: {', '.join(unreadable)}" if unreadable else "")
+                             if readable else "FAIL — no lever value could be parsed",
+                   "passed": bool(readable)})
+    if not readable:
+        # UNKNOWN is not evidence in either direction. The captain panel's own parseNumeric
+        # would have called these "good" by returning 0; saying "your metrics are fine" off an
+        # unreadable value is the specific failure this branch exists to avoid.
+        return _out("escalate", 0.4,
+                    f"None of the performance metrics for hub {hub} could be read, so I won't "
+                    f"guess at the cause. Routing to {team}.")
+    present.append("performance_levers")
+
+    failing = [l for l in levers if l["status"] is Tri.NO]
+    for l in failing:
+        ev.append({"label": f"{l['title']} below target",
+                   "value": f"{l['current']} vs target {l['target']} — {l['why']}",
+                   "source": "growth_dashboard"})
+    if unreadable:
+        # On the record, so a reviewer sees what could NOT be checked, not just what failed.
+        ev.append({"label": "Levers unreadable", "value": ", ".join(unreadable),
+                   "source": "growth_dashboard"})
+
+    # ── check 3 — which stage lost the orders? (server-side counts, read not derived) ─
+    dominant, dom_n = gc.dominant_reason(osum)
+    is_good = ym.get("is_good")
+    checks.append({"id": "loss_attributable_to_a_stage",
+                   "description": "One right-panel section carries the larger missed-order count",
+                   "result": f"PASS — {dominant} ({dom_n} orders)" if dominant
+                             else "FAIL — neither section carries a count",
+                   "passed": bool(dominant)})
+    if not dominant and is_good is not True:
+        return _out("escalate", 0.4,
+                    f"Hub {hub} shows a shortfall but the dashboard doesn't attribute it to "
+                    f"allocation or to a capacity cut, so I can't explain the cause. Routing to {team}.")
+    present.append("right_panel_counts")
+    if dominant:
+        rp = (osum.get("right_panel") or {}).get(dominant) or {}
+        window = (f" (cut {rp.get('cut_start_date')}–{rp.get('cut_end_date')})"
+                  if dominant == "capacity_loss" and rp.get("cut_start_date") else "")
+        ev.append({"label": "Dominant loss stage",
+                   "value": f"{dominant.replace('_', ' ')} — {dom_n} orders{window}",
+                   "source": "growth_dashboard"})
+    loss = osum.get("extra_earnings_loss")
+    if isinstance(loss, (int, float)):
+        ev.append({"label": "Earnings forgone (cycle)", "value": f"₹{int(loss)}",
+                   "source": "growth_dashboard"})
+    ev.append({"label": "Dashboard verdict",
+               "value": f"is_good={is_good} · banner={osum.get('banner_type', '—')}"
+                        + (f" · reasons: {', '.join(osum.get('reasons') or [])}"
+                           if osum.get("reasons") else ""),
+               "source": "growth_dashboard"})
+
+    # ── resolve ─────────────────────────────────────────────────────────────────────
+    # 0.9 on the same footing as the loss path's cn_flag branch: every field this decision
+    # rests on is a value the dashboard already computed and published to the captain. There is
+    # no inference to be wrong about — only a reading, and the reading is checked above.
+    window = f"{ym.get('start_date', '?')}–{ym.get('end_date', '?')}"
+    orders, mx = ym.get("current_orders"), ym.get("max_potential")
+    money = f" That gap is worth about ₹{int(loss)} to you this cycle." if isinstance(loss, (int, float)) and loss else ""
+
+    if is_good is True and not failing:
+        return _out("respond", 0.9,
+                    f"Hub {hub} received {orders} of a possible {mx} orders in {window}, and every "
+                    f"performance metric is meeting its target — so there is no performance "
+                    f"penalty on your load right now. Volume follows demand in your polygon, so "
+                    f"it can still move week to week.")
+
+    if dominant == "capacity_loss":
+        lead = (f"Hub {hub} received {orders} of a possible {mx} orders in {window}. "
+                f"{dom_n} of those were lost to a capacity cut, which is applied when "
+                f"performance stays below the floor.")
+    else:
+        lead = (f"Hub {hub} received {orders} of a possible {mx} orders in {window}. "
+                f"{dom_n} were lost before allocation — allocation is decided by hub "
+                f"performance, so it is the metrics below that reduced the load.")
+    if failing:
+        detail = " " + " ".join(
+            f"{l['title']} is {l['current']} against a target of {l['target']} ({l['why']})."
+            for l in failing)
+    else:
+        detail = (" No individual metric is below target, so the shortfall is in allocation "
+                  "volume rather than in your performance.")
+    return _out("respond", 0.9, lead + detail + money)

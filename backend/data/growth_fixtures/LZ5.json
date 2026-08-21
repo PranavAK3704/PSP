@@ -1,0 +1,96 @@
+{
+ "_provenance": {
+  "fixture": true,
+  "why": "allocation_miss dominant: RTO is the failing lever, so orders are lost before allocation. The demo's main path.",
+  "contract_source": "valmo-partner-webview :: src/modules/captain/growth-dashboard/typings/growth-dashboard.d.ts",
+  "numbers_from": [
+   "valmo-partner-webview :: hooks/useOrderSummary.test.ts (max_potential 1035, missed_in_allocation 545, current_eligible 490, bar4_value 337, final_manifested 827, extra_earnings_loss 2108)",
+   "valmo-partner-webview :: hooks/useYourMetrics.test.ts (the four lever values)"
+  ],
+  "synthesised": [
+   "hub_code LZ5 (a real hub from valmo.db, paired with the panel's test figures)",
+   "evaluation-window dates"
+  ],
+  "not_real_data": "These are fixture payloads shaped to the real contract. The hub code is a real hub from valmo.db attribution.entity_id; the growth figures are NOT this hub's real figures. Served as growth-dashboard-fixture, never as growth-dashboard."
+ },
+ "your_metrics": {
+  "success": true,
+  "error_msg": "",
+  "hub_code": "LZ5",
+  "start_date": "23/03/2026",
+  "end_date": "30/03/2026",
+  "current_orders": 827,
+  "max_potential": 1035,
+  "order_share": 42.5,
+  "order_share_delta": -3.1,
+  "order_change_text": "45 Orders Increased due to RTO reduction",
+  "is_good": false,
+  "pilot_rate_card": {
+   "current": "₹14",
+   "target": "₹14"
+  },
+  "rto_performance": {
+   "current": "31%",
+   "target": "19%"
+  },
+  "day0_attempt": {
+   "current": "94%",
+   "target": "70%"
+  },
+  "pendency": {
+   "current": "0.9 Days",
+   "target": "2.5 Days"
+  }
+ },
+ "order_summary": {
+  "success": true,
+  "error_msg": "",
+  "start_date": "23/03/2026",
+  "end_date": "30/03/2026",
+  "max_potential": 1035,
+  "missed_in_allocation": 545,
+  "current_eligible": 490,
+  "bar4_value": 337,
+  "final_manifested": 827,
+  "bar_tooltips": [
+   "Maximum orders your polygon can generate",
+   "Orders lost before allocation",
+   "Orders you were eligible for",
+   "Extra orders won from 3PL",
+   "Orders finally manifested"
+  ],
+  "extra_earnings_loss": 2108,
+  "reasons": [
+   "high RTO"
+  ],
+  "financial_summary": "You have missed 545 orders.",
+  "banner_type": "red",
+  "right_panel": {
+   "allocation_miss": {
+    "count": 545,
+    "metrics": [
+     {
+      "label": "RTO Performance:",
+      "value": "31%",
+      "status": "not_good",
+      "comparison": "vs 19% best 3PL in your area"
+     },
+     {
+      "label": "Pilot Rate Card (CPS):",
+      "value": "₹14",
+      "status": "good",
+      "comparison": "matches neighbouring DCs"
+     }
+    ],
+    "pilot_rate_card_evaluation_start_date": "01/03/2026",
+    "pilot_rate_card_evaluation_end_date": "22/03/2026",
+    "rto_percentage_evaluation_start_date": "01/03/2026",
+    "rto_percentage_evaluation_end_date": "22/03/2026"
+   },
+   "extra_orders": {
+    "count": 337,
+    "message": "Extra orders from 3PL."
+   }
+  }
+ }
+}

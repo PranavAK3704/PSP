@@ -79,7 +79,7 @@ def main() -> int:
         # the call sits AFTER the verifier has agreed and BEFORE concern_log.append, the raise
         # discarded the concern, the trace and the money already spent on the verifier call.
         # Only successful reversals vanished; escalations were fine. A case-shredder.
-        r = tools._act({"action": "reverse_debit", "amount_inr": 244, "debit_id": "D1"})
+        r = tools._act({"action": "raise_for_reversal", "amount_inr": 244, "debit_id": "D1"})
         check("_act() does NOT raise under live — it refuses as DATA",
               isinstance(r, dict) and r.get("blocked") is True,
               "raising here discarded the captain's case entirely")
@@ -127,7 +127,7 @@ def main() -> int:
             "provider": "stub", "input_tokens": 0, "output_tokens": 0}
 
         POLICY = {"id": "pol_x", "version": "v1", "required_evidence": [],
-                  "resolution": {"action": "reverse_debit", "cap_inr": 5000},
+                  "resolution": {"action": "raise_for_reversal", "cap_inr": 5000},
                   "escalation": {"team": "Losses & Debits (L2)"}, "partner_rights": []}
 
         def fake(action, conf):
@@ -137,7 +137,7 @@ def main() -> int:
                     "evidence_trail": [{"label": "Loss record", "value": "hardstop"}],
                     "checks_run": [], "evidence_present": [], "policy": POLICY}
 
-        cases = [("reverse_debit", 0.92, "simulated_resolution"),
+        cases = [("raise_for_reversal", 0.92, "simulated_resolution"),
                  ("respond", 0.90, "resolved_in_conversation"),
                  ("escalate", 0.40, "escalated")]
         for action, conf, want_outcome in cases:
@@ -184,7 +184,7 @@ def main() -> int:
         head("[4b] WRITE_MODE=live end to end — the case must survive")
         os.environ["WRITE_MODE"] = "live"
         appended.clear()
-        tools.policy_exec.execute = lambda *a, **k: fake("reverse_debit", 0.92)
+        tools.policy_exec.execute = lambda *a, **k: fake("raise_for_reversal", 0.92)
         result, events, concern, taken = tools.dispatch(
             "apply_policy", {"disposition": "hardstop_loss", "awb": "VL0000000000001"},
             "P1", {"captain_id": "P1", "profile": {}, "ledger": [], "losses": [],
@@ -217,9 +217,38 @@ def main() -> int:
               "MONEY_ACTIONS" in gsrc and '{"reverse_debit"' not in gsrc)
         check("tools._act() keys off the same constant",
               "trust_gate.MONEY_ACTIONS" in inspect.getsource(tools._act))
-        check("the set is exactly the three money actions",
-              trust_gate.MONEY_ACTIONS == frozenset({"reverse_debit", "clear_pendency", "credit"}),
+        # A constant compared to a copy of itself proves nothing. What matters is that the
+        # rename held IN LOCKSTEP: the verifier must still fire on the reversal slice, a stored
+        # row under the OLD name must still count, and policy_exec must not still be comparing
+        # against a literal the policy no longer contains. Every one of those fails silently.
+        check("the money set uses the honest name",
+              "raise_for_reversal" in trust_gate.MONEY_ACTIONS
+              and "reverse_debit" not in trust_gate.MONEY_ACTIONS,
               ", ".join(sorted(trust_gate.MONEY_ACTIONS)))
+        check("a legacy stored action still canonicalises",
+              trust_gate.canonical_action("reverse_debit") == "raise_for_reversal",
+              "history predates the rename; matching only the new name would drop it from stats")
+        check("a current action is unchanged by canonicalisation",
+              trust_gate.canonical_action("raise_for_reversal") == "raise_for_reversal"
+              and trust_gate.canonical_action("respond") == "respond")
+        _pol = {"resolution": {"cap_inr": 5000}}
+        _dec = {"amount_inr": 100, "confidence": 0.95, "evidence_present": []}
+        v = trust_gate.evaluate(_pol, {**_dec, "action": "raise_for_reversal"}, {})
+        check("the verifier still fires on the renamed action",
+              v["money_moving"] and v["requires_adversarial_verify"],
+              "a rename that misses gate.py silently disables the skeptic")
+        v2 = trust_gate.evaluate(_pol, {**_dec, "action": "reverse_debit"}, {})
+        check("   and on a legacy action name too", v2["requires_adversarial_verify"],
+              "a replayed historical decision must not skip the verifier")
+        _pe = inspect.getsource(policy_exec)
+        check("policy_exec compares action_kind against the CURRENT name",
+              'action_kind == "reverse_debit"' not in _pe,
+              "action_kind is read from the policy, which the rename also changed — a stale "
+              "literal here makes the reversal branch unreachable with no error anywhere")
+        check("the honest name reaches the captain-facing UI",
+              "Debit reversed in-conversation" not in
+              (Path(ROOT).parent / "frontend/src/pages/CaptainPanel.jsx").read_text(),
+              "the UI asserted a completed payment over a decision that wrote nothing")
     finally:
         os.environ.clear()
         os.environ.update(saved)

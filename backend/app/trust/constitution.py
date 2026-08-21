@@ -15,7 +15,9 @@ def check_constitution(policy: dict, decision: dict) -> dict:
     upheld, violations = [], []
     action = decision.get("action", "")
 
-    if action == "reverse_debit":
+    # A recommendation to reverse is still partner-protective — it is the engine finding FOR
+    # the captain against its own operator. The name changed; the principle did not.
+    if action in ("raise_for_reversal", "reverse_debit"):
         upheld += ["Presumption of good faith", "True-cause attribution", "Auto error-correction"]
     if decision.get("evidence_trail"):
         upheld.append("Radical transparency")

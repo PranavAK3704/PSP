@@ -9,6 +9,7 @@ from __future__ import annotations
 from ..knowledge import policies as pol
 from ..substrate import captain_context as ctx
 from ..substrate import loss_db
+from ..trust import gate as trust_gate
 from ..substrate.adapters.log10 import predicates as scan_pred
 from ..tri import Tri
 
@@ -98,7 +99,13 @@ def _eval_real_loss(row: dict, policy: dict, awb: str, pend: dict | None = None,
     attr_changed = (row.get("attribution_changed") or "").strip().lower() == "yes"
     cn_issued = (row.get("cn_flag") or "").strip().lower() == "yes"
     team = policy.get("escalation", {}).get("team", "Losses & Debits (L2)")
-    action_kind = policy.get("resolution", {}).get("action", "escalate")
+    # Canonicalised at the read. This value comes from the POLICY, which the
+    # reverse_debit -> raise_for_reversal rename also changed — so a literal comparison against
+    # the old name below would silently stop matching and the reversal branch would become
+    # unreachable, turning every eligible dispute into an escalation with no error anywhere.
+    # That is the exact "rename in lockstep" hazard, and this is the lockstep.
+    action_kind = trust_gate.canonical_action(
+        policy.get("resolution", {}).get("action", "escalate"))
     cap = policy.get("resolution", {}).get("cap_inr")
     # the real loss row satisfies whatever this policy names as required evidence
     present = list(policy.get("required_evidence", ["loss_record"]))
@@ -195,18 +202,19 @@ def _eval_real_loss(row: dict, policy: dict, awb: str, pend: dict | None = None,
                 "evidence_trail": ev, "checks_run": checks, "evidence_present": present, "policy": policy}
 
     # 3) Auto-reversible category WITH a reversal signal, within cap → reverse.
-    if action_kind == "reverse_debit" and reversal_signal and amount is not None and (cap is None or amount <= cap):
+    if action_kind == "raise_for_reversal" and reversal_signal and amount is not None and (cap is None or amount <= cap):
         why = "the shipment has a facility in-scan on " + inscan if inscan else "the debit was already re-attributed"
-        return {"action": "reverse_debit", "disposition": disp, "amount_inr": amount, "awb": awb,
+        return {"action": "raise_for_reversal", "disposition": disp, "amount_inr": amount, "awb": awb,
                 "debit_id": awb, "confidence": 0.92,
                 "reason": f"The ₹{amount} debit on AWB {awb} was auto-marked as '{reason_l1}', but the loss record shows "
-                          f"{why} — so it connected / is not attributable to you. Per policy this debit is reversed.",
+                          f"{why} — so it connected / is not attributable to you. Per policy this debit "
+                          f"should be reversed, and I have raised it for reversal.",
                 "evidence_trail": ev, "checks_run": checks, "evidence_present": present, "policy": policy}
 
     # 4) Everything else → ground the real record and escalate to the owning team.
-    if action_kind == "reverse_debit" and amount is not None and cap is not None and amount > cap:
+    if action_kind == "raise_for_reversal" and amount is not None and cap is not None and amount > cap:
         note = f"debit ₹{amount} exceeds the ₹{cap} auto-reversal cap"
-    elif action_kind == "reverse_debit":
+    elif action_kind == "raise_for_reversal":
         note = "no reversal signal on record (no facility in-scan, attribution unchanged)"
     else:
         note = f"a {reason_l1} dispute needs {team} to verify against the source SOP"
@@ -353,7 +361,7 @@ def _exec_hardstop(policy: dict, context: dict, entities: dict) -> dict:
             f"record. The auto-marking is therefore erroneous and Valmo-side; per SOP HS_1_1 "
             f"this debit is not attributable to the partner and should be raised for reversal."
         )
-        return {"action": "reverse_debit", "disposition": "hardstop_loss",
+        return {"action": "raise_for_reversal", "disposition": "hardstop_loss",
                 "amount_inr": amount, "awb": awb, "debit_id": debit["id"],
                 "confidence": 0.93, "scenario": "HS_1_1",
                 "reason": reason,

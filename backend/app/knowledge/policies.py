@@ -66,7 +66,7 @@ _SEED: list[ExecutablePolicy] = [
              "reads": ["ledger_debit"],
              "expect": "debit amount <= cap_inr"},
         ],
-        resolution={"action": "reverse_debit", "params": {"idempotent": True}, "cap_inr": 5000},
+        resolution={"action": "raise_for_reversal", "params": {"idempotent": True}, "cap_inr": 5000},
         escalation={"team": "Losses & Debits (L2)",
                     "handover": "timeline, pulled rows, the check that could not be satisfied, "
                                 "and the partner's strongest argument"},
@@ -104,15 +104,16 @@ _SEED: list[ExecutablePolicy] = [
 # attribution_changed = the debit was already re-attributed). Everything else grounds the
 # real record and escalates to the owning team with a fully-worked case — honest, since the
 # SOP-specific evidence for those (e.g. shortage evidence-mail SLAs) isn't in this dataset yet.
-#   action: reverse_debit = auto-reverse when a reversal signal is present & within cap
+#   action: raise_for_reversal = RECOMMEND reversal to L2 when a reversal signal is
+#           present and within cap. It does not reverse anything — no write path exists.
 #           inform         = tell the captain the current state (no money move needed)
 #           escalate       = always route to the team with the worked case
 # caps are conservative safety limits pending the real refund SOPs (product owner to confirm).
 _TAXONOMY = {
     # reason_l1 (data)              disposition key                team                             action          cap
-    "hardstop":                    ("hardstop_loss",              "Losses & Debits (L2)",           "reverse_debit", 5000),
-    "intransit":                   ("intransit_loss",             "Losses & Debits (L2)",           "reverse_debit", 5000),
-    "dual_scan_mismatch":          ("dual_scan_mismatch",         "Losses & Debits (L2)",           "reverse_debit", 5000),
+    "hardstop":                    ("hardstop_loss",              "Losses & Debits (L2)",           "raise_for_reversal", 5000),
+    "intransit":                   ("intransit_loss",             "Losses & Debits (L2)",           "raise_for_reversal", 5000),
+    "dual_scan_mismatch":          ("dual_scan_mismatch",         "Losses & Debits (L2)",           "raise_for_reversal", 5000),
     "debit_revoked":               ("debit_revoked",              "Losses & Debits (L2)",           "inform",        None),
     "shipment_shortage":           ("shipment_shortage",          "Losses & Debits (L2)",           "escalate",      None),
     "bag_shortage":                ("bag_shortage",               "Losses & Debits (L2)",           "escalate",      None),

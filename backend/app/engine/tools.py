@@ -157,7 +157,9 @@ def _evt(node, label, status="done", tier=None, detail="", data=None):
 # past tense: "Reversed ₹244" and "would reverse ₹244" read completely differently to whoever
 # is looking at the trace, and only one of them is true.
 _WOULD = {
-    "reverse_debit":  lambda d: f"reverse ₹{d.get('amount_inr')} on {d.get('debit_id') or d.get('awb') or 'the disputed debit'}",
+    "raise_for_reversal": lambda d: (f"raise ₹{d.get('amount_inr')} on "
+                                     f"{d.get('debit_id') or d.get('awb') or 'the disputed debit'} "
+                                     f"for reversal"),
     "clear_pendency": lambda d: f"clear COD pendency of ₹{d.get('amount_inr')}",
     "credit":         lambda d: f"credit ₹{d.get('amount_inr')}",
 }
@@ -202,7 +204,7 @@ def _act(decision: dict) -> dict:
         "write_mode": mode,
         "money_moving": True,
         "would_have": would,
-        "idempotency_key": f"rev::{decision.get('debit_id')}" if a == "reverse_debit" else None,
+        "idempotency_key": f"rev::{decision.get('debit_id')}" if a == "raise_for_reversal" else None,
         "detail": (f"NOT WRITTEN — would {would}. No write endpoint exists: LMS reversal is a "
                    f"Kafka message consumed by its scheduler, and PSP has no producer. Recorded "
                    f"as a recommendation for L2."),

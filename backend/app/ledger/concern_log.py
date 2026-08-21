@@ -13,6 +13,9 @@ from datetime import datetime, timezone
 
 from ..durable_state import durable_path
 
+# Stored action names are canonicalised on read — see trust/gate.canonical_action.
+from ..trust.gate import canonical_action as _canon
+
 # MUTABLE ledger → durable state dir (survives redeploys); default backend/data.
 _STORE = durable_path("concern_log.json")
 _lock = threading.Lock()
@@ -51,9 +54,13 @@ def stats() -> dict:
     # are NOT captain concerns — they shadow an original. Exclude them so total /
     # by_disposition don't double-count every resolved case (finding #31).
     real = [c for c in log if not c.get("resolves_concern_id")]
-    resolved = [c for c in real if c.get("action_taken") in {"reverse_debit", "clear_pendency", "respond"}]
+    # Canonicalised, because these read HISTORY: rows written before the
+    # reverse_debit -> raise_for_reversal rename still carry the old name, and matching on the
+    # new one alone would quietly drop every pre-rename reversal out of the totals.
+    _act = lambda c: _canon(c.get("action_taken"))
+    resolved = [c for c in real if _act(c) in {"raise_for_reversal", "clear_pendency", "respond"}]
     escalated = [c for c in real if c.get("action_taken") == "escalate"]
-    money = sum(c.get("amount_inr", 0) or 0 for c in real if c.get("action_taken") == "reverse_debit")
+    money = sum(c.get("amount_inr", 0) or 0 for c in real if _act(c) == "raise_for_reversal")
     by_disp: dict[str, int] = {}
     for c in real:
         d = c.get("disposition", "unknown")
@@ -110,7 +117,7 @@ def resolution_time_stats() -> dict:
         l3_durations: list[float] = []   # hours, L3-elapsed only
         in_conversation = 0
         for c in log:
-            if c.get("action_taken") in {"reverse_debit", "clear_pendency", "respond"}:
+            if _canon(c.get("action_taken")) in {"raise_for_reversal", "clear_pendency", "respond"}:
                 durations.append(0.0)    # resolved in-conversation → instant
                 in_conversation += 1
             elif c.get("outcome") == "escalated":

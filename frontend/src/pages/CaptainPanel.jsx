@@ -384,8 +384,14 @@ export default function CaptainPanel() {
                 )}
                 {m.action && m.action !== "need_input" && (
                   <div className="evidence-chip">
-                    {m.action === "reverse_debit" ? "✓ Debit reversed in-conversation"
-                      : m.action === "clear_pendency" ? "✓ Pendency corrected"
+                    {/* NOT "Debit reversed". The engine cannot reverse anything — there is no
+                        write endpoint — so a favourable decision is a RECOMMENDATION L2 actions.
+                        The old string asserted a completed payment over a decision that had
+                        written nothing, which is the one claim this system must never make.
+                        `reverse_debit` is kept as a branch so historical concerns still render. */}
+                    {(m.action === "raise_for_reversal" || m.action === "reverse_debit")
+                      ? "→ Raised for reversal · L2 to action"
+                      : m.action === "clear_pendency" ? "→ Pendency correction raised"
                       : m.action === "escalate" ? <>→ Escalated with worked case{m.concernId && <> · ref <span className="mono">{m.concernId}</span></>}</>
                       : m.action === "respond" ? "ℹ Answered from SOP knowledge" : "✓ Resolved"}
                   </div>

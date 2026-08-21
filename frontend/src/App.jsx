@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import CaptainPanel from "./pages/CaptainPanel.jsx";
 import GrowthDashboard from "./pages/GrowthDashboard.jsx";
+import Connectors from "./pages/Connectors.jsx";
 import Monitor from "./pages/Monitor.jsx";
 import L3Workspace from "./pages/L3Workspace.jsx";
 import SupportCommand from "./pages/SupportCommand.jsx";
@@ -26,8 +27,12 @@ const VIEWS = {
   growth:  { label: "Captain Panel",         icon: "bar_chart",       comp: GrowthDashboard,
              title: "Captain Panel · Growth Dashboard",
              sub: "What the captain sees — with the support widget docked beside it." },
+  // The access ask, as a table. Declarative — the backend never calls anything to build it.
+  connectors: { label: "Connectors",      icon: "power",           comp: Connectors,
+             title: "Connector Registry",
+             sub: "Which real endpoints exist, what PSP does with each today, and what going live costs." },
 };
-const NAV = ["captain", "growth", "monitor", "l3", "support"];
+const NAV = ["captain", "growth", "monitor", "l3", "support", "connectors"];
 
 // Nav context — some pages (e.g. Monitor) call useNav() to jump views. Exposes setView.
 const NavCtx = createContext(() => {});

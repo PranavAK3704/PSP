@@ -35,6 +35,7 @@ from .auth import tokens as auth_tokens                # noqa: E402
 from .auth.deps import current_user, require_role      # noqa: E402
 from .channels import whatsapp                          # noqa: E402
 from .engine import conversation, dispositions          # noqa: E402
+from .engine import write_mode                          # noqa: E402
 from .knowledge import blueprints, governance, sop_compiler, store  # noqa: E402
 from .kt import engine as kt_engine                     # noqa: E402
 from .l3 import platform as l3                          # noqa: E402
@@ -308,6 +309,29 @@ def health():
                        if spend and spend["remaining_usd"] <= 0 else {}),
                     },
             "knowledge": store.corpus_stats(), "data": ds}
+
+
+@app.get("/api/connectors", dependencies=[_authed])
+def connectors():
+    """The connector registry — DECLARATIVE. It never calls anything.
+
+    Augmented at request time with the live adapter state, so the table reflects what this
+    process is actually doing rather than what the file says it should.
+    """
+    from .substrate import connectors as conn
+    reg = conn.registry()
+    # The growth adapter is the one group whose status is knowable at runtime.
+    try:
+        g = ctx.growth_provider()
+        for grp in reg["groups"]:
+            if grp["group"] == "GROWTH_DASHBOARD_API_ROUTES":
+                grp["status"] = "live" if g.mode == "live" else "fixture"
+                grp["detail"] = f"{g.source} · {len(g.known_hubs())} hub(s) on file"
+    except Exception:  # noqa: BLE001 — a declarative table must never fail on a probe
+        pass
+    reg["engine"] = {"account_provider": getattr(ctx.data_provider(), "source", "?"),
+                     "write_mode": write_mode.mode()}
+    return reg
 
 
 # ── Growth Dashboard (Orders & Planning) ────────────────────────────────────

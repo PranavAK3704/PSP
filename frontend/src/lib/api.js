@@ -190,6 +190,9 @@ export const getDataFoundation = () => apiGet("/api/data/foundation");
 export const getGrowthIndex = () => apiGet("/api/growth");
 export const getGrowth = (hub) => apiGet(`/api/growth/${encodeURIComponent(hub)}`);
 
+// Connector registry — declarative; the backend never calls anything to build it.
+export const getConnectors = () => apiGet("/api/connectors");
+
 export const getAudit = () => apiGet("/api/audit");
 export const getKt = () => apiGet("/api/kt");
 export const checkSopConformance = (policy) => apiPost("/api/sop/conformance", { policy });

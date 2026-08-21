@@ -41,11 +41,10 @@ def main() -> int:
         os.environ["GEMINI_API_KEY"] = "y"
         os.environ.pop("LLM_PROVIDER_ADVERSARIAL_VERIFY", None)
         os.environ.pop("LLM_PROVIDER", None)
-        R._provider.cache_clear()
+        R._provider_cached.cache_clear()
 
-        check("a per-node override exists at all",
-              hasattr(R, "provider_for_node"),
-              "active_provider_name() takes no node argument, so this had to be added")
+        # `hasattr(R, "provider_for_node")` cannot be False — it is called two lines below.
+        # The real property is that it is per-NODE, i.e. two nodes can differ.
         os.environ["LLM_PROVIDER_ADVERSARIAL_VERIFY"] = "gemini"
         check("LLM_PROVIDER_<NODE> routes one node to another VENDOR",
               R.provider_for_node("adversarial_verify") == "gemini"
@@ -66,11 +65,12 @@ def main() -> int:
         # The bug this catches: an unscoped node_models entry follows the node across a vendor
         # boundary when its provider degrades, producing claude:gemini-2.5-pro.
         os.environ.pop("GEMINI_API_KEY", None)
-        R._provider.cache_clear()
+        R._provider_cached.cache_clear()
         lbl = R.label_for_node("adversarial_verify")
         vendor, model = lbl.split(":", 1)
-        check("a degraded provider does NOT keep the other vendor's model id",
-              "gemini" not in model if vendor != "gemini" else True, lbl)
+        # The old form ended `else True`, which made it self-passing in precisely the case it
+        # existed to catch. Assert the invariant directly instead: vendor and model must agree.
+        check("vendor and model never disagree", (vendor == "gemini") == ("gemini" in model), lbl)
         check("the label is internally consistent",
               (vendor == "gemini") == ("gemini" in model), lbl)
 
@@ -93,7 +93,7 @@ def main() -> int:
                   st["reason"][:88])
             # With the key present it must NOT degrade.
             os.environ["GEMINI_API_KEY"] = "y"
-            R._provider.cache_clear()
+            R._provider_cached.cache_clear()
             st2 = R.independence_status()
             check("with the key present, independence is real",
                   st2["independent"] is True and st2["degraded"] is False,
@@ -101,7 +101,7 @@ def main() -> int:
         finally:
             R._config = orig_cfg
         os.environ["GEMINI_API_KEY"] = "y"
-        R._provider.cache_clear()
+        R._provider_cached.cache_clear()
         check("the shipped default never CLAIMS independence it lacks",
               R.independence_status()["degraded"] is False,
               "models.yaml is set to a provider whose key actually works")
@@ -113,18 +113,27 @@ def main() -> int:
         check("a missing second credential is visible",
               R.key_configured("gemini") is False and R.key_configured("claude") is True,
               "without this, a deploy looks healthy until the first money decision")
+        # Force a node onto the keyless provider — the shipped YAML default is `claude` (the
+        # gemini key in .env 401s), so without this nothing routes to gemini and the check
+        # would assert against an empty list.
+        os.environ["LLM_PROVIDER_ADVERSARIAL_VERIFY"] = "gemini"
         route = R.routing()
-        check("routing() reports every node with its own key status",
-              all({"provider", "model", "key_configured", "overridden"} <= set(v)
-                  for v in route.values()), f"{len(route)} nodes")
+        # Asserting the keys would just restate routing()'s own dict literal. Assert that the
+        # per-node key status actually DIFFERS when the credentials do — the useful property.
+        gem = [n for n, x in route.items() if x["provider"] == "gemini"]
+        check("routing() reports key status PER PROVIDER, not globally",
+              bool(gem) and route[gem[0]]["key_configured"] is False
+              and any(x["key_configured"] for x in route.values()),
+              f"{len(route)} nodes; gemini-routed={gem} with the gemini key removed")
+        os.environ.pop("LLM_PROVIDER_ADVERSARIAL_VERIFY", None)
         os.environ["GEMINI_API_KEY"] = "y"
-        R._provider.cache_clear()
+        R._provider_cached.cache_clear()
 
         head("[5] the verifier fails CLOSED, and says why")
         from app.trust import verifier
         os.environ["LLM_PROVIDER_ADVERSARIAL_VERIFY"] = "gemini"
         os.environ.pop("GEMINI_API_KEY", None)
-        R._provider.cache_clear()
+        R._provider_cached.cache_clear()
         v = verifier.verify(
             {"action": "reverse_debit", "amount_inr": 244, "checks_run": [],
              "disposition": "hardstop_loss"},
@@ -141,13 +150,9 @@ def main() -> int:
 
         head("[6] the Gemini retry — one attempt, transient codes only")
         from app.llm import gemini_provider as G
-        check("a retry exists at all", hasattr(G, "_post_with_retry"),
-              "it had a bare raise_for_status(), unlike the OpenAI and Claude providers")
-        check("only transient statuses retry", set(G._RETRY_STATUS) == {429, 500, 502, 503, 504},
-              str(sorted(G._RETRY_STATUS)))
-        check("400/401/403 are NOT retried",
-              not ({400, 401, 403} & set(G._RETRY_STATUS)),
-              "retrying a rejected request wastes the captain's wait and tells nobody anything")
+        # `hasattr` is not evidence — the behaviour below is. Kept only as a locator.
+        # Restating the constant proves nothing, and the 400/401/403 clause was then implied by
+        # it. Both are covered behaviourally below (a 429 retries, a 400 does not).
         check("the backoff is short", G._RETRY_SLEEP_S <= 2.0,
               f"{G._RETRY_SLEEP_S}s — the verifier runs inside a turn someone is waiting on")
 
@@ -181,7 +186,7 @@ def main() -> int:
     finally:
         os.environ.clear(); os.environ.update(saved)
         from app.llm import registry as R2
-        R2._provider.cache_clear()
+        R2._provider_cached.cache_clear()
 
     print(f"\n{'=' * 78}")
     if FAILED:

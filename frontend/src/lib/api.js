@@ -208,11 +208,16 @@ export const sendSatisfaction = (concern_id, captain_id, satisfied, note) =>
 // Stream SSE from a POST (chat) or GET (monitor). onTrace(event) per stage,
 // onEnd() when the stream closes. Uses fetch + ReadableStream (works for POST SSE)
 // and carries the auth token; a 401 trips the app back to login.
-export async function stream({ url, method = "GET", body }, onTrace, onEnd) {
+// `signal` lets a caller CANCEL an in-flight stream. Without it a component that unmounts (or
+// switches captain/hub) mid-turn had no way to stop the read loop, so the orphaned stream kept
+// pushing events into a conversation that had already been cleared — one captain's answer
+// landing in another's thread.
+export async function stream({ url, method = "GET", body, signal }, onTrace, onEnd) {
   const res = await fetch(url, {
     method,
     headers: authHeaders(body ? { "Content-Type": "application/json" } : {}),
     body: body ? JSON.stringify(body) : undefined,
+    signal,
   });
   if (res.status === 401) {
     clearToken();
@@ -220,11 +225,22 @@ export async function stream({ url, method = "GET", body }, onTrace, onEnd) {
     onEnd && onEnd();
     return;
   }
+  // A 204/empty response has no body. Reading `.getReader()` off null threw, and because the
+  // only `setBusy(false)` lived in onEnd, the caller's input stayed disabled forever.
+  if (!res.body) { onEnd && onEnd(); return; }
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   let buf = "";
   while (true) {
-    const { value, done } = await reader.read();
+    let value, done;
+    try {
+      ({ value, done } = await reader.read());
+    } catch (e) {
+      // An aborted or reset connection lands here. Ending cleanly is what lets the caller
+      // re-enable its input; propagating would leave it stuck mid-turn.
+      onEnd && onEnd();
+      return;
+    }
     if (done) break;
     buf += dec.decode(value, { stream: true });
     // SSE frames are separated by a blank line — CRLF (sse-starlette) or LF.

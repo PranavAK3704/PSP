@@ -52,7 +52,9 @@ def main() -> int:
     # ── 1. the enum ──────────────────────────────────────────────────────────
     head("[1] TrackingEventType — all 121, verbatim, in declaration order")
     check("121 members", len(ET.TrackingEventType) == 121, str(len(ET.TrackingEventType)))
-    check("no duplicates", len({e.name for e in ET.TrackingEventType}) == 121)
+    # Enum member names are unique by language guarantee, so checking that is a tautology. What
+    # is NOT guaranteed is that the VALUES are distinct and that none collided during transcription.
+    check("no duplicate VALUES", len({e.value for e in ET.TrackingEventType}) == 121)
     check("wire value == identifier (a plain Java enum, no @JsonValue)",
           all(e.value == e.name for e in ET.TrackingEventType))
     # Every value the brief called out by name.
@@ -287,12 +289,20 @@ def main() -> int:
                                   if baseline[i].get(k) != withscan[i].get(k)})
             for i in range(len(rows))
             if any(baseline[i].get(k) != withscan[i].get(k) for k in KEYS)]
+    # True by construction TODAY (the block only appends to `ev`), which is exactly why it is
+    # worth pinning: the day someone makes the scan verdict influence the branch, this fails.
     check(f"scan evidence changes NO decision across {len(rows)} AWBs", not diff,
           f"{len(diff)} changed: {diff[:2]}" if diff
-          else "action, confidence and amount identical with the block on and off")
-    check("the distribution is stable across runs",
-          sum(mix.values()) == len(rows) and set(mix) <= {"respond", "escalate", "reverse_debit"},
-          f"actions seen: {sorted(mix)}")
+          else "identical with the block on and off — a regression tripwire, not a discovery")
+    # Actually run it TWICE. The old version asserted `sum(mix.values()) == len(rows)` — true by
+    # construction, one increment per row — and that the action set was a subset of the only
+    # three values the executors can return. It claimed "stable across runs" while running once.
+    mix2: dict[str, int] = {}
+    for r in rows:
+        dd = policy_exec.execute("hardstop_loss", empty, {"awb": str(r["awb"])})
+        mix2[dd["action"]] = mix2.get(dd["action"], 0) + 1
+    check("the distribution IS stable across two runs", mix == mix2,
+          f"{mix} vs {mix2}")
 
     # Which AWBs actually gain scan evidence: only the ones with a fixture. Reported rather
     # than asserted as a ratio, because it is a property of how many fixtures exist.

@@ -115,9 +115,21 @@ def main() -> int:
           and gc.lever_status("58%", "70%", True) is Tri.NO,
           "day0_attempt is the only higher-is-better lever; inverting it would tell a captain "
           "at 94% against a 70% target that they are failing")
-    check("Tri has no __bool__", not hasattr(Tri.UNKNOWN, "__bool__")
-          or Tri.__bool__ is object.__bool__ if hasattr(Tri, "__bool__") else True,
-          "so `if tri:` cannot compile into treating UNKNOWN as True")
+    # Tested by DOING IT. The previous version asked `hasattr(Tri, "__bool__")`, which is True
+    # via the enum metaclass, then took a branch that referenced `object.__bool__` — a name that
+    # does not exist. It short-circuited before evaluating it and so always passed, while the
+    # property it named was false: Tri(str, Enum) inherited str truthiness and bool(Tri.NO) was
+    # True. A guard that cannot fail is worse than no guard.
+    refused = []
+    for member in (Tri.YES, Tri.NO, Tri.UNKNOWN):
+        try:
+            bool(member)
+        except TypeError:
+            refused.append(member.name)
+    check("every Tri member REFUSES implicit truthiness", len(refused) == 3,
+          f"refused: {refused} — `if tri:` must raise, not silently treat NO as a pass")
+    check("   but identity comparison and .value still work",
+          Tri.of(True) is Tri.YES and Tri.NO.value == "NO" and Tri.UNKNOWN.known is False)
 
     # ── 4. the executable policy exists and routes correctly ─────────────────────
     head("[4] the load_planning policy — the gap that made escalation route to the wrong team")
@@ -128,8 +140,12 @@ def main() -> int:
         check("escalation.team is Orders & Planning (L2)",
               (p.get("escalation") or {}).get("team") == "Orders & Planning (L2)",
               "it used to default to Losses & Debits (L2) — the wrong team for a load question")
-        check("it is not money-moving",
-              (p.get("resolution") or {}).get("action") not in trust_gate.MONEY_ACTIONS)
+        # NOTE this passes for ANY prose, because resolution.action on this policy is a
+        # paragraph rather than a verb. The property that actually matters — that the DECISION
+        # is not money-moving — is asserted per hub in section [5] via the gate verdict.
+        check("resolution.action is not a money verb",
+              (p.get("resolution") or {}).get("action") not in trust_gate.MONEY_ACTIONS,
+              "weak by itself; section [5] asserts money_moving=False on the real verdict")
         check("required_evidence is machine-checkable, not documentation",
               all(" " not in e and "/" not in e for e in p.get("required_evidence", [])),
               ", ".join(p.get("required_evidence", [])))
@@ -138,8 +154,33 @@ def main() -> int:
               f"{len(p.get('required_evidence_authored') or [])} authored names kept")
         check("it came through the real compiler", p.get("compiled_by") == "sop_compiler",
               f"{p.get('compiled_by')} · {len(p.get('checks') or [])} checks")
-    check("invalidate() makes a promotion take effect in-process",
-          pol.invalidate() >= 18, "registry() is lru_cached and was never invalidated before")
+    # Proven by MUTATING the overlay and re-reading. The old version asserted
+    # `pol.invalidate() >= 18` — which is just `len(registry())` and is true whether or not the
+    # cache was cleared, so it tested nothing. No file was written and nothing was re-read.
+    import json as _json
+    store = Path(pol.store_path())
+    _before = store.read_text() if store.exists() else None
+    try:
+        overlay = _json.loads(_before) if _before else []
+        probe = dict(overlay[0]) if overlay else None
+        if probe:
+            probe["disposition"] = "_calib_probe_"
+            probe["id"] = "pol_probe_do_not_ship"
+            store.write_text(_json.dumps(overlay + [probe], indent=1))
+            stale = pol.get_policy("_calib_probe_")          # cache still warm -> None
+            n = pol.invalidate()
+            fresh = pol.get_policy("_calib_probe_")          # cache cleared -> present
+            check("invalidate() is what makes a promotion visible in-process",
+                  stale is None and fresh is not None and fresh["id"] == "pol_probe_do_not_ship",
+                  f"before={stale is not None} after={fresh is not None} registry={n} — "
+                  f"registry() is lru_cached and was never invalidated before")
+    finally:
+        if _before is not None:
+            store.write_text(_before)
+        else:
+            store.unlink(missing_ok=True)
+        pol.invalidate()
+        check("   and the probe is cleaned up", pol.get_policy("_calib_probe_") is None)
 
     # ── 5. end to end through the REAL executor and gate ─────────────────────────
     head("[5] every fixture through the real policy_exec.execute + trust gate")

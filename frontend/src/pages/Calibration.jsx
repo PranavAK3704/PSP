@@ -34,11 +34,17 @@ function Bin({ b, maxN }) {
       <span className="v mono" style={{ fontSize: 10.5,
         color: b.n ? "var(--text)" : "var(--text-faint)" }}>
         {b.n === 0 ? "—" : `n=${b.n}`}
-        {b.labelled > 0 && <span style={{ color: "var(--c-teal)" }}> · {b.labelled} labelled</span>}
+        {b.answer_labelled > 0 &&
+          <span style={{ color: "var(--c-teal)" }}> · {b.answer_labelled} verified</span>}
+        {/* Escalation labels are shown SEPARATELY and never folded into `observed`. Summing
+            "the answer was right" with "escalating was right" produced a below-gate bin
+            reading 100%, which a reader would take as the engine being right. */}
+        {b.escalation_labelled > 0 &&
+          <span style={{ color: "var(--c-violet)" }}> · {b.escalation_warranted}/{b.escalation_labelled} escalations upheld</span>}
       </span>
       <span className="v mono" style={{ fontSize: 10.5,
         color: b.observed == null ? "var(--text-faint)" : "var(--text)" }}>
-        {b.n === 0 ? "" : b.observed == null ? "no label" : pct(b.observed)}
+        {b.n === 0 ? "" : b.observed == null ? "no captain verdict" : pct(b.observed)}
       </span>
     </div>
   );
@@ -56,6 +62,15 @@ export default function Calibration() {
   if (err) return <div className="df-note" style={{ color: "var(--warn)" }}>{err}</div>;
   if (!d) return <div className="mono" style={{ fontSize: 12, color: "var(--text-faint)", padding: 18 }}>
     Reading the concern log…</div>;
+  // The route returns {error, reliability: null} rather than a 500 so a panel bug cannot take
+  // down a demo — but a blank report must not then read as "no data yet".
+  if (d.error || !d.reliability) return (
+    <div className="df-note" style={{ color: "var(--warn)", background: "var(--warn-soft)",
+      border: "1px solid rgba(255,185,95,.3)", padding: "13px 15px" }}>
+      The calibration report failed to build{d.error ? ` (${d.error})` : ""}. This is a reporting
+      failure, not an absence of data — the concern log is unaffected.
+    </div>
+  );
 
   const r = d.reliability || {};
   const k = d.kapture || {};
@@ -111,10 +126,16 @@ export default function Calibration() {
             </div>
             {(r.bins || []).map((b) => <Bin key={b.label} b={b} maxN={maxN} />)}
             <div className="df-note" style={{ border: "none", padding: "10px 0 0" }}>
-              Amber bins are below the gate and block; teal bins pass. Seven of ten are empty
-              because the four values are constants, not measurements — a chart fitted to its
-              own data would have drawn four bars and hidden that.
+              Amber bins are below the gate and block; teal bins pass. Most are empty because the
+              four values are constants, not measurements — a chart fitted to its own data would
+              have drawn four bars and hidden that.
             </div>
+            {r.observed_means && (
+              <div className="df-note" style={{ border: "none", padding: "6px 0 0",
+                color: "var(--text-faint)" }}>
+                <b>observed</b> = {r.observed_means}
+              </div>
+            )}
           </div>
         </div>
 

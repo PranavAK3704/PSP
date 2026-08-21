@@ -61,7 +61,21 @@ def is_simulated() -> bool:
     return mode() == SIMULATED
 
 
+def writable() -> bool:
+    """Can a write actually be performed? Always False today — see NO_WRITE_PATH."""
+    return False
+
+
 def assert_writable() -> None:
-    """Call before anything that claims to have written. Always raises today."""
+    """Raise if a write is impossible. Kept for callers that genuinely want to fail fast.
+
+    NOT used on the money path any more, and that is the important part. It used to be called
+    from `tools._act()`, which runs AFTER the gate has passed and the adversarial verifier has
+    agreed — and BEFORE `concern_log.append`. So under WRITE_MODE=live the raise discarded the
+    concern record, discarded the POLICY/GATE/VERIFY trace, and left the captain's money dispute
+    with no ledger row, no escalation and no handover. The verifier call had already been paid
+    for. Escalations were unaffected, so only SUCCESSFUL reversals vanished — a case-shredder
+    that presents as "the reversal path is broken".
+    """
     if mode() == LIVE:
         raise WriteNotAvailable(NO_WRITE_PATH)

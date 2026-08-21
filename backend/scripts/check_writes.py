@@ -75,11 +75,16 @@ def main() -> int:
         if raised:
             for term in ("Kafka", "no producer", "scheduler"):
                 check(f"the reason names '{term}'", term.lower() in raised.lower())
-        try:
-            tools._act({"action": "reverse_debit", "amount_inr": 244, "debit_id": "D1"})
-            check("_act() raises under live for a money action", False, "it returned instead")
-        except write_mode.WriteNotAvailable:
-            check("_act() raises under live for a money action", True)
+        # _act must NOT raise — it reports refusal as data. It used to raise here, and because
+        # the call sits AFTER the verifier has agreed and BEFORE concern_log.append, the raise
+        # discarded the concern, the trace and the money already spent on the verifier call.
+        # Only successful reversals vanished; escalations were fine. A case-shredder.
+        r = tools._act({"action": "reverse_debit", "amount_inr": 244, "debit_id": "D1"})
+        check("_act() does NOT raise under live — it refuses as DATA",
+              isinstance(r, dict) and r.get("blocked") is True,
+              "raising here discarded the captain's case entirely")
+        check("   the refusal is not mislabelled as simulated", r.get("simulated") is False)
+        check("   and it says the case is preserved", "preserved" in r.get("detail", ""))
         # A non-money action must NOT raise under live — there is nothing to write, so there is
         # nothing to refuse. Raising here would break every ordinary conversational resolution.
         try:
@@ -167,6 +172,40 @@ def main() -> int:
                       bool(act_evts) and "no write required" in act_evts[0]["label"],
                       act_evts[0]["label"] if act_evts else "no act event")
 
+        # ── 4b. THE GAP THE REVIEW FOUND: what does `live` do END TO END? ───────
+        # NOTE the stubs from [4] are STILL INSTALLED here, deliberately. An earlier version of
+        # this section ran after they were restored, so it exercised the real concern_log and
+        # wrote a junk row into data/concern_log.json — a harness that mutates production state
+        # is worse than a missing harness.
+        # Section [2] only proved `_act` refuses in isolation, then section [4] ran with
+        # WRITE_MODE=simulated — so the harness certified "live refuses" while never checking
+        # what the refusal did to the concern log or the trace. That is precisely where the
+        # case-shredder hid.
+        head("[4b] WRITE_MODE=live end to end — the case must survive")
+        os.environ["WRITE_MODE"] = "live"
+        appended.clear()
+        tools.policy_exec.execute = lambda *a, **k: fake("reverse_debit", 0.92)
+        result, events, concern, taken = tools.dispatch(
+            "apply_policy", {"disposition": "hardstop_loss", "awb": "VL0000000000001"},
+            "P1", {"captain_id": "P1", "profile": {}, "ledger": [], "losses": [],
+                   "cash": {}, "shipments": []})
+        check("the concern is still LOGGED", concern is not None and len(appended) == 1,
+              f"{len(appended)} logged — 0 means the captain's dispute vanished")
+        check("the trace still reaches the panel", len(events) >= 4,
+              f"{len(events)} events — POLICY/GATE/VERIFY must not be discarded")
+        act_evts = [e for e in events if e["node"] == "act"]
+        check("an ACT event says BLOCKED", bool(act_evts) and "BLOCKED" in act_evts[0]["label"],
+              act_evts[0]["label"] if act_evts else "no act event")
+        check("it escalates rather than claiming success", taken == "escalate",
+              f"action_taken={taken}")
+        check("the captain gets a real answer, not a tool error",
+              bool(result.get("reason")) and "WriteNotAvailable" not in str(result),
+              (result.get("reason") or "")[:60])
+        check("no LMS/Kafka internals leak to the captain",
+              not any(w in (result.get("reason") or "") for w in ("Kafka", "LossManagement", "LMS")),
+              "the tool-error path used to paraphrase service internals into the reply")
+        os.environ["WRITE_MODE"] = "simulated"
+        # Stubs restored only now that BOTH sections that need them have run.
         tools.concern_log.append, tools.policy_exec.execute, tools.verifier.verify = (
             orig_append, orig_exec, orig_verify)
 

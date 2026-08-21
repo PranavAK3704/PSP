@@ -11,11 +11,15 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import threading
 from pathlib import Path
 
 _DATA = Path(__file__).resolve().parents[2] / "data"
 _DB = _DATA / "valmo.db"                      # full local file (dev)
 _DB_FALLBACK = _DATA / "valmo_fallback.db"    # small subset baked into the image (offline safety net)
+
+# Guards _init only. Per-query work uses a per-thread connection instead (see _conn).
+_init_lock = threading.Lock()
 
 # Data source: EXTERNAL Turso (libSQL over HTTPS) if TURSO_DATABASE_URL + TURSO_AUTH_TOKEN are
 # set, else the LOCAL baked SQLite file. Same SQL runs on both (libSQL is SQLite-compatible).
@@ -23,30 +27,60 @@ _DB_FALLBACK = _DATA / "valmo_fallback.db"    # small subset baked into the imag
 # local demo can never break.
 _MODE = None                 # 'remote' | 'local' | 'none'
 _url = _tok = None
-_local: sqlite3.Connection | None = None
+_db_path: Path | None = None
 _tables: set | None = None
+
+# ── ONE CONNECTION PER THREAD ────────────────────────────────────────────────────────────────
+# This used to be a single module-level `sqlite3.connect(..., check_same_thread=False)` shared
+# by every caller. That flag only disables Python's same-thread ASSERTION — it does not make a
+# connection safe for concurrent use, and the sqlite3 docs are explicit about it. Two threads
+# calling `.execute()` on one connection interleave on the same statement handle, which raises
+# `sqlite3.InterfaceError: bad parameter or other API misuse` or `IndexError: tuple index out of
+# range` from inside the row factory.
+#
+# That is reachable in normal operation, not in theory: `/api/chat` returns an
+# `EventSourceResponse` over a sync generator, so sse_starlette pulls each step through
+# `iterate_in_threadpool` — different threads, and two captains talking at once is the default
+# case for a support tool. It surfaced the moment a determinism test ran 48 turns in parallel.
+#
+# Thread-local rather than a global lock: the file is opened READ-ONLY, so N readers are safe
+# and correct, and serialising every lookup behind one mutex would make a concurrent demo feel
+# slower for no correctness gain.
+_tls = threading.local()
+
+
+def _conn() -> sqlite3.Connection | None:
+    """This thread's read-only connection, opened on first use."""
+    if _db_path is None:
+        return None
+    c = getattr(_tls, "conn", None)
+    if c is None:
+        c = sqlite3.connect(f"file:{_db_path}?mode=ro", uri=True)
+        c.row_factory = sqlite3.Row
+        _tls.conn = c
+    return c
 
 
 def _init():
-    global _MODE, _url, _tok, _local
-    if _MODE is not None:
-        return
-    url, tok = os.environ.get("TURSO_DATABASE_URL"), os.environ.get("TURSO_AUTH_TOKEN")
-    if url and tok:
-        try:
-            from . import turso_http
-            turso_http.execute(url, tok, "SELECT 1")   # probe
-            _url, _tok, _MODE = url, tok, "remote"
-        except Exception:                              # noqa: BLE001 — fall back to local
-            _url = _tok = None
-    if _MODE is None:
-        path = _DB if _DB.exists() else (_DB_FALLBACK if _DB_FALLBACK.exists() else None)
-        if path is not None:
-            _local = sqlite3.connect(f"file:{path}?mode=ro", uri=True, check_same_thread=False)
-            _local.row_factory = sqlite3.Row
-            _MODE = "local"
-    if _MODE is None:
-        _MODE = "none"
+    global _MODE, _url, _tok, _db_path
+    with _init_lock:
+        if _MODE is not None:
+            return
+        url, tok = os.environ.get("TURSO_DATABASE_URL"), os.environ.get("TURSO_AUTH_TOKEN")
+        if url and tok:
+            try:
+                from . import turso_http
+                turso_http.execute(url, tok, "SELECT 1")   # probe
+                _url, _tok, _MODE = url, tok, "remote"
+            except Exception:                              # noqa: BLE001 — fall back to local
+                _url = _tok = None
+        if _MODE is None:
+            path = _DB if _DB.exists() else (_DB_FALLBACK if _DB_FALLBACK.exists() else None)
+            if path is not None:
+                _db_path = path
+                _MODE = "local"
+        if _MODE is None:
+            _MODE = "none"
 
 
 def source() -> str:
@@ -73,7 +107,10 @@ def _query(sql: str, params: tuple) -> list[dict]:
         from . import turso_http
         return turso_http.execute(_url, _tok, sql, params)
     if _MODE == "local":
-        return [dict(r) for r in _local.execute(sql, params).fetchall()]
+        c = _conn()
+        if c is None:
+            return []
+        return [dict(r) for r in c.execute(sql, params).fetchall()]
     return []
 
 

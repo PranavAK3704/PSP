@@ -149,8 +149,23 @@ function SupportWidget({ hub, partnerId }) {
   const [steps, setSteps] = useState([]);
   const convRef = useRef(null);
   const endRef = useRef(null);
+  const abortRef = useRef(null);
+  // Monotonic turn id. An in-flight stream from a previous hub can still deliver events after
+  // abort() resolves, and its `reply` would land in a conversation that has been cleared — so
+  // every callback checks it is still the current turn before touching state.
+  const turnRef = useRef(0);
 
-  useEffect(() => { setMsgs([]); setSteps([]); convRef.current = null; }, [hub, partnerId]);
+  // Cancel any in-flight stream when the captain/hub changes OR the component unmounts.
+  // Without this the read loop kept running against a cleared conversation, and `busy` never
+  // reset, so the input stayed disabled until the orphaned turn happened to finish.
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
+  useEffect(() => {
+    abortRef.current?.abort();
+    turnRef.current += 1;
+    setMsgs([]); setSteps([]); setBusy(false); convRef.current = null;
+  }, [hub, partnerId]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, steps]);
 
   async function send(text) {
@@ -159,10 +174,18 @@ function SupportWidget({ hub, partnerId }) {
     setInput(""); setMsgs((m) => [...m, { who: "captain", text: msg }]);
     setSteps([]); setBusy(true);
     if (!convRef.current) convRef.current = crypto.randomUUID();
-    await stream(
-      { url: "/api/chat", method: "POST",
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    const myTurn = turnRef.current;
+    const mine = () => turnRef.current === myTurn && !ctrl.signal.aborted;
+    // try/finally, because setBusy(false) used to live ONLY in onEnd — so any throw from
+    // stream() (network drop, null body, reader reset) left the widget permanently disabled.
+    try {
+      await stream(
+      { url: "/api/chat", method: "POST", signal: ctrl.signal,
         body: { captain_id: partnerId, message: msg, conversation_id: convRef.current } },
       (ev) => {
+        if (!mine()) return;
         const d = ev.data || {};
         if (ev.node === "query" && d.query) setSteps((s) => [...s, { kind: "query", text: `named query: ${d.query}` }]);
         if (ev.node === "policy") setSteps((s) => [...s, { kind: "policy", text: `policy → ${d.action} · confidence ${d.confidence}` }]);
@@ -173,7 +196,13 @@ function SupportWidget({ hub, partnerId }) {
           setMsgs((m) => [...m, { who: "psp", text: d.reply, failed: !!d.engine_error }]);
         }
       },
-      () => setBusy(false));
+      () => { if (mine()) setBusy(false); });
+    } catch {
+      if (mine()) setMsgs((m) => [...m, { who: "psp", failed: true,
+        text: "The connection dropped mid-answer. Please ask again." }]);
+    } finally {
+      if (mine()) setBusy(false);
+    }
   }
 
   const TONE = { query: "var(--c-teal)", policy: "var(--c-violet)", gate: "var(--c-amber)",

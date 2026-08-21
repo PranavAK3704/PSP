@@ -103,8 +103,19 @@ def _labels() -> dict[str, dict]:
     for c in all_concerns:
         target = c.get("resolves_concern_id")
         if target and target in escalated and target not in out:
-            out[target] = {"correct": True, "source": "l3_closure",
-                           "detail": (c.get("resolution_note") or "closed by L3")[:120]}
+            note = (c.get("resolution_note") or "").strip()
+            # A closure is evidence the escalation was warranted UNLESS the closer says
+            # otherwise. Scoring every closure `correct: True` unconditionally meant an
+            # escalation closed as "should never have been escalated" counted as a good call.
+            # Keyword matching is crude, and it is the honest kind of crude: `correct: None`
+            # says "a human commented and this does not clearly support the decision", which
+            # excludes it from the rate rather than guessing at its sign.
+            adverse = any(w in note.lower() for w in
+                          ("should not have", "should never", "not required", "unnecessary",
+                           "wrongly escalated", "incorrectly escalated", "no issue found",
+                           "invalid", "duplicate"))
+            out[target] = {"correct": None if adverse else True, "source": "l3_closure",
+                           "detail": note[:120] or "closed by L3"}
     return out
 
 
@@ -129,22 +140,38 @@ def reliability() -> dict:
 
     bins = []
     for i in range(N_BINS):
-        lo, hi = i * BIN_WIDTH, (i + 1) * BIN_WIDTH
+        # Integer arithmetic then divide: `i * 0.1` gives 0.30000000000000004 and
+        # 0.6000000000000001, so a 0.3 / 0.6 / 0.7 confidence landed one bin BELOW its printed
+        # label. Unreachable while only four constants exist, and silently wrong the day someone
+        # adds a 0.7 branch — which is exactly when this screen would be consulted.
+        lo, hi = i / N_BINS, (i + 1) / N_BINS
         # The top bin is inclusive of 1.0; every other is [lo, hi).
         members = [c for c in scored
                    if lo <= float(c["confidence"]) < hi
                    or (i == N_BINS - 1 and float(c["confidence"]) == 1.0)]
         lab = [labels[c["id"]] for c in members if c.get("id") in labels]
-        correct = sum(1 for l in lab if l["correct"])
+        # SPLIT BY SEMANTICS. Summing these into one rate was wrong and it showed: the 0.2–0.3
+        # bin — below the gate — read 100% "observed accuracy" built entirely from l3_closure
+        # labels, i.e. from "escalating was the right call". A reader would take that as the
+        # engine being right at a confidence the gate blocks. The module docstring already said
+        # these are different claims; the arithmetic did not.
+        answer_lab = [l for l in lab if l["source"] == "captain_satisfaction"]
+        esc_lab = [l for l in lab if l["source"] == "l3_closure"]
+        correct = sum(1 for l in answer_lab if l["correct"])
         bins.append({
-            "lo": round(lo, 2), "hi": round(hi, 2),
+            "lo": round(lo, 3), "hi": round(hi, 3),
             "label": f"{lo:.1f}–{hi:.1f}",
             "n": len(members),
             "labelled": len(lab),
             "correct": correct,
-            # None, not 0 — an unmeasured bin and a bin that got everything wrong must not
-            # render as the same bar.
-            "observed": round(correct / len(lab), 3) if lab else None,
+            # `observed` now means ONE thing: of the decisions a CAPTAIN verified, how many were
+            # right. None, not 0 — an unmeasured bin and a bin that got everything wrong must
+            # not render as the same bar.
+            "observed": round(correct / len(answer_lab), 3) if answer_lab else None,
+            "answer_labelled": len(answer_lab),
+            # Reported beside it, never inside it. An L3 closure attests the ESCALATION.
+            "escalation_labelled": len(esc_lab),
+            "escalation_warranted": sum(1 for l in esc_lab if l["correct"]),
             "mean_confidence": round(sum(float(c["confidence"]) for c in members) / len(members), 3)
                                if members else None,
             "above_gate": lo >= CONFIDENCE_THRESHOLD,
@@ -161,8 +188,11 @@ def reliability() -> dict:
     # concerns are exactly the ones most likely to receive a human label, since an L3 closure only
     # happens after an escalation. The decisions we can label are the decisions we cannot plot.
     scored_ids = {c.get("id") for c in scored}
+    known_ids = {c.get("id") for c in concerns}
     unusable = [{"concern_id": cid, "source": l["source"],
-                 "why": "the concern carries no numeric confidence, so it lands in no bin"}
+                 "why": ("no concern with this id exists in the log"
+                         if cid not in known_ids else
+                         "the concern carries no numeric confidence, so it lands in no bin")}
                 for cid, l in labels.items() if cid not in scored_ids]
 
     return {
@@ -178,6 +208,10 @@ def reliability() -> dict:
         "audit_scores": len(audits),
         # The headline. Stated as data rather than left for a reader to notice.
         "finding": _finding(distinct, len(scored), sum(b["labelled"] for b in bins)),
+        "observed_means": ("of the decisions a CAPTAIN verified, the share that were right. "
+                           "L3 closures are counted separately as escalation_warranted, because "
+                           "'the answer was right' and 'escalating was right' are different "
+                           "claims and averaging them produces a number that means neither."),
         "label_semantics": {
             "captain_satisfaction": "the captain's own verdict on the answer — the strongest label",
             "l3_closure": "a human closed the escalation, so escalating was warranted; says "

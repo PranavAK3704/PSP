@@ -6,6 +6,7 @@ Claude for Gemini, or changing a node's tier, is a YAML edit.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -31,8 +32,26 @@ def _config() -> dict:
         return yaml.safe_load(f)
 
 
-@lru_cache(maxsize=4)
 def _provider(name: str) -> LLMProvider:
+    """A provider client for `name`, cached on (name, credential).
+
+    The cache key includes the KEY, not just the name. Cached on the name alone, a client built
+    before its credential was set kept an empty api_key forever — while `key_configured()` read
+    the env fresh and reported True. So `provider_for_node` would route a node to gemini
+    *because the key is present*, and `_provider("gemini")` would hand back the keyless client
+    built earlier. The verifier then 401s with `key_configured: True` in its own failure
+    reason — a diagnostic pointing away from the cause, on the path where every money decision
+    turns into an escalation that reads as the skeptic disagreeing.
+
+    Keyed on a HASH of the credential, never the value: a cache key is the kind of thing that
+    ends up in a repr or a log line.
+    """
+    key = os.environ.get(_KEY_ENV.get(name, ""), "")
+    return _provider_cached(name, hashlib.sha256(key.encode()).hexdigest()[:16] if key else "")
+
+
+@lru_cache(maxsize=8)
+def _provider_cached(name: str, _key_fingerprint: str) -> LLMProvider:
     cfg = _config()
     temp = cfg.get("temperature", 0.1)
     if name == "gemini":
@@ -135,7 +154,18 @@ def label_for_node(node: str) -> str:
 
 
 def active_provider_name() -> str:
-    return (os.environ.get("LLM_PROVIDER", "").strip().lower() or _config()["provider"])
+    """The global provider. An UNKNOWN value falls back to the YAML default rather than through.
+
+    `_KNOWN_PROVIDERS` was only consulted for per-node overrides, so `LLM_PROVIDER=anthropic` —
+    the obvious typo for the Claude provider — passed straight through and then failed deep:
+    `cfg["tiers"]["anthropic"]` raises KeyError inside `for_node`, `/api/health` 500s because
+    `active_model_label()` sits outside its try, and every turn degrades to "provider
+    unavailable". Validating here makes a typo a no-op instead of an outage.
+    """
+    env = os.environ.get("LLM_PROVIDER", "").strip().lower()
+    if env and env not in _KNOWN_PROVIDERS:
+        env = ""
+    return env or _config()["provider"]
 
 
 def active_model_label() -> str:

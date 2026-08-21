@@ -340,8 +340,17 @@ def connectors():
         g = ctx.growth_provider()
         for grp in reg["groups"]:
             if grp["group"] == "GROWTH_DASHBOARD_API_ROUTES":
-                grp["status"] = "live" if g.mode == "live" else "fixture"
+                was, now = grp["status"], ("live" if g.mode == "live" else "fixture")
+                grp["status"] = now
                 grp["detail"] = f"{g.source} · {len(g.known_hubs())} hub(s) on file"
+                # `by_status` was summed by registry() from the PRE-mutation statuses, so under
+                # PSP_GROWTH_SOURCE=live the summary tiles and this group's own pill disagreed.
+                # Re-point the count rather than leaving two numbers that contradict each other.
+                if was != now:
+                    bs = dict(reg["by_status"])
+                    bs[was] = max(0, bs.get(was, 0) - grp["count"])
+                    bs[now] = bs.get(now, 0) + grp["count"]
+                    reg["by_status"] = {k: v for k, v in bs.items() if v}
     except Exception:  # noqa: BLE001 — a declarative table must never fail on a probe
         pass
     reg["engine"] = {"account_provider": getattr(ctx.data_provider(), "source", "?"),

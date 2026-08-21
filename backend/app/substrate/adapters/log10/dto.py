@@ -216,11 +216,32 @@ def _parse_events(raw: list) -> tuple[Event, ...]:
             data=r.get("data") if isinstance(r.get("data"), dict) else {},
             user=r.get("user") if isinstance(r.get("user"), dict) else None,
         )))
-    # (has_time, time, original_index) — undated events sort last, stably.
-    parsed.sort(key=lambda t: (t[1].at is not None, t[1].at or datetime.min.replace(
-        tzinfo=timezone.utc), t[0]) if t[1].at else (False, datetime.min.replace(
-        tzinfo=timezone.utc), t[0]))
+    parsed.sort(key=lambda t: _order(t[1], t[0]))
     return tuple(e for _i, e in parsed)
+
+
+_EPOCH = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _order(ev: "Event", idx: int) -> tuple:
+    """Sort key: dated events ascending, undated LAST, ties by original index.
+
+    THE BUG THIS REPLACES, because it was subtle and it changed a money answer. The previous
+    key was `(at is not None, at or MIN, i) if at else (False, MIN, i)` — a conditional whose
+    two arms compute the same thing, and both of which put `False` FIRST for an undated event.
+    Tuples compare left to right, so `(False, …) < (True, …)`: undated events sorted to the
+    FRONT, the exact opposite of what the docstring claimed.
+
+    That mattered because `predicates._effective()` cancels a `*_DELINK` against the last
+    matching base scan EARLIER IN THE LIST. Sorting an undated delink to the front put it ahead
+    of the scan it was meant to undo, so the delink silently did nothing and the connection was
+    credited — reaching `reverse_debit` at 0.93 on a shipment whose onward scan had been
+    reversed. Two realistic triggers: `eventTime: null`, and `eventTime` in SECONDS (which
+    `to_datetime` correctly refuses, yielding None).
+
+    `at is None` first is the whole fix: False (dated) sorts before True (undated).
+    """
+    return (ev.at is None, ev.at or _EPOCH, idx)
 
 
 def contract_problems(payload: dict, *, strict_masking: bool = True) -> list[str]:
@@ -320,7 +341,7 @@ def from_legacy_scans(blob: dict | None, awb: str = "") -> Tracking | None:
                                    user={"name": blob.get("hub") or ""}))
         except ValueError:
             pass
-    events.sort(key=lambda e: (e.at is not None, e.at or datetime.min.replace(tzinfo=timezone.utc)))
+    events.sort(key=lambda e: _order(e, 0))     # same ordering rule — see _order
     return Tracking(
         waybill_no=str(blob.get("awb") or awb or ""),
         events=tuple(events),

@@ -180,12 +180,26 @@ def _act(decision: dict) -> dict:
         return {"simulated": False, "write_mode": write_mode.mode(), "money_moving": False,
                 "detail": "Responded — no money movement, so nothing to write."}
 
-    # Money action. `live` raises here rather than at some later, vaguer point.
-    write_mode.assert_writable()
+    # Money action. This DOES NOT RAISE — see write_mode.assert_writable for why. Raising here
+    # ran after the verifier had already agreed and before the concern was logged, so it threw
+    # away the case, the trace and the money the verifier call had cost. A refusal is reported
+    # as data and the caller escalates, which loses nothing.
     would = _WOULD.get(a, lambda d: f"perform {a}")(decision)
+    mode = write_mode.mode()
+    if mode == write_mode.LIVE:
+        return {
+            "simulated": False,
+            "blocked": True,
+            "write_mode": mode,
+            "money_moving": True,
+            "would_have": would,
+            "detail": (f"BLOCKED — WRITE_MODE=live asks for a real write and none is possible. "
+                       f"{write_mode.NO_WRITE_PATH} The case is preserved and escalated, not "
+                       f"dropped."),
+        }
     return {
         "simulated": True,
-        "write_mode": write_mode.mode(),
+        "write_mode": mode,
         "money_moving": True,
         "would_have": would,
         "idempotency_key": f"rev::{decision.get('debit_id')}" if a == "reverse_debit" else None,
@@ -441,8 +455,15 @@ def _apply_policy(args: dict, captain_id: str, context: dict, channel: str,
                            detail=("AGREES" if v["agrees"] else "REFUTES") + f" — {v['reason']}", data=v))
 
     resolved = verdict["passed"] and decision["action"] != "escalate" and verifier_agrees is not False
+    act = _act(decision) if resolved else None
+    if act is not None and act.get("blocked"):
+        # A write was required and is impossible. Fall through to the escalation branch so the
+        # concern is still logged, the trace still reaches the panel, and the captain still gets
+        # an answer — the one thing that must never happen here is the case disappearing.
+        events.append(_evt("act", "ACT — BLOCKED (write_mode=live, no write path exists)",
+                           status="blocked", detail=act["detail"], data=act))
+        resolved = False
     if resolved:
-        act = _act(decision)
         action = decision["action"]
         simulated = bool(act.get("simulated"))
         # The label and status TELL THE TRUTH. "ACT — idempotent write" on a step that writes

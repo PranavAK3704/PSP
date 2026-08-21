@@ -54,14 +54,20 @@ def execute(disposition: str, context: dict, entities: dict) -> dict:
     if awb:
         row = loss_db.get_loss_by_awb(awb)
         if row:
-            global _ctx_captain
-            _ctx_captain = context.get("captain_id", "")
             disp = pol.reason_l1_to_disposition(row.get("reason_l1", ""))
             policy = pol.get_policy(disp) or pol.get_policy("hardstop_loss")
             pend = loss_db.get_pendency(awb)
             attrib = loss_db.get_attrib_change(awb)
             led = loss_db.get_attribution(awb)
-            return _eval_real_loss(row, policy, awb, pend, attrib, led)
+            # captain_id is PASSED, not stashed in a module global. It used to be a global set
+            # here and read inside _eval_real_loss, with four sqlite round-trips in between —
+            # and sqlite releases the GIL, so under concurrent turns (sse_starlette drives the
+            # generator through iterate_in_threadpool, across threads) captain A's decision could
+            # read captain B's id. It only reached the seed-scan fallback, so no decision changed
+            # and no cross-captain data was exposed — but the persisted evidence trail became
+            # non-deterministic, which is the one thing an audit record cannot be.
+            return _eval_real_loss(row, policy, awb, pend, attrib, led,
+                                   captain_id=context.get("captain_id", ""))
 
     policy = pol.get_policy(disposition)
     if not policy:
@@ -76,11 +82,9 @@ def execute(disposition: str, context: dict, entities: dict) -> dict:
             "evidence_trail": [], "checks_run": [], "evidence_present": [], "policy": policy}
 
 
-_ctx_captain = ""      # set by execute() so _eval_real_loss can reach the scan source
-
-
 def _eval_real_loss(row: dict, policy: dict, awb: str, pend: dict | None = None,
-                    attrib: dict | None = None, led: dict | None = None) -> dict:
+                    attrib: dict | None = None, led: dict | None = None,
+                    captain_id: str = "") -> dict:
     """Decide from the REAL loss row (valmo.db) + its enrichment (current pendency, attribution
     before→after, credit-note flag). Reversal signals: facility/LM in-scan, attribution changed,
     or a credit note already issued (cn_flag). Auto-reverses only for data-decidable categories
@@ -145,7 +149,7 @@ def _eval_real_loss(row: dict, policy: dict, awb: str, pend: dict | None = None,
     # a CONTRADICTION between the column and the timeline is visible instead of invisible.
     scan_note = None
     try:
-        _t = _tracking_for((_ctx_captain or ""), awb)
+        _t = _tracking_for(captain_id or "", awb)
         if _t is not None and _t.ok and _t.events:
             _conn, _row = scan_pred.forward_connection_within(_t)
             ev.append({**_row, "ref": f"log10_scans#{awb}"})

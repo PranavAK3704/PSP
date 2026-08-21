@@ -44,11 +44,26 @@ def main() -> int:
     empty = [b for b in r["bins"] if b["n"] == 0]
     check(f"empty bins are RETAINED ({len(empty)} of {len(r['bins'])})", bool(empty),
           "a chart that drops empty bins cannot show a gap in the data")
-    check("an unlabelled bin reports observed=None, never 0",
-          all(b["observed"] is None for b in r["bins"] if b["labelled"] == 0),
+    check("a bin with no CAPTAIN verdict reports observed=None, never 0",
+          all(b["observed"] is None for b in r["bins"] if b["answer_labelled"] == 0),
           "0% and 'nobody checked' must not render the same")
-    check("a labelled bin does report a rate",
-          all(b["observed"] is not None for b in r["bins"] if b["labelled"] > 0))
+    check("a bin WITH a captain verdict reports a rate",
+          all(b["observed"] is not None for b in r["bins"] if b["answer_labelled"] > 0))
+    # The fix for the review's finding: `observed` must be driven ONLY by captain verdicts.
+    # Summing in L3 closures made a below-gate bin read 100% "accuracy" from labels that only
+    # attested the ESCALATION was right.
+    esc_only = [b for b in r["bins"] if b["escalation_labelled"] > 0 and b["answer_labelled"] == 0]
+    check("escalation labels alone never produce an accuracy rate",
+          all(b["observed"] is None for b in esc_only),
+          f"{len(esc_only)} bin(s) carry only escalation labels — they must show no rate")
+    check("escalation outcomes are reported separately",
+          all("escalation_warranted" in b and "escalation_labelled" in b for b in r["bins"]))
+    check("observed_means says which of the two it is",
+          "CAPTAIN verified" in r.get("observed_means", ""),
+          r.get("observed_means", "")[:60])
+    check("bin edges are exact, not float-drifted",
+          all(abs(b["lo"] * 10 - round(b["lo"] * 10)) < 1e-9 for b in r["bins"]),
+          "i*0.1 gave 0.30000000000000004, putting a 0.3 confidence one bin low")
     check("bin arithmetic holds",
           all(b["correct"] <= b["labelled"] <= b["n"] for b in r["bins"]))
     check("every scored decision lands in exactly one bin",

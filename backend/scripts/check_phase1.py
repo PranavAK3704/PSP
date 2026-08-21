@@ -10,6 +10,7 @@ Covers, in order:
   3  the spend meter: pricing, both ceilings, the refusal path, per-turn accounting
   4  history control: search_sops projection, MAX_STEPS, trimming, session eviction
   4b every bug a review pass found, pinned so it cannot come back silently
+  4c thread safety and decision determinism under concurrency
   5  the data-plane boundary (delegates to scripts/check_dataplane.py)
 
 The provider is a stub throughout, so section 3 exercises the real conversation loop —
@@ -428,6 +429,68 @@ def sec_review() -> None:
           "it used to return silently — the one failure a reviewer most needs to see")
 
 
+# ══ 4c. thread safety, found by a determinism test and worth pinning ═════════════════
+def sec_threads() -> None:
+    """`loss_db` shared ONE sqlite connection across threads. `check_same_thread=False` only
+    disables Python's assertion; it does not make a connection safe for concurrent use, and two
+    threads on one statement handle raise `sqlite3.InterfaceError` or `IndexError` from inside
+    the row factory. Reachable in normal operation: /api/chat streams through
+    `iterate_in_threadpool`, so two captains talking at once is the default case."""
+    head("[4c] concurrency — one connection per thread, and a deterministic trail")
+    import threading
+    from collections import Counter
+
+    from app.engine import policy_exec
+    from app.substrate import captain_context as CC, loss_db
+
+    errors: list[str] = []
+
+    def hammer():
+        try:
+            for _ in range(25):
+                loss_db._query("SELECT awb FROM losses LIMIT 3", ())
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{type(e).__name__}: {e}")
+
+    ts = [threading.Thread(target=hammer) for _ in range(20)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    check("500 concurrent queries across 20 threads raise nothing", not errors,
+          "; ".join(sorted(set(errors))[:2]) or "one connection per thread")
+    check("each thread got its OWN connection", hasattr(loss_db, "_conn"),
+          "a shared connection with check_same_thread=False is not thread-safe")
+
+    # And the decision path must be deterministic — the evidence trail used to vary because
+    # captain_id travelled through a module global across four sqlite round-trips.
+    AWB = "VL0093310077"
+    mine, other = CC.get_context("VLMO-CPT-3310"), CC.get_context("VLMO-CPT-4471")
+    trails: list[tuple] = []
+    errs2: list[str] = []
+
+    def decide(ctx, collect):
+        try:
+            d = policy_exec.execute("hardstop_loss", ctx, {"awb": AWB})
+            if collect:
+                trails.append(tuple(sorted(e["label"] for e in d["evidence_trail"])))
+        except Exception as e:  # noqa: BLE001
+            errs2.append(f"{type(e).__name__}: {e}")
+
+    ts = ([threading.Thread(target=decide, args=(mine, True)) for _ in range(24)]
+          + [threading.Thread(target=decide, args=(other, False)) for _ in range(24)])
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    check("48 concurrent decisions raise nothing", not errs2,
+          "; ".join(sorted(set(errs2))[:2]))
+    c = Counter(trails)
+    check("the same request always yields the SAME evidence trail", len(c) == 1,
+          f"{len(c)} distinct trails from {sum(c.values())} identical requests — "
+          f"an audit record that varies under load is not an audit record")
+
+
 # ══ 5. the data-plane boundary ═══════════════════════════════════════════════════════
 def sec_dataplane() -> None:
     head("[5] data-plane boundary (scripts/check_dataplane.py)")
@@ -438,7 +501,8 @@ def sec_dataplane() -> None:
 
 def main() -> int:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    for sec in (sec_audit, sec_awb, sec_meter, sec_history, sec_review, sec_dataplane):
+    for sec in (sec_audit, sec_awb, sec_meter, sec_history, sec_review,
+                sec_threads, sec_dataplane):
         try:
             sec()
         except Exception as e:  # noqa: BLE001 — a broken check is a failure, not a crash

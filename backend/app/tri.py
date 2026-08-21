@@ -32,9 +32,24 @@ class Tri(str, Enum):
     NO = "NO"
     UNKNOWN = "UNKNOWN"
 
-    # Deliberately NOT __bool__. Defining truthiness would let `if tri:` compile and read as
-    # correct while quietly treating UNKNOWN as True — reintroducing exactly the collapse this
-    # type exists to prevent. Callers must name the branch they mean.
+    def __bool__(self):
+        """Refuse implicit truthiness — LOUDLY.
+
+        The previous version of this class just had a comment saying it deliberately defined no
+        `__bool__`, which was wrong twice over. `Tri(str, Enum)` inherits `str.__bool__`, and
+        every member is a non-empty string, so `bool(Tri.NO)` was **True** — `if verdict:` both
+        compiled and read as correct while treating a definite NO as a pass. That is a worse
+        version of the exact collapse this type exists to prevent, and the harness assertion
+        that supposedly guarded it could not fail (it tested `hasattr` on a metaclass).
+
+        Raising makes the mistake impossible to write instead of merely discouraged. Callers
+        must say which branch they mean: `is Tri.YES`, `is Tri.NO`, `is Tri.UNKNOWN`, or
+        `.known`.
+        """
+        raise TypeError(
+            f"{type(self).__name__} has no truth value — a three-valued verdict cannot be "
+            f"collapsed to a bool. Use `is Tri.YES` / `is Tri.NO` / `is Tri.UNKNOWN`, or "
+            f".known. (got {self.name})")
 
     @property
     def known(self) -> bool:

@@ -15,7 +15,7 @@ from ..knowledge import store
 from ..ledger import concern_log
 from ..trust import gate as trust_gate
 from ..trust import verifier
-from . import data_queries, policy_exec
+from . import data_queries, policy_exec, write_mode
 
 
 # ── Function declarations (Gemini schema; maps 1:1 to Claude tools) ──────────
@@ -59,9 +59,13 @@ DECLARATIONS = [
     },
     {
         "name": "apply_policy",
-        "description": "The ONLY way to move money or resolve a money case (reverse a wrong "
-                       "debit/loss). Runs deterministic checks + trust gate + adversarial verifier "
-                       "against the REAL loss record, then acts idempotently or escalates. Call ONLY "
+        "description": "The ONLY sanctioned way to reach a decision on a money case (a wrongly "
+                       "applied debit/loss). Runs deterministic checks + trust gate + adversarial "
+                       "verifier against the REAL loss record, then records a decision or escalates. "
+                       "IT DOES NOT MOVE MONEY — no write endpoint exists, so a favourable outcome is "
+                       "a recorded RECOMMENDATION that the owning team actions. The result carries "
+                       "write_mode and money_moved:false; relay its `reason` as written and never "
+                       "tell the captain a payment has been made. Call ONLY "
                        "after the captain has given the AWB of the disputed shipment. You must NOT "
                        "state or promise any reversal/credit yourself — call this and explain its "
                        "result. For ANY loss/debit dispute (hardstop, shortage, damage, wrong RVP, "
@@ -139,14 +143,46 @@ def _evt(node, label, status="done", tier=None, detail="", data=None):
             "detail": detail, "data": data or {}}
 
 
+# What each money action WOULD do, phrased as unrealised. Deliberately not a sentence in the
+# past tense: "Reversed ₹244" and "would reverse ₹244" read completely differently to whoever
+# is looking at the trace, and only one of them is true.
+_WOULD = {
+    "reverse_debit":  lambda d: f"reverse ₹{d.get('amount_inr')} on {d.get('debit_id') or d.get('awb') or 'the disputed debit'}",
+    "clear_pendency": lambda d: f"clear COD pendency of ₹{d.get('amount_inr')}",
+    "credit":         lambda d: f"credit ₹{d.get('amount_inr')}",
+}
+
+
 def _act(decision: dict) -> dict:
-    a = decision["action"]
-    if a == "reverse_debit":
-        return {"applied": True, "idempotency_key": f"rev::{decision.get('debit_id')}",
-                "detail": f"Reversed ₹{decision.get('amount_inr')} on {decision.get('debit_id')} (idempotent)"}
-    if a == "clear_pendency":
-        return {"applied": True, "detail": f"Cleared COD pendency ₹{decision.get('amount_inr')} (idempotent)"}
-    return {"applied": True, "detail": "Responded (no money movement)"}
+    """Record what the decision would do. NOTHING IS WRITTEN — see engine/write_mode.py.
+
+    `applied` is GONE from the return, not set to False. Absent, so a stale reader doing
+    `act.get("applied")` gets None and degrades falsy; a reader that had been trusting
+    `applied: True` now fails the check instead of silently believing a write happened. The
+    key was the lie, so the key is removed.
+
+    A non-money action is not "simulated" — nothing was ever going to be written for a
+    `respond`, so claiming simulation there would be its own small dishonesty in the other
+    direction. Those keep a plain, accurate line.
+    """
+    a = decision.get("action", "")
+    if a not in trust_gate.MONEY_ACTIONS:
+        return {"simulated": False, "write_mode": write_mode.mode(), "money_moving": False,
+                "detail": "Responded — no money movement, so nothing to write."}
+
+    # Money action. `live` raises here rather than at some later, vaguer point.
+    write_mode.assert_writable()
+    would = _WOULD.get(a, lambda d: f"perform {a}")(decision)
+    return {
+        "simulated": True,
+        "write_mode": write_mode.mode(),
+        "money_moving": True,
+        "would_have": would,
+        "idempotency_key": f"rev::{decision.get('debit_id')}" if a == "reverse_debit" else None,
+        "detail": (f"NOT WRITTEN — would {would}. No write endpoint exists: LMS reversal is a "
+                   f"Kafka message consumed by its scheduler, and PSP has no producer. Recorded "
+                   f"as a recommendation for L2."),
+    }
 
 
 def _money(v) -> float:
@@ -397,10 +433,33 @@ def _apply_policy(args: dict, captain_id: str, context: dict, channel: str,
     resolved = verdict["passed"] and decision["action"] != "escalate" and verifier_agrees is not False
     if resolved:
         act = _act(decision)
-        events.append(_evt("act", "ACT — idempotent write", detail=act["detail"], data=act))
         action = decision["action"]
-        outcome = "resolved_in_conversation"
-        relay_reason = decision["reason"]
+        simulated = bool(act.get("simulated"))
+        # The label and status TELL THE TRUTH. "ACT — idempotent write" on a step that writes
+        # nothing is the single most misleading line in the trace, and status="blocked" makes
+        # the existing dot styling render it as not-done without needing new CSS.
+        events.append(_evt(
+            "act",
+            "ACT — simulated write (no write endpoint exists)" if simulated
+            else "ACT — no write required",
+            status="blocked" if simulated else "done",
+            detail=act["detail"], data=act))
+        # A NEW outcome, but only where a write was implied. A `respond` never had anything to
+        # write, so relabelling it would be its own inaccuracy — and `concern_log.stats()`
+        # branches on `action_taken`, not `outcome`, so this cannot skew the counts.
+        outcome = "simulated_resolution" if simulated else "resolved_in_conversation"
+        if simulated:
+            # decision["reason"] says "this debit is reversed". Nothing was reversed. Same
+            # hazard the escalate branch below already guards against, and the same fix:
+            # relay what actually happened. The engine can recommend; it cannot pay.
+            team = (decision.get("policy") or {}).get("escalation", {}).get(
+                "team", "Losses & Debits (L2)")
+            relay_reason = (
+                f"{decision['reason']} On the system side I've recorded this as a confirmed "
+                f"recommendation to {team} — I can't move the money myself, so please expect "
+                f"the credit to come through them rather than from me.")
+        else:
+            relay_reason = decision["reason"]
     else:
         action = "escalate"
         team = (decision.get("policy") or {}).get("escalation", {}).get("team", "Functional team (L2/L3)")
@@ -426,6 +485,9 @@ def _apply_policy(args: dict, captain_id: str, context: dict, channel: str,
         "confidence": decision.get("confidence"), "outcome": outcome,
         "evidence_trail": evidence,
         "attachments": attachments or [],
+        # On the record, per concern: whether anything was actually written. Auditable later
+        # without having to reconstruct which build was deployed at the time.
+        "write_mode": write_mode.mode(),
     }
     if action == "escalate":
         concern["escalation_team"] = (decision.get("policy") or {}).get("escalation", {}).get(
@@ -434,6 +496,10 @@ def _apply_policy(args: dict, captain_id: str, context: dict, channel: str,
 
     result = {"action": action, "outcome": outcome, "amount_inr": decision.get("amount_inr"),
               "reason": relay_reason, "gate_passed": verdict["passed"],
+              # So the model cannot narrate a payment that did not happen. `reason` above is
+              # already escalation- and simulation-truthful; this is the belt to that braces.
+              "write_mode": write_mode.mode(),
+              "money_moved": False,
               "verifier_agrees": verifier_agrees, "concern_id": stored["id"],
               "evidence": [f"{e['label']}: {e['value']}" for e in decision.get("evidence_trail", [])],
               "escalation_team": (decision.get("policy") or {}).get("escalation", {}).get("team")

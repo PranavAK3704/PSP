@@ -13,6 +13,13 @@ from .constitution import check_constitution
 # 0.9-confident decision is right ~90% of the time (BRD §11).
 CONFIDENCE_THRESHOLD = 0.80
 
+# The actions that move a captain's money. Two things key off this set — the money cap and
+# `requires_adversarial_verify` — and now a third (the simulated-write outcome in
+# engine/tools.py), so it is a named constant rather than an inline literal repeated three
+# times. Losing a member here silently disables the adversarial verifier for that action,
+# which is the quietest possible way to break the trust spine.
+MONEY_ACTIONS = frozenset({"reverse_debit", "clear_pendency", "credit"})
+
 
 def evaluate(policy: dict, decision: dict, grounded: dict) -> dict:
     """Return a gate verdict with an explicit, auditable trail of what was checked."""
@@ -31,7 +38,7 @@ def evaluate(policy: dict, decision: dict, grounded: dict) -> dict:
     # 2) money cap (policy-as-code, hard limit outside the prompt)
     cap = (policy.get("resolution") or {}).get("cap_inr")
     amt = decision.get("amount_inr")
-    money_moving = decision.get("action") in {"reverse_debit", "clear_pendency", "credit"}
+    money_moving = decision.get("action") in MONEY_ACTIONS
     if money_moving and cap is not None and amt is not None and amt > cap:
         blocks.append(f"Amount ₹{amt} exceeds auto-action cap ₹{cap}")
     elif money_moving and cap is not None:

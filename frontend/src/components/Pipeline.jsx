@@ -185,6 +185,24 @@ function NodeBody({ ev }) {
         </>
       )}
 
+      {/* ACT had NO renderer, so the one step whose honesty matters most showed as a bare
+          label. A simulated write is called out in warn tone with what it would have done. */}
+      {ev.node === "act" && (
+        <div className="kv">
+          {d.simulated ? (
+            <>
+              <span className="tag" style={{ color: "var(--warn)", borderColor: "var(--warn)" }}>
+                SIMULATED — nothing written
+              </span>
+              {d.would_have && <span className="tag">would {d.would_have}</span>}
+              <span className="tag" style={{ color: "var(--text-faint)" }}>no write endpoint exists</span>
+            </>
+          ) : (
+            <span className="tag" style={{ color: "var(--text-faint)" }}>no money movement</span>
+          )}
+        </div>
+      )}
+
       {/* What the turn actually cost, priced at list rate from the real token counts. */}
       {ev.node === "cost" && (
         <div className="kv">

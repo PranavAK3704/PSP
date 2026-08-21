@@ -965,6 +965,11 @@ function Audit() {
 // Outcome pills (Stitch language): RESOLVED = green border + 10% fill; escalated = amber; nudge = blue.
 const BADGE = {
   resolved_in_conversation: { label: "resolved", cls: "bg-tertiary/10 text-tertiary border border-tertiary/40" },
+  // A money decision that was REACHED but not written — there is no write endpoint (see
+  // backend engine/write_mode.py). Without this entry the pill falls through to the amber
+  // "escalated" style showing raw action_taken, which would read as a failed case rather than
+  // a confirmed recommendation. Amber-toned on purpose: it is not a completed payment.
+  simulated_resolution:     { label: "recommended · not written", cls: "bg-warn/10 text-warn border border-warn/40" },
   l3_resolved:              { label: "resolved by L3", cls: "bg-tertiary/10 text-tertiary border border-tertiary/40" },
   proactive_nudge:          { label: "nudge sent", cls: "bg-secondary-container/10 text-secondary-container border border-secondary-container/40" },
   escalated:                { label: "escalated", cls: "bg-warn/10 text-warn border border-warn/40" },
@@ -1089,6 +1094,13 @@ function TraceData({ data }) {
   if (Array.isArray(data.sop_refs) && data.sop_refs.length) push("SOPs", data.sop_refs.join(", "));
   if (Array.isArray(data.sources) && data.sources.length)
     push("sources", data.sources.map((s) => (typeof s === "string" ? s : s.title || s.id || "src")).join(", "));
+  // The write reality, on the persisted timeline. Previously the ACT event showed only its
+  // detail line, so a reader replaying a concern could not tell whether anything was written.
+  if (data.simulated === true) push("write", `SIMULATED — nothing written${data.would_have ? ` (would ${data.would_have})` : ""}`);
+  else if (data.write_mode) push("write", data.write_mode);
+  // Two distinct models on a money decision — the point of verifier independence.
+  if (data.proposed_by || data.verified_by)
+    push("models", [data.proposed_by && `proposed ${data.proposed_by}`, data.verified_by && `verified ${data.verified_by}`].filter(Boolean).join(" · "));
 
   return (
     <div className="mt-1 flex flex-col gap-1">

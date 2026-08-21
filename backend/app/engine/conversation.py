@@ -18,6 +18,7 @@ from ..llm import meter as llm_meter
 from ..llm import registry as llm_registry
 from ..substrate import captain_context as ctx
 from . import dataplane, tools
+from .algo import router as prerouter
 from .algo.entities import extract as extract_entities
 from .session import STORE
 
@@ -307,6 +308,58 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
     # __next__ calls can land on different threads and ambient state would reset mid-turn.
     tm = llm_meter.TurnMeter()
 
+    # ── THE DETERMINISTIC PRE-ROUTER ────────────────────────────────────────────────
+    # One call site, placed AFTER entity extraction and context assembly (so a tier can read
+    # both) and BEFORE sess.contents grows (so a router-answered turn appends its own pair
+    # rather than leaving a hole). Defaults to shadow: the verdict is computed and traced, the
+    # LLM still answers. See algo/router.py for why that default matters.
+    pr_verdict, pr_trace = prerouter.route(prerouter.Ctx(
+        message=message, entities=ents, context=context, session=sess,
+        attachments=attachments, channel=channel,
+        prev_action=getattr(sess, "last_action", None)))
+    # In SHADOW the event is emitted on EVERY turn, including a plain decline. Absorption is a
+    # rate, and a trace that records only the hits gives you a numerator with no denominator —
+    # which is precisely the number shadow mode exists to produce. In `on` mode the event is
+    # emitted only when something happened, so an ordinary LLM turn stays uncluttered.
+    if pr_trace.get("fired") or pr_trace.get("refusals") or prerouter.mode() == prerouter.SHADOW:
+        # `firstpass` already has an icon in Pipeline.jsx. Nodes are collapsed by id there
+        # (latest wins), so reusing an existing name avoids inventing one that renders blank.
+        _fired = pr_trace.get("fired") or {}
+        yield _y(_evt("firstpass", "Deterministic first pass", tier="fast",
+                      status="done" if _fired else "blocked",
+                      detail=(f"{_fired.get('tier')} — {_fired.get('because', '')}"
+                              if _fired else
+                              "declined: " + ", ".join(pr_trace.get("refusals")
+                                                       or [f"no tier matched "
+                                                           f"({len(pr_trace.get('tiers_tried') or [])} tried)"])),
+                      data=pr_trace))
+    if pr_verdict is not None:
+        # A router-answered turn must append BOTH halves to the history. Appending only the
+        # captain's message leaves a user turn with no model reply, and every later LLM turn
+        # then reads a conversation where the assistant ignored someone.
+        sess.contents.append({"role": "user", "parts": [{"text": message + att_note}]})
+        sess.contents.append({"role": "model", "parts": [{"text": pr_verdict.reply}]})
+        sess.last_action = pr_verdict.action
+        concern = _log_info_concern(conversation_id, captain_id, message,
+                                    pr_verdict.reply, channel,
+                                    disposition=f"router:{pr_verdict.tier}",
+                                    action=pr_verdict.action)
+        holder["concern_id"] = concern["id"]
+        if concern.get("id"):
+            holder.setdefault("concern_ids", []).append(concern["id"])
+        # Cost is reported even though it is zero — that IS the point of this path, and a turn
+        # with no cost event looks like a turn whose cost was not measured.
+        cost = tm.summary()
+        yield _y(_evt("cost", "Turn cost", tier="fast",
+                      detail=f"${cost['cost_usd']:.4f} · 0 model calls · answered deterministically",
+                      data={**cost, "deterministic": True}))
+        yield _y({"node": "reply", "label": "Reply", "status": "done", "detail": pr_verdict.reply,
+                  "data": {"reply": pr_verdict.reply, "decision_action": pr_verdict.action,
+                           "concern_id": concern["id"], "cost": cost,
+                           "deterministic": True, "tier": pr_verdict.tier,
+                           **({"options": pr_verdict.options} if pr_verdict.options else {})}})
+        return
+
     sess.contents.append({"role": "user", "parts": [{"text": message + att_note}]})
     terminal_action, terminal_concern = "respond", None
 
@@ -404,6 +457,8 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
                           detail=f"${cost['cost_usd']:.4f} · {cost['calls']} model call(s) · "
                                  f"{cost['tokens_in']:,} in / {cost['tokens_out']:,} out",
                           data=cost))
+            # Remembered so the router's "previous turn escalated" refusal can see it next turn.
+            sess.last_action = terminal_action
             yield _y({"node": "reply", "label": "Reply", "status": "done", "detail": reply,
                    "data": {"reply": reply, "decision_action": terminal_action,
                             "concern_id": concern["id"], "cost": cost}})
@@ -467,12 +522,18 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
                                   "cost": cost}})
 
 
-def _log_info_concern(conversation_id, captain_id, message, reply, channel) -> dict:
-    """Log a non-money (informational) turn to the Concern Log for audit."""
+def _log_info_concern(conversation_id, captain_id, message, reply, channel,
+                      disposition: str = "conversation", action: str = "respond") -> dict:
+    """Log a non-money (informational) turn to the Concern Log for audit.
+
+    `disposition` is parameterised so a deterministically-answered turn is identifiable in the
+    ledger as `router:<tier>` rather than indistinguishable from an LLM conversation. Without
+    that, absorption can only be counted from traces, which are trimmed.
+    """
     from ..ledger import concern_log
     import uuid
     concern = {"id": "CNC-" + uuid.uuid4().hex[:8].upper(), "captain_id": captain_id,
                "channel": channel, "conversation_id": conversation_id,
-               "intent": message[:80], "disposition": "conversation", "action_taken": "respond",
+               "intent": message[:80], "disposition": disposition, "action_taken": action,
                "outcome": "resolved_in_conversation", "reply": reply, "evidence_trail": []}
     return concern_log.append(concern)

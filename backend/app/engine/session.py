@@ -63,6 +63,10 @@ class Session:
     # one it would otherwise never have seen. It accumulates because an AWB given on turn 1
     # is still theirs on turn 4, and the tool result that quotes it arrives later.
     supplied: set = field(default_factory=set)
+    #: The terminal action of the PREVIOUS turn. The pre-router refuses to answer
+    #: deterministically after an escalation — continuing to answer talks over a case that is
+    #: already with a human.
+    last_action: str | None = None
 
     def trim(self, max_turns: int = MAX_HISTORY_TURNS) -> int:
         """Drop the oldest history beyond `max_turns` captain turns. Returns entries removed.

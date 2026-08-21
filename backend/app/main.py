@@ -311,6 +311,21 @@ def health():
             "knowledge": store.corpus_stats(), "data": ds}
 
 
+@app.get("/api/calibration", dependencies=[_authed])
+def calibration():
+    """Is the gate's confidence a probability, or a label? Measured, not asserted.
+
+    Returns the reliability bins (with empty bins EMPTY, not dropped) plus the Kapture
+    agreement dataset, captioned as a different quantity from the gate's confidence.
+    """
+    from .audit import calibration as calib
+    try:
+        return calib.report()
+    except Exception as e:  # noqa: BLE001 — a reporting panel must never 500 a live demo
+        _log.exception("calibration report failed")
+        return {"error": f"{type(e).__name__}", "reliability": None, "kapture": None}
+
+
 @app.get("/api/connectors", dependencies=[_authed])
 def connectors():
     """The connector registry — DECLARATIVE. It never calls anything.

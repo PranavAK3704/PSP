@@ -21,6 +21,7 @@ HARNESSES = [
     ("check_verifier",   "verifier independence, never overclaimed"),
     ("check_connectors", "the endpoint registry, and that it calls nothing"),
     ("check_log10",      "typed scan timelines, UNKNOWN never reads as NO"),
+    ("check_calibration", "the gate's confidence is a label, not a probability"),
 ]
 
 

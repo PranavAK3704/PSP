@@ -190,6 +190,9 @@ export const getDataFoundation = () => apiGet("/api/data/foundation");
 export const getGrowthIndex = () => apiGet("/api/growth");
 export const getGrowth = (hub) => apiGet(`/api/growth/${encodeURIComponent(hub)}`);
 
+// Calibration — reliability bins over the real Concern Log, plus the Kapture agreement set.
+export const getCalibration = () => apiGet("/api/calibration");
+
 // Connector registry — declarative; the backend never calls anything to build it.
 export const getConnectors = () => apiGet("/api/connectors");
 

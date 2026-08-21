@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import CaptainPanel from "./pages/CaptainPanel.jsx";
 import GrowthDashboard from "./pages/GrowthDashboard.jsx";
 import Connectors from "./pages/Connectors.jsx";
+import Calibration from "./pages/Calibration.jsx";
 import Monitor from "./pages/Monitor.jsx";
 import L3Workspace from "./pages/L3Workspace.jsx";
 import SupportCommand from "./pages/SupportCommand.jsx";
@@ -31,8 +32,12 @@ const VIEWS = {
   connectors: { label: "Connectors",      icon: "power",           comp: Connectors,
              title: "Connector Registry",
              sub: "Which real endpoints exist, what PSP does with each today, and what going live costs." },
+  // Is the gate's confidence a probability, or a label? Measured, and the answer is "a label".
+  calibration: { label: "Calibration",     icon: "speed",           comp: Calibration,
+             title: "Calibration",
+             sub: "Whether the trust gate's confidence means what its notation implies." },
 };
-const NAV = ["captain", "growth", "monitor", "l3", "support", "connectors"];
+const NAV = ["captain", "growth", "monitor", "l3", "support", "connectors", "calibration"];
 
 // Nav context — some pages (e.g. Monitor) call useNav() to jump views. Exposes setView.
 const NavCtx = createContext(() => {});

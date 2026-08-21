@@ -185,6 +185,11 @@ export const getInsights = () => apiGet("/api/insights");
 // Data Foundation — corpus-level aggregates over BOTH databases. Aggregates only: no partner
 // id, AWB or per-captain breakdown, which is what makes it safe to display.
 export const getDataFoundation = () => apiGet("/api/data/foundation");
+// Growth Dashboard (Orders & Planning) — the captain panel's own two endpoints, fixture-backed.
+// The dashboard page and the support widget read the SAME payload the engine reasons over.
+export const getGrowthIndex = () => apiGet("/api/growth");
+export const getGrowth = (hub) => apiGet(`/api/growth/${encodeURIComponent(hub)}`);
+
 export const getAudit = () => apiGet("/api/audit");
 export const getKt = () => apiGet("/api/kt");
 export const checkSopConformance = (policy) => apiPost("/api/sop/conformance", { policy });

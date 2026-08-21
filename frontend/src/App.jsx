@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import CaptainPanel from "./pages/CaptainPanel.jsx";
+import GrowthDashboard from "./pages/GrowthDashboard.jsx";
 import Monitor from "./pages/Monitor.jsx";
 import L3Workspace from "./pages/L3Workspace.jsx";
 import SupportCommand from "./pages/SupportCommand.jsx";
@@ -20,8 +21,13 @@ const VIEWS = {
              title: "L3 Console",           sub: "Escalated cases worked by the L3 desk." },
   support: { label: "Support Command",      icon: "space_dashboard", comp: SupportCommand,
              title: "Support Command",      sub: "Command deck, authoring, auditing, governance & the concern log." },
+  // The partner's OWN screen, with support docked beside it. Same payload, two presentations —
+  // which is only a demonstrable claim if both are on the projector at the same time.
+  growth:  { label: "Captain Panel",         icon: "bar_chart",       comp: GrowthDashboard,
+             title: "Captain Panel · Growth Dashboard",
+             sub: "What the captain sees — with the support widget docked beside it." },
 };
-const NAV = ["captain", "monitor", "l3", "support"];
+const NAV = ["captain", "growth", "monitor", "l3", "support"];
 
 // Nav context — some pages (e.g. Monitor) call useNav() to jump views. Exposes setView.
 const NavCtx = createContext(() => {});

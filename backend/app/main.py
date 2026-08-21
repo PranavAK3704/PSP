@@ -295,6 +295,54 @@ def health():
             "knowledge": store.corpus_stats(), "data": ds}
 
 
+# ── Growth Dashboard (Orders & Planning) ────────────────────────────────────
+# The captain panel's own two endpoints, served from fixtures. This route exists so the demo
+# can render the SAME payload the engine reasons over — one source of truth for the dashboard
+# and for the answer, which is the whole point of docking them side by side.
+@app.get("/api/growth", dependencies=[_authed])
+def growth_index():
+    """Which hubs have growth data, and where it comes from."""
+    g = ctx.growth_provider()
+    hubs = g.known_hubs()
+    # status() also carries a `hubs` COUNT, so spread it first and let the list win — otherwise
+    # the client receives an integer where it expects an array and renders nothing.
+    return {**g.status(), "hubs": hubs, "hub_count": len(hubs),
+            # Which demo partner opens each hub, so the widget can start a real conversation
+            # against the same captain the dashboard is showing.
+            "partners": _hub_to_partner(hubs)}
+
+
+@app.get("/api/growth/{hub_code}", dependencies=[_authed])
+def growth_hub(hub_code: str):
+    """Both growth endpoints for one hub, plus the fixture's provenance block.
+
+    `provenance` is served on a DIFFERENT key from the payload, mirroring the connector: a
+    decision must not be able to read it, but a human looking at the screen should.
+    """
+    g = ctx.growth_provider()
+    try:
+        data = g.growth(hub_code)
+    except NotImplementedError as e:            # PSP_GROWTH_SOURCE=live
+        raise HTTPException(status_code=501, detail=str(e)) from e
+    if not data.get("available"):
+        raise HTTPException(status_code=404, detail=f"no growth data for hub {hub_code}")
+    return {**data, "provenance": g.provenance(hub_code)}
+
+
+def _hub_to_partner(hubs: list[str]) -> dict:
+    """hub → a real partner id that sits in it. Best-effort; empty under the demo provider."""
+    out: dict[str, str] = {}
+    try:
+        from .substrate import loss_db
+        for pid in loss_db.known_partners():
+            h = (loss_db.captain_summary(pid) or {}).get("hub")
+            if h in hubs and h not in out:
+                out[h] = pid
+    except Exception:  # noqa: BLE001 — a convenience mapping must never break the route
+        pass
+    return out
+
+
 @app.get("/api/captains", dependencies=[_authed])
 def captains():
     return {"captains": ctx.known_captains()}

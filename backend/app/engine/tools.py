@@ -83,7 +83,13 @@ DECLARATIONS = [
                        "but it MUST be one the captain actually raised in this conversation. "
                        "Never pass a debit/amount pulled from their account records that they did not "
                        "mention. Do NOT use this for non-money issues (ID blocked, general questions, "
-                       "'please escalate') — answer or escalate those instead.",
+                       "'please escalate') — answer or escalate those instead. "
+                       "ONE NON-MONEY EXCEPTION: for a LOAD / ORDER-VOLUME / capacity question, "
+                       "call this with disposition 'load_planning' and NO identifier. That runs "
+                       "the Orders & Planning policy against the captain's hub growth data and "
+                       "returns a decided answer with an evidence trail — use it INSTEAD of "
+                       "answering from run_data_query alone when the captain is asking why their "
+                       "load is low, since it is the path that gets checked.",
         "parameters": {"type": "object", "properties": {
             "disposition": {"type": "string"},
             "awb": {"type": "string"},

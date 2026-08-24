@@ -48,60 +48,104 @@ def head(n: str) -> None:
 GOLDEN = [
     # ── in scope: load planning ──────────────────────────────────────────────
     ("load kam kyun hua", "load_planning", "l_why_low", "the commonest follow-up of all"),
-    ("kyun kam hua", "load_planning", "l_why_low", "no domain word, still scoped"),
+    ("kyun kam hua", "load_planning", "l_why_low", "phrase topic, no domain noun"),
     ("kaise theek karun", "load_planning", "l_how_fix", ""),
     ("kaise improve karun", "load_planning", "l_how_fix", "English verb, Hindi frame"),
+    ("kitne din lagenge", "load_planning", "l_how_long", "phrase topic"),
     ("phir load badhega", "load_planning", "l_will_increase", ""),
     ("mera number kya hai", "load_planning", "l_my_numbers", "fact-filled"),
     ("kitna nuksan hua", "load_planning", "l_money_lost", "fact-filled, rupee figure"),
     ("target kaun decide karta hai", "load_planning", "l_who_decides", ""),
-    # ── in scope: the loss family ────────────────────────────────────────────
-    ("ye loss kyun laga", "hardstop_loss", "d_why_marked", ""),
-    ("paisa wapas milega", "hardstop_loss", "d_can_reverse", "must not promise a payment"),
-    ("kya evidence chahiye", "shortage_loss", "d_what_evidence", ""),
-    ("loss kyun laga", "shortage_loss", "d_why_marked", "same graph, different disposition"),
-    ("kyun laga", "intransit_loss", "d_why_marked", "third disposition on the loss graph"),
+    # ── in scope: each loss MECHANISM, from its own sources ──────────────────
+    ("hardstop kyun laga", "hardstop_loss", "h_why", ""),
+    ("ye loss kyun laga", "hardstop_loss", "h_why", "cause framing, no term"),
+    ("paisa wapas milega", "hardstop_loss", "h_can_reverse", "must not promise a payment"),
+    ("shortage kyun laga", "shortage_loss", "s_why", ""),
+    ("kya evidence chahiye", "shortage_loss", "s_evidence", "CCTV/72h/Kapture, not a photo"),
+    ("ye loss kyun laga", "bag_shortage", "s_why", "same mechanism, different disposition"),
+    ("paisa wapas milega", "shipment_shortage", "s_can_reverse", ""),
+    ("ye loss kyun laga", "intransit_loss", "i_why", "in-transit has NO evidence process"),
+    ("qc fail kyun hua", "secondary_qc_fail", "q_why", ""),
+    ("qc process kya hai", "secondary_qc_fail", "q_process", ""),
     # ── the glossary, in scope from anywhere ─────────────────────────────────
     ("rto kya hai", "load_planning", "g_rto", ""),
     ("ocf kya hai", "load_planning", "g_ocf", ""),
+    ("rate card kya hai", "load_planning", "g_cps", "a two-word topic"),
     ("cps kya hai", "load_planning", "g_cps", ""),
-    ("pendency kya hai", "load_planning", "g_doh", ""),
+    ("pendency kya hai", "load_planning", "g_doh", "a COD word that is also a load lever"),
     ("doh kya hai", "load_planning", "g_doh", "abbreviation"),
     ("bic kya hai", "load_planning", "g_bic", ""),
-    ("hardstop kya hai", "hardstop_loss", "g_hardstop", ""),
-    ("shortage kya hai", "hardstop_loss", "g_shortage", ""),
-    ("capacity cut kaise lagta hai", "load_planning", "g_pbca", ""),
-    ("day0 attempt kya hai", "load_planning", "g_day0", ""),
+    ("hardstop kya hai", "hardstop_loss", "g_hardstop", "definition, not cause"),
+    ("shortage kya hai", "shortage_loss", "g_shortage", "definition, not cause"),
+    ("capacity cut kaise lagta hai", "load_planning", "g_pbca", "a two-word topic"),
+    ("day 0 kya hai", "load_planning", "g_day0", "a two-word topic"),
     ("rto kya hai", "hardstop_loss", "g_rto", "glossary is scope-independent"),
-    # ── universal, askable after anything ────────────────────────────────────
+    # ── universal ────────────────────────────────────────────────────────────
     ("insaan se baat karni hai", "hardstop_loss", "u_talk_human", ""),
     ("mujhe agent se baat karni hai", "load_planning", "u_talk_human", ""),
-    ("kisko bheja hai", "hardstop_loss", "u_who_has_it", ""),
-    # ── DECLINES, which is where the safety lives ───────────────────────────
-    ("mera payment nahi aaya", "load_planning", None, "a NEW concern, not a follow-up"),
-    ("cod pendency clear karo", "load_planning", None, "different queue entirely"),
-    ("kitne din lagenge", "load_planning", None,
-     "genuinely ambiguous — my recovery or the team's TAT? chips, not a guess"),
-    # NOT a tie, and the asymmetry with the load scope is the scoping mechanism working:
-    # `l_how_long` (my load's recovery) lives only in the LOAD graph, so inside a loss scope the
-    # only "how long" question authored is the team's TAT — and that is the right answer to give
-    # someone who just had a case raised. Same words, different scope, different answer.
-    ("kitne din", "hardstop_loss", "u_how_long_team", "unambiguous inside the loss scope"),
-    ("kitne din lagenge", "shortage_loss", "u_how_long_team", "same"),
-    ("kuch samajh nahi aaya", "load_planning", None, "no keyword — the LLM should take this"),
+
+    # ══ RULE 1 — frame words alone must never carry a node ════════════════════
+    # Every line below was a REPRODUCED wrong answer in the adversarial review. A single common
+    # word — an interrogative, an auxiliary, a vocative — was carrying a whole node.
+    ("cod jama karna hai kaise", "load_planning", None,
+     "bare 'kaise' carried l_how_fix -> load levers for a COD deposit question"),
+    ("fe id kaise banau", "load_planning", None, "bare 'kaise'"),
+    ("invoice kaise nikalu", "load_planning", None, "bare 'kaise'"),
+    ("debit kyu laga", "load_planning", None,
+     "bare 'kyu' carried l_why_low -> load allocation offered as the reason for a debit"),
+    ("mera id block ho gaya", "load_planning", None,
+     "bare 'gaya' carried u_who_has_it -> 'your case was sent, quote the reference number'"),
+    ("mera fe block ho gaya", "load_planning", None, "bare 'gaya'"),
+    ("bag khatam ho gaya", "load_planning", None, "bare 'gaya'"),
+    ("sir jaldi kuch kijiye", "load_planning", None,
+     "bare 'sir' carried u_talk_human -> a handoff promise the tier does not perform"),
+    ("sir abhi tak kuch nahi hua", "load_planning", None, "bare 'sir'"),
+    ("load kab badhega", "hardstop_loss", None,
+     "bare 'kab' carried u_how_long_team -> the four-team SLA table for a load question"),
+    ("order kaise cancel karu", "hardstop_loss", None,
+     "bare 'order' carried g_ocf -> the OCF definition for an order-cancellation question"),
+    ("pilot id kaise banau", "hardstop_loss", None,
+     "bare 'pilot' carried g_cps -> the rate-card definition for a rider-ID request"),
+    ("kyun laga", "hardstop_loss", None, "cause framing with no subject — chips, not a guess"),
+
+    # ══ RULE 2 — a foreign queue is a new concern, never a follow-up ══════════
+    ("mera paisa nahi aaya", "load_planning", None,
+     "REPRODUCED: answered with the load cycle's rupee figure"),
+    ("paisa nahi aaya", "load_planning", None, "same, without the possessive"),
+    ("mera loss reverse karo", "load_planning", None,
+     "REPRODUCED: bare 'loss' in the load scope returned the missed-orders figure"),
+    ("paisa kitna kata hai", "load_planning", None, "REPRODUCED: 'how much was deducted'"),
+    ("meri earning kitni hai", "load_planning", None, "REPRODUCED: bare 'earning'"),
+    ("paisa wapas milega", "load_planning", None,
+     "REPRODUCED: 'wapas'+'milega' scored 2 on l_will_increase, which opens with 'Haan' — "
+     "so 'will I get my money back' was answered YES, then capacity talk"),
+    ("cod pendency clear karo", "load_planning", None, "a COD action request"),
+    ("mera payment nahi aaya", "load_planning", None, "the original regression"),
+    ("load kam hai aur abhi payment nahi aaya", "load_planning", None,
+     "REPRODUCED: 'abhi' disabled the multi-intent refusal, so the payment half was dropped"),
+
+    # ── ordinary declines ────────────────────────────────────────────────────
+    ("kuch samajh nahi aaya", "load_planning", None, "no topic — the LLM should take this"),
     ("aaj mausam accha hai", "load_planning", None, "off-domain"),
     ("", "load_planning", None, "empty"),
     ("   ", "load_planning", None, "whitespace only"),
     ("gaadi kab aayegi", "load_planning", None, "in-domain-sounding, not an authored follow-up"),
-    ("fe id block ho gayi", "hardstop_loss", None, "a different disposition's concern"),
+    ("kya evidence chahiye", "intransit_loss", None,
+     "in-transit has NO evidence process (sopkt_3) — offering one would invent a procedure"),
+    ("ye loss kyun laga", "debit_revoked", None,
+     "no graph: a revoked debit has no authored follow-up, so it must not borrow shortage's"),
 ]
 
 # Phrasings that must NOT be answered when there is no disposition in scope. Turn one always
 # goes to the LLM — without a scope this tier IS the open-NLU problem it exists to avoid.
 NO_SCOPE = ["load kam kyun hua", "rto kya hai", "paisa wapas milega", "kaise theek karun",
-            "insaan se baat karni hai", "kitna nuksan hua"]
+            "insaan se baat karni hai", "kitna nuksan hua", "hardstop kyun laga",
+            "kya evidence chahiye"]
 
-FACTS = {"lever": "RTO Performance", "current": "31%", "target": "19%",
+# The real fixture values for hub HKS, where CPS is the failing lever — deliberately not RTO,
+# because `l_how_fix` used to omit Pilot Rate Card from its remedy list, so a lever-agnostic
+# fixture would not have exposed it.
+FACTS = {"lever": "Pilot Rate Card (CPS)", "current": "₹21", "target": "₹16",
          "loss": 2108, "orders": 827, "max_potential": 1035}
 
 
@@ -181,7 +225,8 @@ def main() -> int:
         # with facts, it renders and the number appears
         s2.answer_facts = dict(FACTS)
         v = F.tier(router.Ctx(message="mera number kya hai", entities={}, context={}, session=s2))
-        check("with facts it renders the real value", v is not None and "31%" in v.reply,
+        check("with facts it renders the real value",
+              v is not None and "₹21" in v.reply and "₹16" in v.reply,
               (v.reply[:70] if v else ""))
         check("no unrendered placeholder survives into a reply",
               v is not None and "{" not in v.reply and "}" not in v.reply)
@@ -215,6 +260,17 @@ def main() -> int:
               F.ordinal_choice("2 din se pending hai", offered) is None)
         check("nothing offered -> nothing resolved", F.ordinal_choice("2", []) is None)
         check("nothing offered (None) -> nothing resolved", F.ordinal_choice("2", None) is None)
+        # Scripts and forms a captain actually sends. The keycap emoji is the one the review
+        # found: "2️⃣" is 2 + U+FE0F + U+20E3, and `normalise` KEEPS U+FE0F (category Mn, in
+        # router._KEEP_CATEGORIES so Devanagari matras survive) while dropping U+20E3 — leaving
+        # "2️", on which .isdigit() is False. So the single most obvious reply to a numbered
+        # menu was silently dropped through to the LLM.
+        for form, want in (("2", "b"), ("2.", "b"), ("(2)", "b"), ("#2", "b"),
+                           ("२", "b"), ("२", "b"), ("２", "b"), ("2️⃣", "b"),
+                           ("1️⃣", "a"), ("3️⃣", "c"), (" 2 ", "b")):
+            got = F.ordinal_choice(form, offered)
+            check(f"{form!r} -> option {want}", got == want, f"got {got!r}")
+        check("'4️⃣' is still out of range", F.ordinal_choice("4️⃣", offered) is None)
         txt = F.as_numbered_text("Reply.", [{"id": "a", "label": "First?"},
                                             {"id": "b", "label": "Second?"}])
         check("numbering is 1-based and in order",
@@ -243,14 +299,66 @@ def main() -> int:
         check(f"all {cited} corpus citations resolve", bad == 0, f"{bad} dangling")
 
         # ── 9. stopwords, and the false decline they caused ─────────────────────
-        head("[9] no node matches on a word that appears in every question")
+        head("[9] RULE 1 — the topic/frame split, and what it structurally forbids")
         for f in F._BY_ID.values():
-            bad_toks = f.match & F.STOPWORDS
+            bad_toks = f.vocabulary & F.STOPWORDS
             check(f"{f.id} avoids stopwords", not bad_toks, str(bad_toks) if bad_toks else "")
-        # the specific regression: "kya" on d_what_evidence tied with the glossary and declined
-        got, _ = F.resolve("hardstop kya hai", "hardstop_loss", facts=FACTS)
-        check("REGRESSION: 'hardstop kya hai' is answered, not tied into a decline",
-              got is not None and got.id == "g_hardstop")
+        for f in F._BY_ID.values():
+            # A node with no topic can only ever be reached by frame words, which IS the defect.
+            check(f"{f.id} has a topic or a phrase", bool(f.topic or f.phrases))
+            check(f"{f.id}: no interrogative/action word is a topic",
+                  not (f.topic & (F.INTERROGATIVES | F.ACTION_WORDS)),
+                  str(f.topic & (F.INTERROGATIVES | F.ACTION_WORDS)))
+        # The frame words that were each individually carrying a node. Every one of them, ALONE,
+        # must now match nothing anywhere — this is the assertion that keeps RULE 1 honest as
+        # new nodes are added.
+        for word in ("kaise", "kyun", "kyu", "kab", "kitna", "gaya", "hua", "sir", "milega",
+                     "wapas", "chahiye", "how", "why", "when"):
+            for disp in sorted(F.GRAPHS):
+                got, why = F.resolve(word, disp, facts=FACTS)
+                check(f"bare {word!r} matches nothing in {disp}", got is None,
+                      f"fired {got.id}" if got else "")
+        # And the definition-vs-cause split, which the collision between a graph's why-node and
+        # the glossary node for the same term forced.
+        for msg, disp, want in (("hardstop kya hai", "hardstop_loss", "g_hardstop"),
+                                ("hardstop kyun laga", "hardstop_loss", "h_why"),
+                                ("shortage kya hai", "shortage_loss", "g_shortage"),
+                                ("shortage kyun laga", "shortage_loss", "s_why")):
+            got, why = F.resolve(msg, disp, facts=FACTS)
+            check(f"{msg!r} -> {want}", got is not None and got.id == want, why)
+
+        # ── 9b. RULE 2 — the foreign-queue refusal ──────────────────────────────
+        head("[9b] RULE 2 — a word from another queue refuses the turn")
+        for msg, disp, dom in (("mera paisa nahi aaya", "load_planning", "payments"),
+                               ("cod jama karna hai", "load_planning", "cod"),
+                               ("fe id block hai", "load_planning", "fe_id"),
+                               ("bag chahiye", "load_planning", "consumables"),
+                               ("debit kyu laga", "load_planning", "losses"),
+                               ("load kab badhega", "hardstop_loss", "orders")):
+            toks = set(__import__("app.engine.algo.router", fromlist=["normalise"])
+                       .normalise(msg).split())
+            foreign = F.foreign_domains(toks, disp, F._scope(disp))
+            check(f"{msg!r} under {disp} names a foreign queue", dom in foreign,
+                  str(foreign))
+            got, _ = F.resolve(msg, disp, facts=FACTS)
+            check(f"...and therefore declines", got is None, f"fired {got.id}" if got else "")
+        # THE COUNTER-CASE, which is why the test is "foreign AND not in this scope's own
+        # vocabulary" rather than just "foreign": `pendency` is a COD word AND a load lever.
+        got, why = F.resolve("pendency kya hai", "load_planning", facts=FACTS)
+        check("a word owned by two queues is NOT foreign to the one that uses it",
+              got is not None and got.id == "g_doh", why)
+        # "order cancel karu" under a loss scope is caught by RULE 1, not RULE 2, and the
+        # distinction is worth pinning: "order" sits inside `g_ocf`'s PHRASE {order,
+        # contribution}, which puts it in every scope's vocabulary and so exempts it from the
+        # foreign test. Tightening RULE 2 to ignore phrase tokens would fix that — and would
+        # also make "capacity" foreign to every loss scope, breaking `g_pbca`'s deliberate
+        # scope-independence. RULE 1 already declines it, so the two rules cover each other and
+        # neither needs to be made stricter. Asserted so a later change to either one shows up
+        # here rather than as a wrong answer.
+        got, why = F.resolve("order kaise cancel karu", "hardstop_loss", facts=FACTS)
+        check("'order kaise cancel karu' declines under a loss scope", got is None, why)
+        check("...via RULE 1, because 'order' is only a phrase token",
+              "topic" in why, why)
 
         # ── 10. nothing here promises money ────────────────────────────────────
         head("[10] no authored answer claims a payment was made")
@@ -263,9 +371,100 @@ def main() -> int:
             low = f.answer.lower()
             hits = [b for b in BANNED if b in low]
             check(f"{f.id} claims no completed payment", not hits, str(hits) if hits else "")
-        rev = F._BY_ID["d_can_reverse"]
-        check("the reversal answer says explicitly that it cannot pay",
-              "khud paisa wapas nahi" in rev.answer.lower(), rev.answer[:60])
+        # Every reversal answer, one per mechanism, must say outright that it cannot pay.
+        for nid in ("h_can_reverse", "s_can_reverse", "i_can_reverse"):
+            rev = F._BY_ID[nid]
+            check(f"{nid} says outright that it cannot pay",
+                  "paisa main khud wapas nahi" in rev.answer.lower()
+                  or "main khud paisa wapas nahi" in rev.answer.lower(), rev.answer[:60])
+            # And it must be a RECOMMENDATION, not a completed handoff. The first version said
+            # "case bhej diya gaya hai" — past tense, asserting a handoff that had not happened
+            # and, because router._refusals blocks this tier after an escalation, could not have.
+            check(f"{nid} recommends rather than claims a completed handoff",
+                  "sifarish" in rev.answer.lower(), rev.answer[:80])
+            for banned in ("bhej diya gaya", "bhej diya hai"):
+                check(f"{nid} does not claim the case was already sent",
+                      banned not in rev.answer.lower())
+
+        # ── 10b. no answer asserts a state this tier cannot produce ─────────────
+        head("[10b] nothing claims an escalation that did not happen")
+        # THE STRUCTURAL POINT the review surfaced: this tier returns action="respond", so
+        # `_log_info_concern` writes outcome="resolved_in_conversation" — no escalated concern,
+        # nothing in l3.inbox(), no reference number. AND router._refusals blocks the tier
+        # entirely when prev_action == "escalate". So the one state in which "your case is with
+        # a team" would be true is the exact state in which this tier may not answer. Two nodes
+        # asserted it anyway and were deleted rather than reworded.
+        for gone in ("u_who_has_it", "u_how_long_team", "d_why_marked", "d_what_evidence",
+                     "d_can_reverse"):
+            check(f"{gone} is gone", gone not in F._BY_ID,
+                  "it asserted a state this tier cannot produce"
+                  if gone.startswith("u_") else "it served 7 dispositions from 2 sources")
+        CLAIMS_ESCALATION = ("bhej diya", "reference number", "ref number", "tat 24",
+                             "update milega", "team ko gaya", "case us team")
+        for f in F._BY_ID.values():
+            low = f.answer.lower()
+            hits = [c for c in CLAIMS_ESCALATION if c in low]
+            check(f"{f.id} asserts no completed escalation", not hits, str(hits) if hits else "")
+
+        # ── 10c. the two answers the review proved factually WRONG ──────────────
+        head("[10c] content fidelity — the facts that would have cost a captain money")
+        s_why, s_ev = F._BY_ID["s_why"], F._BY_ID["s_evidence"]
+        # It said "System yeh automatically mark karta hai, koi manually nahi karta". The corpus
+        # says the DESTINATION FACILITY marks it, within SIX HOURS. A captain told the system
+        # does it automatically has no reason to act on the deadline that decides liability.
+        check("s_why says a FACILITY marks the shortage, not the system",
+              "destination facility" in s_why.answer.lower())
+        check("s_why states the 6-hour marking deadline", "6 ghante" in s_why.answer)
+        check("s_why states the consequence of missing it",
+              "liability" in s_why.answer.lower())
+        check("s_why does NOT claim the system marks it automatically",
+              "automatically" not in s_why.answer.lower(), s_why.answer[:80])
+        # It said to MAIL a photo or video. The corpus says valid CCTV within 72 hours through
+        # the Kapture tool with a mandatory attachment. Following the old answer would miss the
+        # window and default liability would fall on the captain's facility.
+        s_ev_low = s_ev.answer.lower()
+        check("s_evidence names CCTV", "cctv" in s_ev_low)
+        check("s_evidence states the 72-hour window", "72 ghante" in s_ev.answer)
+        check("s_evidence names the Kapture tool", "kapture" in s_ev_low)
+        check("s_evidence says the attachment is mandatory", "zaroori" in s_ev_low)
+        check("s_evidence does NOT say to mail a photo",
+              "mail" not in s_ev_low and "photo" not in s_ev_low,
+              s_ev.answer[:80])
+        # in-transit: the corpus says explicitly there is NO evidence process, so this graph
+        # must not carry an evidence node at all.
+        it_ids = {f.id for f in F.GRAPHS["intransit_loss"]}
+        check("the in-transit graph has NO evidence node",
+              not any("evidence" in i for i in it_ids), str(it_ids))
+        check("...and sopkt_3 is why", "no evidence process" in F._BY_ID["i_why"].source)
+        # l_how_fix must name all FOUR levers; it omitted Pilot Rate Card, the one most often
+        # diagnosed as failing.
+        fix = F._BY_ID["l_how_fix"].answer
+        for lever in ("Pilot Rate Card", "RTO", "Day-0", "pendency"):
+            check(f"l_how_fix names {lever}", lever.lower() in fix.lower())
+        check("l_how_fix does not promise automatic recovery",
+              "apne aap" not in fix.lower(), fix[-70:])
+
+        # ── 10d. per-mechanism graphs, not one graph for 'losses' ───────────────
+        head("[10d] each graph cites the sources for ITS OWN mechanism")
+        MECHANISM_SOURCE = {
+            "hardstop_loss": "sopkt_1_hardstop_loss",
+            "shortage_loss": "sopkt_2_shortage_loss",
+            "intransit_loss": "sopkt_3_in_transit_loss",
+            "secondary_qc_fail": "kt_lm_secondary_qc_dc",
+        }
+        for disp, expect in MECHANISM_SOURCE.items():
+            srcs = " ".join(f.source for f in F.GRAPHS[disp])
+            check(f"{disp} cites {expect}", expect in srcs, srcs[:90])
+        # And a mechanism must not cite ANOTHER mechanism's SOP as its cause.
+        for disp, expect in MECHANISM_SOURCE.items():
+            others = [v for k, v in MECHANISM_SOURCE.items()
+                      if k != disp and v.startswith("sopkt_")]
+            why_node = F.GRAPHS[disp][0]
+            leaked = [o for o in others if o in why_node.source]
+            check(f"{disp}'s cause node cites no other mechanism's SOP", not leaked, str(leaked))
+        for gone in ("debit_revoked", "capacity_panel_issue"):
+            check(f"{gone} has NO graph", gone not in F.GRAPHS,
+                  "no authored source — the turn goes to the LLM")
 
         # ── 11. through the real router, in `on` mode ───────────────────────────
         head("[11] end to end through router.route(), which is what production calls")

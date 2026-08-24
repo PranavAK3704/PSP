@@ -16,8 +16,7 @@ asked me" than "I lost interest". Both problems have the same fix, and it is not
 WHY THIS CAN BE DETERMINISTIC AT ALL — the one idea that makes it work
 A follow-up is only unpredictable in the abstract. Once you know the disposition AND what was
 just said, the space collapses to a handful of questions. After "your load is low because RTO is
-31% against a target of 19%", a captain asks one of about five things: what is RTO, how do I
-reduce it, how long until it recovers, who decided the target, or talk to a human. That is not a
+31% against a target of 19%", a captain asks one of about five things. That is not a
 classification problem over 537 corpus chunks — it is a **menu with five items**.
 
 So the matcher is scoped by disposition. Scoping is what turns an open NLU problem into a small
@@ -25,7 +24,7 @@ closed one, and small closed problems are where algorithms beat models outright.
 
 PRIOR ART, because this is a solved shape elsewhere
   · **Dialogflow follow-up intents + contexts.** A parent intent activates a context; only
-    intents scoped to that context can match next. That is exactly `scope` below.
+    intents scoped to that context can match next. That is exactly `_scope` below.
   · **IVR menu trees.** A phone menu is a deterministic per-node option list, and it works for
     every literacy level because the option is READ ALOUD and chosen by one keypress. The
     equivalent here is a tappable chip — which is also why chips are not decoration: a tap is an
@@ -35,79 +34,132 @@ PRIOR ART, because this is a solved shape elsewhere
   · **Rasa's rule policy over its ML policy.** Deterministic rules take precedence and the model
     is the fallback — the same precedence this router already implements.
 
+══ THE TWO RULES THAT MAKE MATCHING SAFE, both learned the hard way ═════════════════════════
+
+An adversarial review of the first version of this file reproduced 25 wrong answers. Almost
+every one was a single common word carrying a whole node. The two rules below are the structural
+answer; the per-node comments record the specific phrasings that forced them.
+
+**RULE 1 — A MATCH NEEDS A TOPIC, NOT JUST A WORD.**
+Each node's vocabulary is split. `topic` (or a `phrases` group) names WHAT THE QUESTION IS
+ABOUT, and at least one must hit. `frame` is the question's grammar — interrogatives,
+auxiliaries, politeness — which may add to the score but can never carry a node alone.
+
+Without this, frame words fired on their own and the answers were confidently wrong:
+
+    "cod jama karna hai kaise"  -> bare "kaise" carried l_how_fix     -> load levers
+    "debit kyu laga"            -> bare "kyu"   carried l_why_low     -> load allocation
+    "mera id block ho gaya"     -> bare "gaya"  carried u_who_has_it  -> "your case was sent"
+    "sir jaldi kuch kijiye"     -> bare "sir"   carried u_talk_human  -> a handoff promise
+    "load kab badhega"          -> bare "kab"   carried u_how_long_team -> the SLA table
+
+A vocative ("sir") is never a topic. An auxiliary ("gaya", "hua", "milega") is never a topic.
+An interrogative ("kaise", "kyun", "kab", "kitna") is never a topic.
+
+**RULE 2 — A FOREIGN QUEUE REFUSES THE TURN.**
+If the message names a queue this scope does not serve, it is not a follow-up — it is a new
+concern, and answering it from this scope's table is the worst failure available here. Reuses
+`router._DOMAIN_WORDS` rather than restating it, so the two cannot drift.
+
+    "mera paisa nahi aaya"   under load -> "paisa" is a PAYMENTS word -> refuse
+    "cod pendency clear karo" under load -> "cod" is a COD word       -> refuse
+    "order kaise cancel karu" under loss -> "order" is an ORDERS word -> refuse
+
+The test is "foreign AND not in this scope's own vocabulary", because some words legitimately
+belong to two queues: `pendency` is a COD word AND a growth-dashboard lever, so under a load
+scope "pendency kya hai" must still be answerable. The scope's own vocabulary is what
+disambiguates, and it is computed from the nodes rather than maintained by hand.
+
 WHAT IS NOT ALLOWED HERE
-Every answer is authored from material that already exists in the corpus or from a named
-upstream source, and carries `source` naming it. Nothing in this file states a process fact I
-invented. Where there is no source, there is no node — the turn falls through to the LLM. The
-harness asserts every node has a source, because the failure mode of a confident wrong answer
-to a low-literacy user is that they act on it.
+Every answer is authored from material that already exists in the corpus, and carries `source`
+naming it. Where there is no source, there is no node — the turn falls through to the LLM.
+
+That rule was violated in the first version and the review caught it. Two examples, both of
+which would have cost a captain real money:
+
+  · `d_why_marked` said a shortage is marked automatically by the system. The corpus says the
+    DESTINATION FACILITY marks it, within SIX HOURS of vehicle arrival, and that missing the six
+    hours puts default liability on that facility "without any recourse to CCTV or other
+    evidence". A human does it, against a deadline, with consequences — and a captain told "the
+    system does it automatically" has no reason to act.
+  · `d_what_evidence` said to mail a photo of the shipment. The corpus says valid CCTV footage,
+    within 72 hours of notification, submitted through the Kapture tool with a mandatory
+    attachment inside an SLA countdown — with default liability falling on the facility when
+    evidence is missing. Telling someone to mail a photo instead is not a vague answer; it is
+    the answer that loses them the case.
+
+Both came from ONE graph shared across seven dispositions whose mechanisms differ. The graphs
+below are per-mechanism, and a disposition with no authored source has NO graph.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import unicodedata
+from dataclasses import dataclass
 
-from .router import Ctx, Verdict, normalise
+from .router import _DOMAIN_WORDS, Ctx, Verdict, normalise
 
 #: A chip label must be short enough to read at a glance on a phone, in simple Hinglish.
 MAX_CHIP_CHARS = 34
 #: How many chips to offer. Four is the IVR convention — beyond that a menu stops being scanned.
 MAX_CHIPS = 4
-#: Free-text match needs this many scope keywords, and must STRICTLY beat the runner-up.
+#: A match must STRICTLY beat the runner-up.
 #:
-#: Margin 1 (strictly better), not 2. Overlap between nodes is deliberate — "kitna" belongs to
-#: three follow-ups — so a 2-hit margin would decline "kitna nuksan hua" (2 hits vs 1) which is
-#: an unambiguous question. Strictly-better answers that; a genuine TIE ("kitne din lagenge",
-#: which fits both my-load-recovery and the team's TAT equally) falls through to chips, which is
-#: the correct outcome for a question that really is ambiguous.
-MIN_HITS = 1
+#: Margin 1 (strictly better), not 2. Overlap between nodes is deliberate, so a 2-hit margin
+#: would decline unambiguous questions. Strictly-better answers those; a genuine TIE falls
+#: through to chips, which is the correct outcome for a question that really is ambiguous.
 MIN_MARGIN = 1
-
 
 # Words that carry no signal because they appear in almost every question a captain asks.
 #
-# THE TRAP, and it is the same one router.py's docstring records about SOP trigger keywords
-# (296 of 320 were single common words like "me", "has", "date"): "kya" is in "kya hai",
-# "kya karun", "kya hua" — every question. It was in `d_what_evidence`'s match set, and the
-# effect was that "hardstop kya hai?" scored 1 hit for the glossary and 1 for evidence, tied,
-# and DECLINED — a false decline on a question with an exact authored answer.
-#
-# The guard is an import-time assertion, not a review habit: a stopword added to a match set
-# six months from now fails at import rather than quietly costing a percentage point of
-# absorption that nobody attributes to it.
+# THE TRAP, and it is the same one router.py records about SOP trigger keywords (296 of 320 were
+# single common words like "me", "has", "date"): "kya" is in "kya hai", "kya karun", "kya hua" —
+# every question. The guard is an import-time assertion, not a review habit.
 STOPWORDS = frozenset({
     # Hindi/Hinglish function words
-    "kya", "hai", "hain", "he", "ho", "hua", "hui", "hue", "ka", "ki", "ke", "ko", "kar",
-    "karo", "karna", "mein", "me", "se", "ye", "yeh", "wo", "woh", "ab", "to", "toh", "bhi",
-    "aur", "par", "pe", "na", "nahi", "nhi", "koi", "iska", "isme", "uska", "raha", "rahi",
-    # Possessives. FOUND BY THE HARNESS: "mera" was a match keyword on `l_my_numbers`, so
-    # "mera payment nahi aaya" — a brand new concern in a different queue — scored one hit and
-    # was answered with an RTO figure. "mera" prefixes everything a captain owns: mera payment,
-    # mera load, mera loss, mera paisa. The signal in "mera number kya hai" is "number".
-    "mera", "mere", "meri", "apna", "apni", "hamara", "aapka", "aapki", "uska", "tumhara",
+    "kya", "hai", "hain", "he", "ho", "hoga", "ka", "ki", "ke", "ko", "kar", "karo", "karna",
+    "karun", "karu", "mein", "me", "se", "ye", "yeh", "wo", "woh", "ab", "to", "toh", "bhi",
+    "aur", "par", "pe", "na", "nahi", "nhi", "koi", "iska", "isme", "uska", "rahi",
+    # Possessives. "mera" prefixes everything a captain owns — mera payment, mera load, mera
+    # loss, mera paisa — so on its own it identifies nothing.
+    "mera", "mere", "meri", "apna", "apni", "hamara", "aapka", "aapki", "tumhara",
+    # Auxiliaries and light verbs. RULE 1: never a topic. "gaya" was a match keyword on
+    # u_who_has_it, so "mera id block ho gaya" — a different queue entirely — was answered with
+    # "your case has been sent to the owning team and a reference number was issued".
+    "gaya", "gayi", "gaye", "hua", "hui", "hue", "aaya", "aayi", "laga", "lagi", "lag",
+    "diya", "liya", "kiya", "raha", "tha", "thi", "kuch",
+    # Vocatives. RULE 1: a deferential form of address is not a request for a human. "sir" was a
+    # match keyword on u_talk_human, so "sir jaldi kuch kijiye" was answered with a handoff.
+    "sir", "madam", "mam", "boss", "bhai", "bhaiya", "ji", "saab", "sahab", "bro", "dear",
     # English function words
-    "is", "are", "was", "the", "a", "an", "of", "in", "on", "for", "to", "and", "or", "what",
-    "my", "i", "it", "this", "that", "do", "does", "did", "be", "will", "can",
+    "is", "are", "was", "the", "a", "an", "of", "in", "on", "for", "and", "or",
+    "i", "it", "this", "that", "do", "does", "did", "be", "will", "can", "my",
 })
 
-
 # Interrogative markers. A GLOSSARY answer is a definition, and a definition is only ever the
-# right reply to a question — so a glossary node needs one of these present.
+# right reply to a question — so a glossary node needs one of these present. RULE 1 also makes
+# every one of them frame-only: an interrogative names the question's shape, never its subject.
+# A word can be BOTH a stopword and an interrogative, and several are — "kya" most of all. The
+# two sets do different jobs and neither implies the other:
+#   STOPWORDS      bars a word from any node's match vocabulary (it identifies nothing).
+#   INTERROGATIVES lets a word satisfy the glossary gate (it marks the message as a question).
+# Dropping "kya" from this set while leaving it in STOPWORDS silently broke five glossary
+# lookups — "rto kya hai", "ocf kya hai", "bic kya hai" — because the gate never opened and the
+# term's own node was filtered out of scope before it could match.
 INTERROGATIVES = frozenset({
-    "kya", "kaise", "kese", "kyun", "kyu", "kaun", "kon", "kitna", "kitne", "kitni", "kab",
-    "kahan", "kaha", "matlab", "meaning", "what", "why", "how", "when", "who", "which",
-    "explain", "samjhao", "batao", "bataiye",
+    "kya", "kaise", "kese", "kyun", "kyu", "kaun", "kon", "kaunsa", "konsa",
+    "kitna", "kitne", "kitni", "kab", "kahan", "kaha", "matlab", "meaning",
+    "what", "why", "how", "when", "who", "which", "explain", "samjhao", "batao", "bataiye",
 })
 
 # Imperative markers — the captain is asking for something to be DONE.
 #
 # FOUND BY THE HARNESS: "cod pendency clear karo" scored one glossary hit on "pendency" and was
-# answered with the DEFINITION of Days On Hand. A captain asking for their pendency to be
-# cleared, in a different queue, got a vocabulary lesson. An action request answered with a
-# definition is the most patronising failure this engine could have, and for someone with
-# limited literacy it reads as the system not understanding them at all — which the auto-close
-# numbers say is already the commonest way these conversations die.
+# answered with the DEFINITION of Days On Hand. An action request answered with a definition is
+# the most patronising failure available here, and for someone with limited literacy it reads as
+# the system not understanding them at all — which the auto-close numbers say is already the
+# commonest way these conversations die.
 ACTION_WORDS = frozenset({
-    "karo", "kardo", "kariye", "kijiye", "dijiye", "dedo", "dena", "chahiye", "clear",
+    "kardo", "kariye", "kijiye", "dijiye", "dedo", "dena", "chahiye", "clear",
     "karwao", "karvao", "solve", "fix", "please", "jaldi", "turant", "abhi",
 })
 
@@ -117,19 +169,42 @@ class FollowUp:
     """One predictable next question, and its authored answer."""
 
     id: str
-    ask: str                       # the chip label the captain taps
-    answer: str                    # what they get back. May carry {fact} placeholders.
-    source: str                    # where the answer's content comes from. Never empty.
-    match: frozenset = frozenset()  # free-text keywords, for a captain who types instead
-    then: tuple = ()               # ids of the follow-ups to offer AFTER this one
+    ask: str                        # the chip label the captain taps
+    answer: str                     # what they get back. May carry {fact} placeholders.
+    source: str                     # where the answer's content comes from. Never empty.
+    #: RULE 1. WHAT the question is about. At least one must hit, or the node cannot fire.
+    topic: frozenset = frozenset()
+    #: Multi-word topics — each entry is a set whose tokens must ALL be present. Lets "rate card"
+    #: and "capacity cut" be topics without making the bare words "rate" or "cut" into one.
+    phrases: tuple = ()
+    #: The question's grammar. Adds to the score; never satisfies the topic requirement.
+    frame: frozenset = frozenset()
+    then: tuple = ()                # ids of the follow-ups to offer AFTER this one
     #: Placeholders this answer needs. If a fact is missing the node is SKIPPED rather than
     #: rendered with a hole — "your RTO is {rto}%" with no value is worse than not offering it.
     needs: tuple = ()
 
+    @property
+    def vocabulary(self) -> frozenset:
+        """Every token this node knows — for scoring, and for the RULE 2 foreign-word test."""
+        out = set(self.topic) | set(self.frame)
+        for p in self.phrases:
+            out |= set(p)
+        return frozenset(out)
+
+    def topic_hit(self, toks: set) -> bool:
+        """RULE 1. True only if the message names what this follow-up is ABOUT."""
+        return bool(self.topic & toks) or any(set(p) <= toks for p in self.phrases)
+
 
 # ═══ GLOSSARY — "X kya hai?", askable at any point, scope-independent ════════════════════════
-# Sourced, term by term. The captain panel's own METRIC_TARGET_TOOLTIPS and the PBCA KT are the
+# Sourced term by term. The captain panel's own METRIC_TARGET_TOOLTIPS and the PBCA KT are the
 # authorities for the O&P terms; the loss definitions come from the SOP corpus.
+#
+# Every topic here is the TERM ITSELF (or its spelled-out phrase). The review found `g_ocf`
+# matching bare "order" and `g_cps` matching bare "pilot"/"rate", so "order kaise cancel karu"
+# got the OCF definition and "pilot id kaise banau" got the rate-card definition. A glossary
+# node's subject is its own name and nothing else.
 GLOSSARY: tuple[FollowUp, ...] = (
     FollowUp(
         id="g_rto", ask="RTO kya hai?",
@@ -139,7 +214,7 @@ GLOSSARY: tuple[FollowUp, ...] = (
                 "set hota hai."),
         source="kt_ea0d78507c (volume decreases when RTO% is high) + captain panel "
                "METRIC_TARGET_TOOLTIPS (target = best 3PL in your area)",
-        match=frozenset({"rto", "return", "origin"})),
+        topic=frozenset({"rto"}), frame=frozenset({"origin"})),
     FollowUp(
         id="g_ocf", ask="OCF kya hai?",
         answer=("OCF = Order Contribution Factor. Yahi metric decide karta hai kis DC ko kitna "
@@ -148,7 +223,9 @@ GLOSSARY: tuple[FollowUp, ...] = (
                 "payment nahi."),
         source="kt_630fddb712 (OCF = order contribution factor, ~25 factors, controls volume) "
                "+ kt_ea0d78507c (OCF determines volume not payment)",
-        match=frozenset({"ocf", "order", "contribution", "factor"})),
+        topic=frozenset({"ocf"}),
+        phrases=(frozenset({"order", "contribution"}),),
+        frame=frozenset({"factor"})),
     FollowUp(
         id="g_cps", ask="CPS / rate card kya hai?",
         answer=("CPS = Cost Per Shipment, yaani aapka Pilot Rate Card. Aapka target rate card "
@@ -156,7 +233,9 @@ GLOSSARY: tuple[FollowUp, ...] = (
                 "hai to allocation par asar padta hai."),
         source="captain panel METRIC_TARGET_TOOLTIPS: 'The target rate card is calculated "
                "based on your neighbouring DCs rate'",
-        match=frozenset({"cps", "rate", "card", "pilot"})),
+        topic=frozenset({"cps", "ratecard"}),
+        phrases=(frozenset({"rate", "card"}),),
+        frame=frozenset({"pilot"})),
     FollowUp(
         id="g_day0", ask="Day-0 attempt kya hai?",
         answer=("Day-0 Attempt % = jitne shipment aapko us din mile, unmein se kitne aapne "
@@ -164,14 +243,19 @@ GLOSSARY: tuple[FollowUp, ...] = (
                 "gaya to capacity cut lag sakta hai."),
         source="captain panel METRIC_TARGET_TOOLTIPS: 'keep your performance above 70% to "
                "avoid capacity cut'",
-        match=frozenset({"day0", "day", "0", "attempt", "atmpt"})),
+        topic=frozenset({"day0", "d0"}),
+        phrases=(frozenset({"day", "0"}), frozenset({"day", "zero"})),
+        frame=frozenset({"attempt", "atmpt"})),
     FollowUp(
         id="g_doh", ask="Pendency / DOH kya hai?",
         answer=("Pendency (DOH = Days On Hand) = shipment aapke hub par kitne din pade rahe. "
                 "Ise 2.5 din se kam rakhna hota hai — zyada hua to capacity cut ka risk hai."),
         source="captain panel METRIC_TARGET_TOOLTIPS: 'please clear pendencies within 2.5 "
                "days to avoid capacity cut'",
-        match=frozenset({"doh", "pendency", "pending", "days", "hand"})),
+        # "pendency" is ALSO a COD word (router._DOMAIN_WORDS["cod"]). Keeping it in this node's
+        # vocabulary is what stops RULE 2 from refusing "pendency kya hai" under a load scope —
+        # see the module note on words that legitimately belong to two queues.
+        topic=frozenset({"doh", "pendency"}), frame=frozenset({"pending", "hand"})),
     FollowUp(
         id="g_pbca", ask="Capacity cut kaise lagta hai?",
         answer=("Ise PBCA kehte hain — Performance Based Capacity Action. Aapke hub ki "
@@ -180,33 +264,44 @@ GLOSSARY: tuple[FollowUp, ...] = (
                 "70% tak load kam ho sakta hai. Uske baad aapko 10 din milte hain sudharne ke "
                 "liye."),
         source="kt_lm_pbca (PBCA formula, up to 70% cut, 10 days to improve)",
-        match=frozenset({"pbca", "capacity", "cut", "kata", "kam"})),
+        topic=frozenset({"pbca"}),
+        phrases=(frozenset({"capacity", "cut"}),)),
     FollowUp(
         id="g_bic", ask="BIC kya hai?",
         answer=("BIC = Best In Class. Aapke area ka sabse accha perform karne wala hub. Agar "
                 "aapko kam load mil raha hai, wajah yeh ho sakti hai ki aap BIC nahi hain — "
                 "targets usi BIC hub ke hisaab se set hote hain."),
         source="kt_040e00381f (BIC stands for best in class; less load because not a BIC)",
-        match=frozenset({"bic", "best", "class"})),
+        topic=frozenset({"bic"}),
+        phrases=(frozenset({"best", "class"}),)),
     FollowUp(
         id="g_hardstop", ask="Hardstop kya hai?",
         answer=("Hardstop loss tab lagta hai jab shipment ek hi hub par **5 din (120 ghante) "
                 "se zyada** pada rehta hai aur agle node tak connect nahi hota. System "
                 "automatically use hardstop loss mark kar deta hai."),
-        source="sopkt_1_hardstop_loss (more than 5 days / 120 hours without connecting)",
-        match=frozenset({"hardstop", "hard", "stop"})),
+        source="sopkt_1_hardstop_loss (more than 5 days / 120 hours without being connected; "
+               "'The system marks it as hardstop loss')",
+        topic=frozenset({"hardstop"}),
+        phrases=(frozenset({"hard", "stop"}),)),
     FollowUp(
         id="g_shortage", ask="Shortage loss kya hai?",
-        answer=("Shortage loss tab lagta hai jab shipment Node A se bheja gaya lekin Node B "
-                "par receive nahi hua — beech mein kam paya gaya. Ismein evidence submit karke "
-                "reversal maanga ja sakta hai."),
-        source="sopkt_2_shortage_loss (shipment sent from Node A to Node B)",
-        match=frozenset({"shortage", "short", "kami"})),
+        answer=("Shortage loss tab lagta hai jab shipment Node A se bheji gayi lekin Node B "
+                "par receive nahi hui. Destination facility ise shortage mark karti hai, aur "
+                "dono nodes se CCTV evidence maanga jaata hai — evidence ke aadhaar par loss "
+                "kisi ek node par lagta hai."),
+        source="sopkt_2_shortage_loss (B marks it as shortage; both nodes asked for evidence "
+               "(CCTV footage); loss attributed to one node based on evidence)",
+        topic=frozenset({"shortage"}), frame=frozenset({"kami"})),
 )
 
-# ═══ PER-DISPOSITION GRAPHS ══════════════════════════════════════════════════════════════════
-# Only the dispositions the engine can actually RESOLVE have graphs, because a follow-up to an
-# escalation is a different thing (the answer is "the team has it") and is covered by UNIVERSAL.
+# ═══ PER-MECHANISM GRAPHS ════════════════════════════════════════════════════════════════════
+# One graph per LOSS MECHANISM, not one graph for "losses".
+#
+# The first version shared a single graph across seven dispositions. The review proved that
+# makes it state a cause the corpus does not support for five of them — a secondary-QC failure
+# is neither a hardstop nor a shortage, and in-transit loss explicitly has NO evidence process
+# ("Simpler than shortage — no evidence process", sopkt_3), so offering an evidence answer there
+# invents a procedure. Each graph below cites the sources for ITS OWN mechanism.
 
 _LOAD = (
     FollowUp(
@@ -215,16 +310,30 @@ _LOAD = (
                 "se koi target se peeche hota hai, allocation mein aapko kam orders milte "
                 "hain. Jo metric peeche hai wahi wajah hai."),
         source="kt_ea0d78507c + faq_8227 (load is determined by RTO% and the OCF rate card)",
-        match=frozenset({"kyun", "kyu", "why", "wajah", "reason", "kam", "low"}),
+        # "load"/"volume"/"allocation" are the subject. Bare "kyun" is frame only — it was
+        # carrying this node, so "debit kyu laga" was answered with load allocation.
+        topic=frozenset({"load", "volume", "allocation"}),
+        phrases=(frozenset({"kam", "kyun"}), frozenset({"kam", "kyu"}),
+                 frozenset({"kam", "why"})),
+        frame=frozenset({"kyun", "kyu", "why", "wajah", "kam", "low", "reason"}),
         then=("l_how_fix", "g_rto", "g_ocf")),
     FollowUp(
         id="l_how_fix", ask="Kaise theek karun?",
-        answer=("Jo metric target se peeche hai usi par kaam kijiye — RTO kam kijiye, Day-0 "
-                "attempt 70% se upar laiye, aur pendency 2.5 din se kam rakhiye. Yeh sudhrenge "
-                "to allocation apne aap badhega."),
-        source="captain panel METRIC_TARGET_TOOLTIPS (the four levers and their thresholds)",
-        match=frozenset({"kaise", "kese", "how", "theek", "thik", "fix", "sudhar", "improve",
-                         "badhau", "badhaun"}),
+        answer=("Jo metric target se peeche hai usi par kaam kijiye. Chaar metric dekhe jaate "
+                "hain: Pilot Rate Card (CPS) aas-paas ke DCs se zyada na ho, RTO% target se "
+                "neeche rahe, Day-0 attempt 70% se upar rahe, aur pendency 2.5 din se kam "
+                "rahe. Aakhri do capacity cut se bachne ke liye zaroori hain."),
+        # Now names all FOUR levers. It named three and omitted Pilot Rate Card (CPS) — which
+        # `growth/contract.py:LEVERS` lists FIRST and which `_exec_load_planning` most often
+        # stamps as the failing one, so the remedy list omitted the very lever just diagnosed.
+        # The old closing line "yeh sudhrenge to allocation apne aap badhega" is gone too: no
+        # source promises automatic recovery. METRIC_TARGET_TOOLTIPS only says these avoid a
+        # capacity cut, and kt_lm_pbca makes recovery conditional and 10 days away.
+        source="captain panel METRIC_TARGET_TOOLTIPS (all four levers and their thresholds) "
+               "+ growth/contract.py LEVERS (the four, in panel order)",
+        topic=frozenset({"theek", "thik", "tik", "sudhar", "improve", "badhau",
+                         "badhaun", "behtar"}),
+        frame=frozenset({"kaise", "kese", "how"}),
         then=("l_how_long", "g_pbca")),
     FollowUp(
         id="l_how_long", ask="Kitne din lagenge?",
@@ -232,7 +341,12 @@ _LOAD = (
                 "ke liye. Us window ke baad hi capacity recovery hoti hai — aur agar aap best "
                 "3P hub se accha perform karte hain to 80% tak load badh sakta hai."),
         source="kt_lm_pbca (10 days to improve; up to 80% increase, only after 10 days)",
-        match=frozenset({"kitne", "kitna", "din", "time", "long", "kab", "days", "when"}),
+        # No bare topic: "how long" is pure frame, so it is a PHRASE requirement. Bare "kab"
+        # was carrying u_how_long_team and answering load questions with the SLA table.
+        phrases=(frozenset({"kitne", "din"}), frozenset({"kitna", "din"}),
+                 frozenset({"kitna", "time"}), frozenset({"kab", "tak"}),
+                 frozenset({"how", "long"})),
+        frame=frozenset({"lagenge", "lagega", "din", "time", "kab"}),
         then=("l_will_increase",)),
     FollowUp(
         id="l_will_increase", ask="Phir load badhega?",
@@ -241,20 +355,19 @@ _LOAD = (
                 "aapke polygon mein demand badhegi, volume bhi badhega."),
         source="kt_lm_pbca (capacity recovery up to 80% after 10 days) + scn_OP_1/scn_OP_2 "
                "(as demand increases in your polygon, load may increase)",
-        match=frozenset({"phir", "badhega", "increase", "wapas", "recover", "milega"})),
-    # ── the two fact-filled nodes. Every value here was computed SERVER-SIDE by
-    # `_exec_load_planning` and already published to this captain on their own dashboard — the
-    # follow-up engine re-reads it, never re-derives it. If a fact is absent the node is not
-    # offered at all, which is why `needs` exists.
+        # "wapas" and "milega" are GONE. Together they scored 2 on "paisa wapas milega" — a
+        # money question — and this answer opens with "Haan" (yes), so a captain asking whether
+        # they get their money back was told "yes", followed by capacity talk.
+        topic=frozenset({"badhega", "badhegi", "increase", "recover", "recovery"}),
+        frame=frozenset({"phir", "load", "volume"})),
     FollowUp(
         id="l_my_numbers", ask="Mera number kya hai?",
         answer=("Aapka {lever} abhi **{current}** hai, aur target **{target}** hai. Yahi metric "
                 "target se peeche hai — isi par kaam karna hai."),
         source="_exec_load_planning evidence trail — the failing lever, its value and its "
                "target, read from growth-dashboard and never re-derived",
-        # "mera" is deliberately absent — it is a stopword (mera payment, mera load, mera loss).
-        # The signal in "mera number kya hai" is "number".
-        match=frozenset({"number", "value", "metric", "score", "figure", "aankda"}),
+        topic=frozenset({"number", "metric", "score", "aankda"}),
+        frame=frozenset({"value", "figure"}),
         needs=("lever", "current", "target"),
         then=("l_how_fix",)),
     FollowUp(
@@ -263,7 +376,13 @@ _LOAD = (
                 "{orders} orders mile, mil sakte the {max_potential}."),
         source="order-summary extra_earnings_loss + current_orders/max_potential — server-side "
                "figures, shown on the captain's own dashboard",
-        match=frozenset({"nuksan", "loss", "paisa", "kitna", "rupee", "kamai", "earning"}),
+        # "paisa", "loss", "earning" and "kamai" are GONE. Each was a single unique hit inside
+        # the load scope, so "mera paisa nahi aaya", "mera loss reverse karo", "paisa kitna kata
+        # hai" and "meri earning kitni hai" were ALL answered with the load cycle's rupee
+        # figure — a confident, quantified answer from the wrong queue. Only "nuksan"/"ghata"
+        # (the shortfall itself) remain, and RULE 2 now refuses the payment words outright.
+        topic=frozenset({"nuksan", "ghata"}),
+        frame=frozenset({"kitna", "rupee"}),
         needs=("loss", "orders", "max_potential"),
         then=("l_how_fix", "l_how_long")),
     FollowUp(
@@ -273,84 +392,246 @@ _LOAD = (
                 "se. Yeh manually kisi ne aapke liye set nahi kiya."),
         source="captain panel METRIC_TARGET_TOOLTIPS + kt_lm_pbca (compared against the best "
                "3P hub in the same pincode)",
-        match=frozenset({"kaun", "kon", "who", "decide", "target", "set", "kisne"}),
+        topic=frozenset({"target"}),
+        frame=frozenset({"kaun", "kon", "who", "decide", "set", "kisne"}),
         then=("g_bic",)),
 )
 
-_LOSS = (
+# ── hardstop: the ONE loss mechanism the corpus says is genuinely automatic ─────────────────
+_HARDSTOP = (
     FollowUp(
-        id="d_why_marked", ask="Ye loss kyun laga?",
-        answer=("Loss tab lagta hai jab shipment expected node tak time par nahi pahunchti — "
-                "hardstop mein 5 din se zyada ek hub par rukne se, shortage mein Node B par "
-                "receive na hone se. System yeh automatically mark karta hai, koi manually "
-                "nahi karta."),
-        source="sopkt_1_hardstop_loss + sopkt_2_shortage_loss",
-        match=frozenset({"kyun", "kyu", "why", "wajah", "laga", "marked"}),
-        then=("g_hardstop", "g_shortage", "d_can_reverse")),
+        id="h_why", ask="Hardstop kyun laga?",
+        answer=("Hardstop tab lagta hai jab shipment ek hi hub par **5 din (120 ghante) se "
+                "zyada** pada rehta hai aur agle node tak connect nahi hota. Yeh system "
+                "automatically mark karta hai — isliye ise rokne ka ek hi tareeka hai: "
+                "shipment 5 din ke andar aage connect ho jaaye."),
+        source="sopkt_1_hardstop_loss (more than 5 days / 120 hours without being connected; "
+               "'The system marks it as hardstop loss')",
+        # NO bare topic. `g_hardstop` (the definition) and this node (the cause) would otherwise
+        # both match the bare term and tie at 1-1, so "hardstop kya hai" declined into chips.
+        # "X kya hai" and "X kyun laga" are different questions; the term alone does not
+        # distinguish them, so the CAUSE framing is required here and the definition keeps the
+        # bare term. A captain who types only "kyun laga" gets chips — which for this user group
+        # is the primary interface anyway, and being strict on free text while being generous
+        # with taps is the whole design.
+        phrases=(frozenset({"hardstop", "kyun"}), frozenset({"hardstop", "kyu"}),
+                 frozenset({"hardstop", "why"}),
+                 frozenset({"loss", "kyun"}), frozenset({"loss", "kyu"}),
+                 frozenset({"debit", "kyun"}), frozenset({"debit", "kyu"})),
+        frame=frozenset({"kyun", "kyu", "why", "wajah", "loss", "debit", "hardstop"}),
+        then=("h_can_reverse", "g_hardstop")),
     FollowUp(
-        id="d_can_reverse", ask="Paisa wapas milega?",
+        id="h_can_reverse", ask="Paisa wapas milega?",
         answer=("Agar record mein reversal ka signal hai — jaise facility in-scan ho gaya ho, "
-                "ya attribution badal gayi ho — to main ise reversal ke liye Losses & Debits "
-                "(L2) team ko bhej deta hoon. **Main khud paisa wapas nahi kar sakta** — woh "
-                "team hi karti hai. Main aapko sirf yeh bata sakta hoon ki case bhej diya gaya "
-                "hai; settlement ki confirmation wahi team degi."),
-        source="engine/write_mode.py — there is no write path; a favourable decision is a "
-               "recommendation to L2, never a payment",
-        match=frozenset({"paisa", "wapas", "reverse", "reversal", "refund", "milega", "money"}),
-        then=("u_how_long_team",)),
-    FollowUp(
-        id="d_what_evidence", ask="Kya evidence chahiye?",
-        answer=("Shortage ke case mein evidence mail karke reversal maanga jaata hai. Sabse "
-                "kaam ki cheezein: AWB number, shipment ki photo ya video, aur jis din bheja "
-                "tha uska record. Yeh sab hone se team turant verify kar paati hai."),
-        source="sopkt_2_shortage_loss + faq_8220 (shortage loss marked even after evidence "
-               "submitted)",
-        match=frozenset({"evidence", "proof", "photo", "document", "chahiye", "sabut",
-                         "dastavez"})),
+                "ya attribution badal gayi ho — to main aapka case Losses & Debits (L2) team "
+                "ko reversal ke liye bhejne ki **sifarish** karta hoon. Main khud paisa wapas "
+                "nahi kar sakta, aur settlement ki confirmation bhi wahi team degi."),
+        # Rewritten. It previously said "main ise ... bhej deta hoon" and "case bhej diya gaya
+        # hai" — present and past tense, asserting a handoff that had happened. It had not:
+        # tier() returns action="respond" and _log_info_concern writes
+        # outcome="resolved_in_conversation", so no escalated concern exists and nothing reaches
+        # l3.inbox(). Worse, router._refusals blocks this whole tier when prev_action ==
+        # "escalate", so the sentence was reachable ONLY on turns where nothing was escalated —
+        # it was false in every case where it could fire.
+        source="engine/write_mode.py (there is no write path; a favourable decision is a "
+               "recommendation to L2, never a payment) + tools.py _DOMAIN_TEAM",
+        topic=frozenset({"reversal", "reverse", "refund"}),
+        phrases=(frozenset({"paisa", "wapas"}), frozenset({"paise", "wapas"}),
+                 frozenset({"money", "back"})),
+        frame=frozenset({"paisa", "wapas", "milega"})),
 )
 
-# ═══ UNIVERSAL — askable after ANY answer, including an escalation ════════════════════════════
+# ── shortage: marked by a HUMAN, against a deadline, with CCTV evidence ─────────────────────
+_SHORTAGE = (
+    FollowUp(
+        id="s_why", ask="Shortage kyun laga?",
+        answer=("Shortage tab lagta hai jab shipment Node A se bheji gayi lekin Node B par "
+                "receive nahi hui. **Destination facility** ise system mein shortage mark "
+                "karti hai — aur yeh vehicle aane ke **6 ghante ke andar** karna hota hai. "
+                "6 ghante ke baad mark hua to default liability usi destination facility par "
+                "aa jaati hai, aur CCTV ya kisi aur evidence ka mauka nahi milta."),
+        # This is the answer the first version got WRONG. It said "System yeh automatically mark
+        # karta hai, koi manually nahi karta" — the opposite of what the corpus says. A human at
+        # the destination marks it, inside six hours, and missing that window forfeits the
+        # evidence process entirely. The six hours are the single most actionable fact here, and
+        # a captain told "the system does it automatically" has no reason to act on them.
+        source="sopkt_2_shortage_loss ('B marks it as shortage') + kt_lm_shortage_marking_6hr "
+               "(within SIX HOURS of the vehicle arrival timestamp; otherwise default liability "
+               "on the Destination Facility without recourse to CCTV or other evidence)",
+        # No bare "shortage" topic — see the note on h_why. `g_shortage` owns the definition;
+        # this node owns the cause, and only the cause framing reaches it.
+        phrases=(frozenset({"shortage", "kyun"}), frozenset({"shortage", "kyu"}),
+                 frozenset({"shortage", "why"}),
+                 frozenset({"loss", "kyun"}), frozenset({"loss", "kyu"}),
+                 frozenset({"debit", "kyun"}), frozenset({"debit", "kyu"})),
+        frame=frozenset({"kyun", "kyu", "why", "wajah", "loss", "debit", "shortage"}),
+        then=("s_evidence", "s_can_reverse")),
+    FollowUp(
+        id="s_evidence", ask="Kya evidence chahiye?",
+        answer=("Shortage mein evidence **CCTV footage** hota hai. Agar shortage mark hone ke "
+                "5 din tak resolve nahi hota, to origin aur destination dono ko notice jaata "
+                "hai aur **72 ghante ke andar** valid CCTV dena hota hai. Footage ek hi dock "
+                "camera se, continuous, aur **2 ghante se zyada nahi**. Submit Kapture tool "
+                "se hota hai — Tickets → 'Assigned to Me' → Dispose Ticket — aur **attachment "
+                "lagana zaroori hai**, SLA countdown ke andar. Evidence na dene par default "
+                "liability aap par aa sakti hai."),
+        # Also wrong before: it said "evidence mail karke", and listed "AWB number, shipment ki
+        # photo ya video, aur jis din bheja tha uska record" — none of which appears in any
+        # source. Following that advice would miss the 72-hour CCTV window and the mandatory
+        # Kapture attachment, and default liability falls on the facility when evidence is
+        # missing. This is the finding that would have cost a captain real money.
+        source="kt_lm_shortage_liability_cctv (5 days → notice; valid CCTV within 72 hours; "
+               "single dock camera, continuous, max 2 hours; default liability when evidence "
+               "is missing) + kt_lm_mm_kapture_shortage_evidence (Kapture tool, Tickets → "
+               "'Assigned to Me' → Dispose Ticket, attachment MANDATORY, SLA countdown)",
+        topic=frozenset({"evidence", "proof", "cctv", "sabut", "dastavez"}),
+        frame=frozenset({"footage", "camera"}),
+        then=("s_can_reverse",)),
+    FollowUp(
+        id="s_can_reverse", ask="Paisa wapas milega?",
+        answer=("Evidence ke aadhaar par loss kisi ek node par lagta hai — agar aapka CCTV "
+                "valid hai aur doosre node ka nahi, to liability unki banti hai. Main aapka "
+                "case Losses & Debits (L2) team ko reversal ke liye bhejne ki **sifarish** kar "
+                "sakta hoon; paisa main khud wapas nahi kar sakta aur confirmation wahi team "
+                "degi."),
+        source="sopkt_2_shortage_loss (loss attributed to one node based on evidence) + "
+               "kt_lm_shortage_liability_cctv (default-liability rules) + "
+               "engine/write_mode.py (no write path exists)",
+        topic=frozenset({"reversal", "reverse", "refund"}),
+        phrases=(frozenset({"paisa", "wapas"}), frozenset({"paise", "wapas"}),
+                 frozenset({"money", "back"})),
+        frame=frozenset({"paisa", "wapas", "milega"})),
+)
+
+# ── in-transit: the corpus is explicit that there is NO evidence process ────────────────────
+_INTRANSIT = (
+    FollowUp(
+        id="i_why", ask="Ye loss kyun laga?",
+        answer=("In-transit loss tab lagta hai jab shipment ya bag Node A se Node B ke beech "
+                "raaste mein kho jaata hai. Shortage se alag — ismein CCTV evidence ka process "
+                "nahi hota, seedha attribution dekha jaata hai."),
+        # An evidence node is deliberately ABSENT from this graph. sopkt_3 says in-transit is
+        # "Simpler than shortage — no evidence process", so offering the shortage evidence
+        # answer here — which the shared graph did — invents a procedure that does not exist and
+        # sends the captain off to collect CCTV nobody will ask them for.
+        source="sopkt_3_in_transit_loss ('Shipment or bag is lost in transit from Node A to "
+               "Node B. Simpler than shortage — no evidence process.')",
+        topic=frozenset({"intransit", "transit"}),
+        phrases=(frozenset({"loss", "kyun"}), frozenset({"loss", "kyu"}),
+                 frozenset({"debit", "kyun"}), frozenset({"debit", "kyu"})),
+        frame=frozenset({"kyun", "kyu", "why", "wajah", "loss", "debit"}),
+        then=("i_can_reverse",)),
+    FollowUp(
+        id="i_can_reverse", ask="Paisa wapas milega?",
+        answer=("Agar record mein attribution badalne ka signal hai, to main aapka case Losses "
+                "& Debits (L2) team ko reversal ke liye bhejne ki **sifarish** karta hoon. "
+                "Paisa main khud wapas nahi kar sakta — confirmation wahi team degi."),
+        source="engine/write_mode.py (no write path exists) + tools.py _DOMAIN_TEAM",
+        topic=frozenset({"reversal", "reverse", "refund"}),
+        phrases=(frozenset({"paisa", "wapas"}), frozenset({"paise", "wapas"}),
+                 frozenset({"money", "back"})),
+        frame=frozenset({"paisa", "wapas", "milega"})),
+)
+
+# ── secondary QC: its own mechanism, its own sources ────────────────────────────────────────
+_QC = (
+    FollowUp(
+        id="q_why", ask="QC fail kyun hua?",
+        answer=("Secondary QC har return shipment par DC pe hoti hai — AWB scan, QR/packet ID "
+                "scan, 3 photo (Side, Back, Front), aur FE ke category/design jawab ka milaan. "
+                "Mismatch hua to 'QC Failed' lagta hai. Debit alag baat hai: agar Meesho "
+                "Central QC team QC failure maanti hai to shipment ki value LM Pilot/Captain "
+                "par debit hoti hai, aur yeh Pareto analysis se tay hota hai — isliye agar "
+                "shipment aapke node se kabhi bhi guzri hai to debit aa sakta hai."),
+        source="kt_lm_secondary_qc_dc (the scan/3-image process; mismatch → 'QC Failed') "
+               "+ kt_lm_wrong_rvp_debits (Meesho Central QC determines the failure; shipment "
+               "value debited to the LM Pilot/Captain; Pareto analysis; a shipment that passed "
+               "through your node at any point may incur a debit)",
+        topic=frozenset({"qc"}),
+        phrases=(frozenset({"fail", "kyun"}), frozenset({"fail", "kyu"})),
+        frame=frozenset({"fail", "kyun", "kyu", "why", "wajah", "reject"}),
+        then=("q_process",)),
+    FollowUp(
+        id="q_process", ask="QC process kya hai?",
+        answer=("DC par: AWB scan → QR/packet ID scan → QC window khulega → 3 photo lijiye "
+                "(Side, Back, Front) → FE ke category/design jawab verify kijiye → match hua "
+                "to Approve, warna Reject + Next → Finish. Success par print label lijiye. "
+                "Dhyan rakhiye — secondary-QC-failed shipment LMSC tak connect nahi hote."),
+        source="kt_lm_secondary_qc_dc (full process in its own step order; secondary-QC-failed "
+               "shipments are prevented from connecting to the LMSC)",
+        topic=frozenset({"process", "tarika", "tareeka", "steps"}),
+        phrases=(frozenset({"qc", "kaise"}),),
+        frame=frozenset({"kaise", "how", "qc"})),
+)
+
+# ═══ UNIVERSAL — askable after ANY disposition ════════════════════════════════════════════════
+# ONE node, deliberately.
+#
+# `u_who_has_it` ("your case went to team X, quote the reference number in your reply") and
+# `u_how_long_team` ("the team's TAT is 24 hours, you'll get an update in that window") were
+# both DELETED rather than fixed, because they cannot be made true in this tier:
+#
+#   · Tier F returns action="respond", so `_log_info_concern` records
+#     outcome="resolved_in_conversation" — no escalated concern exists, nothing reaches
+#     l3.inbox(), and no reference number was ever issued.
+#   · And `router._refusals` blocks this entire tier whenever prev_action == "escalate". So the
+#     one state in which "your case is with a team" WOULD be true is the exact state in which
+#     this tier is not allowed to answer. They were false in every reachable case.
+#   · `u_who_has_it` also named only 4 of the 7 teams in its own cited source, so for a
+#     secondary-QC case — owned by Quality / QC (L2) — every team it listed was the wrong one.
+#
+# The TAT question is a good question. It belongs to a tier that fires AFTER an escalation and
+# can read the concern's real team and reference — not to this one. Left unbuilt rather than
+# answered wrongly.
 UNIVERSAL = (
     FollowUp(
-        id="u_how_long_team", ask="Team kitne din lega?",
-        answer=("Losses & Debits (L2) ka TAT 24 ghante hai, Payments 24 ghante, Cash/COD 12 "
-                "ghante, aur Orders & Planning 24 ghante. Is window ke andar aapko update "
-                "milega. Agar na mile to mujhe bata dijiye."),
-        source="l3/platform.py TEAM_SLA (the real per-team SLA table)",
-        match=frozenset({"kitne", "kitna", "din", "time", "team", "kab", "long", "tat"})),
-    FollowUp(
-        id="u_who_has_it", ask="Kisko bheja hai?",
-        answer=("Aapka case us team ko gaya hai jo is queue ki owner hai — loss/debit ke liye "
-                "Losses & Debits (L2), payment ke liye Payments (L2), cash ke liye Cash/COD "
-                "(L2), load ke liye Orders & Planning (L2). Aapke reply mein reference number "
-                "diya gaya hai, wahi quote kijiye."),
-        source="engine/tools.py _DOMAIN_TEAM (the real routing table)",
-        match=frozenset({"kisko", "kon", "kaun", "who", "team", "bheja", "gaya"})),
-    FollowUp(
         id="u_talk_human", ask="Insaan se baat karni hai",
-        answer=("Bilkul. Main aapka case seedha team ke paas bhej deta hoon taaki koi insaan "
-                "isse dekhe — aap yahin likh dijiye ki kya dikkat hai aur main poori detail "
-                "ke saath aage bhej doonga."),
-        source="tools.escalate_case — the engine never dead-ends a captain",
-        match=frozenset({"insaan", "human", "aadmi", "banda", "call", "phone", "baat", "agent",
-                         "sir", "officer"})),
+        answer=("Bilkul. Aap yahin likh dijiye ki kya dikkat hai — main poori detail ke saath "
+                "team tak pahuncha doonga taaki koi insaan isse dekhe."),
+        # Reworded to the future tense. It previously said "Main aapka case seedha team ke paas
+        # bhej deta hoon" — present tense, asserting a handoff it does not perform: the verdict
+        # carries action="respond", nothing is escalated, and the concern's outcome is
+        # "resolved_in_conversation". Asking for the detail and promising to forward it is true,
+        # and the next turn's LLM path can actually call escalate_case.
+        source="tools.escalate_case is reachable on the LLM path — this tier asks for the "
+               "detail rather than claiming to have already forwarded anything",
+        topic=frozenset({"insaan", "human", "aadmi", "banda", "agent"}),
+        phrases=(frozenset({"baat", "karni"}), frozenset({"baat", "karwao"}),
+                 frozenset({"baat", "karau"})),
+        frame=frozenset({"call", "phone", "baat"})),
 )
 
-#: disposition -> its follow-up graph. Keyed on the disposition the ENGINE decided, not on
-#: anything the model guessed.
+#: disposition -> its follow-up graph. Keyed on the disposition the ENGINE decided.
+#:
+#: `debit_revoked` and `capacity_panel_issue` are deliberately ABSENT. A revoked debit has no
+#: authored follow-up in the corpus, and mapping it onto the shortage graph — as the first
+#: version did — told a captain whose debit was already reversed that a destination facility had
+#: marked a shortage against them. No graph means the turn goes to the LLM, which is the correct
+#: outcome for a question nobody has authored an answer to.
 GRAPHS: dict[str, tuple[FollowUp, ...]] = {
     "load_planning": _LOAD,
-    "capacity_panel_issue": _LOAD,          # same levers, same answers
-    "hardstop_loss": _LOSS,
-    "shortage_loss": _LOSS,
-    "intransit_loss": _LOSS,
-    "bag_shortage": _LOSS,
-    "shipment_shortage": _LOSS,
-    "debit_revoked": _LOSS,
-    "secondary_qc_fail": _LOSS,
+    "hardstop_loss": _HARDSTOP,
+    "shortage_loss": _SHORTAGE,
+    "bag_shortage": _SHORTAGE,
+    "shipment_shortage": _SHORTAGE,
+    "intransit_loss": _INTRANSIT,
+    "secondary_qc_fail": _QC,
 }
 
-_BY_ID = {f.id: f for f in (GLOSSARY + UNIVERSAL + _LOAD + _LOSS)}
+#: The queue each graphed disposition belongs to, for the RULE 2 foreign-word test. Keys are
+#: `router._DOMAIN_WORDS` names so the two tables cannot drift.
+SCOPE_DOMAIN: dict[str, str] = {
+    "load_planning": "orders",
+    "hardstop_loss": "losses",
+    "shortage_loss": "losses",
+    "bag_shortage": "losses",
+    "shipment_shortage": "losses",
+    "intransit_loss": "losses",
+    "secondary_qc_fail": "losses",
+}
+
+_ALL_NODES = GLOSSARY + UNIVERSAL + _LOAD + _HARDSTOP + _SHORTAGE + _INTRANSIT + _QC
+_BY_ID = {f.id: f for f in _ALL_NODES}
 
 
 def _scope(disposition: str | None) -> tuple[FollowUp, ...]:
@@ -360,6 +641,34 @@ def _scope(disposition: str | None) -> tuple[FollowUp, ...]:
     and refusing it because the conversation was about something else would be pedantic.
     """
     return GRAPHS.get((disposition or "").strip(), ()) + GLOSSARY + UNIVERSAL
+
+
+def _scope_vocabulary(scope: tuple[FollowUp, ...]) -> frozenset:
+    """Every word the live scope knows. Decides what counts as FOREIGN — see RULE 2."""
+    out: set = set()
+    for f in scope:
+        out |= f.vocabulary
+    return frozenset(out)
+
+
+def foreign_domains(toks: set, disposition: str | None,
+                    scope: tuple[FollowUp, ...]) -> dict:
+    """RULE 2. Queues named by this message that this scope does not serve. {domain: words}.
+
+    A word only counts as foreign if it is NOT in the live scope's own vocabulary, because some
+    words genuinely belong to two queues — `pendency` is a COD word AND a growth-dashboard
+    lever, so "pendency kya hai" under a load scope must still be answerable.
+    """
+    own_domain = SCOPE_DOMAIN.get((disposition or "").strip())
+    known = _scope_vocabulary(scope)
+    out: dict = {}
+    for domain, words in _DOMAIN_WORDS.items():
+        if domain == own_domain:
+            continue
+        hits = (toks & words) - known
+        if hits:
+            out[domain] = sorted(hits)
+    return out
 
 
 def _renderable(f: FollowUp, facts: dict) -> bool:
@@ -402,11 +711,11 @@ def resolve(message: str, disposition: str | None, *, facts: dict | None = None,
             selected: str | None = None) -> tuple[FollowUp | None, str]:
     """Match a message (or a tapped chip) to a follow-up in scope. (node, why).
 
-    A TAP is exact — `selected` is a node id and needs no matching at all, which is the entire
-    reason chips exist for this user group. Free text falls back to keyword hits within the
-    scope, and the scope is small enough (a dozen nodes) that a hit count with a margin is
-    reliable where the same approach over 537 corpus chunks measured P 0.790.
+    A TAP is exact — `selected` is a node id and needs no matching, which is the entire reason
+    chips exist for this user group. Free text goes through RULE 2 (a foreign queue refuses) and
+    RULE 1 (a topic must hit), then a hit count with a margin inside the surviving scope.
     """
+    scope = _scope(disposition)
     if selected:
         node = _BY_ID.get(selected)
         if node is None:
@@ -417,14 +726,19 @@ def resolve(message: str, disposition: str | None, *, facts: dict | None = None,
         # bypassable by anyone who can craft a POST: send `l_my_numbers` while disputing a loss
         # and get an answer about load allocation. The scope is the entire safety argument for
         # answering deterministically, so it is enforced on both paths, not just on free text.
-        if node.id not in {f.id for f in _scope(disposition)}:
+        if node.id not in {f.id for f in scope}:
             return None, f"option {selected!r} is out of scope for {disposition!r}"
         return node, "tapped"
 
     toks = set(normalise(message).split())
     if not toks:
         return None, "empty"
-    scope = _scope(disposition)
+
+    # ── RULE 2, first: a foreign queue is not a follow-up at all ─────────────────────
+    foreign = foreign_domains(toks, disposition, scope)
+    if foreign:
+        named = ", ".join(f"{d}({'/'.join(w)})" for d, w in sorted(foreign.items()))
+        return None, f"foreign queue named: {named} — a new concern, not a follow-up"
 
     # A definition needs a question. Filtered out of the scope BEFORE scoring rather than
     # rejected after, so a blocked glossary node cannot tie with — and thereby suppress — a
@@ -432,20 +746,20 @@ def resolve(message: str, disposition: str | None, *, facts: dict | None = None,
     if not (toks & INTERROGATIVES) or (toks & ACTION_WORDS):
         gloss = {f.id for f in GLOSSARY}
         scope = tuple(f for f in scope if f.id not in gloss)
-    scored = sorted(((len(toks & f.match), f) for f in scope if toks & f.match),
-                    key=lambda kv: -kv[0])
-    if not scored:
-        return None, "no keyword overlap in scope"
+
+    # ── RULE 1: only nodes whose SUBJECT was named may compete ──────────────────────
+    eligible = [f for f in scope if f.topic_hit(toks)]
+    if not eligible:
+        return None, "no node's topic was named (frame words alone never match)"
+
+    scored = sorted(((len(toks & f.vocabulary), f) for f in eligible), key=lambda kv: -kv[0])
     best_n, best = scored[0]
-    if best_n < MIN_HITS:
-        return None, f"weak: {best_n} hit(s)"
     runner = scored[1][0] if len(scored) > 1 else 0
     if best_n - runner < MIN_MARGIN:
         # Ambiguous — two follow-ups fit equally well. ASK rather than pick: a wrong guess costs
-        # the captain a tap, a wrong ANSWER costs them a wrong action. (No `runner > 0` guard is
-        # needed — if there is no runner-up, `best_n - 0 >= MIN_HITS >= MIN_MARGIN` already.)
+        # the captain a tap, a wrong ANSWER costs them a wrong action.
         return None, f"ambiguous: {best_n} vs {runner} — offer chips instead"
-    return best, f"{best_n} keyword hit(s), margin {best_n - runner}"
+    return best, f"{best_n} hit(s) incl. topic, margin {best_n - runner}"
 
 
 # ── channel degradation: the same menu, without buttons ──────────────────────────────────────
@@ -453,9 +767,6 @@ def resolve(message: str, disposition: str | None, *, facts: dict | None = None,
 # interactive buttons, and wiring Meta's interactive-message API needs a Business account this
 # environment does not have. So the chip row degrades to a numbered list, which is the IVR form
 # of the same idea and needs nothing from the transport.
-#
-# The reply-side of that degradation is `ordinal_choice`: a captain who answers "2" must land on
-# option 2 exactly, or the numbered menu is decoration.
 
 def as_numbered_text(reply: str, chips: list[dict]) -> str:
     """Append the offered options as a numbered list. For any transport with no buttons."""
@@ -463,6 +774,36 @@ def as_numbered_text(reply: str, chips: list[dict]) -> str:
         return reply
     lines = [f"{n}. {c['label']}" for n, c in enumerate(chips, 1)]
     return reply + "\n\n" + "\n".join(lines) + "\n\n(Number likh dijiye, ya seedha poochh lijiye.)"
+
+
+#: Combining marks used to build a keycap emoji.
+#:
+#: THE TRAP the review found: "2️⃣" is THREE codepoints — "2", U+FE0F (variation selector) and
+#: U+20E3 (combining enclosing keycap). `normalise` KEEPS U+FE0F, because it is category Mn and
+#: Mn is in `router._KEEP_CATEGORIES` — which exists so Devanagari matras survive — while U+20E3
+#: is dropped. The result is "2️", and `.isdigit()` on that is False. So a captain who taps
+#: the single most obvious reply to a numbered menu was silently dropped through to the LLM.
+_KEYCAP_MARKS = frozenset({"️", "⃣", "︎"})
+
+
+def _as_int(text: str) -> int | None:
+    """A number in any form a captain might send it, or None if it is not purely one.
+
+    `unicodedata.digit` rather than `str.isdigit`, so Devanagari (२) and full-width (２) digits
+    work as well as ASCII — this user group types in more than one script.
+    """
+    s = normalise("".join(ch for ch in (text or "") if ch not in _KEYCAP_MARKS)).strip()
+    s = "".join(ch for ch in s if ch not in _KEYCAP_MARKS).strip()
+    if not s or " " in s:
+        return None
+    try:
+        digits = [unicodedata.digit(ch) for ch in s]
+    except (TypeError, ValueError):
+        return None
+    n = 0
+    for d in digits:
+        n = n * 10 + d
+    return n
 
 
 def ordinal_choice(message: str, offered: list | None) -> str | None:
@@ -477,11 +818,8 @@ def ordinal_choice(message: str, offered: list | None) -> str | None:
     """
     if not offered:
         return None
-    tok = normalise(message).strip()
-    if not tok.isdigit():
-        return None
-    n = int(tok)
-    if not 1 <= n <= len(offered):
+    n = _as_int(message)
+    if n is None or not 1 <= n <= len(offered):
         return None
     return offered[n - 1]
 
@@ -522,39 +860,52 @@ def tier(ctx: Ctx) -> Verdict | None:
 
 
 # ── import-time structural guards ───────────────────────────────────────────────────────────
-# These run once, at import, and fail loudly. Each encodes a defect that was actually found
-# while building this file, so each is a regression test that cannot be skipped or forgotten.
+# These run once, at import, and fail loudly. Each encodes a defect that was actually found —
+# most of them by the adversarial review — so each is a regression test that cannot be skipped.
 def _selfcheck() -> None:
-    ids = [f.id for f in (GLOSSARY + UNIVERSAL + _LOAD + _LOSS)]
+    import string
+
+    ids = [f.id for f in _ALL_NODES]
     dupes = {i for i in ids if ids.count(i) > 1}
     assert not dupes, f"duplicate follow-up ids: {dupes}"
+    gloss_ids = {g.id for g in GLOSSARY}
     for f in _BY_ID.values():
         # An answer with no provenance is the failure mode this whole file is built to avoid:
         # a confident wrong process fact, acted on by someone with no way to check it.
         assert f.source, f"{f.id} has no source"
         assert f.ask and len(f.ask) <= MAX_CHIP_CHARS, f"{f.id}: chip label too long"
-        bad = f.match & STOPWORDS
+        # RULE 1: a node with no topic and no phrase can only ever be carried by frame words,
+        # which is exactly the defect class the review found eight instances of.
+        assert f.topic or f.phrases, f"{f.id} has no topic — frame words would carry it alone"
+        bad = f.vocabulary & STOPWORDS
         assert not bad, f"{f.id} matches on stopword(s) {bad} — see the STOPWORDS note"
-        # A GLOSSARY node must not match on an interrogative — it already REQUIRES one to be in
-        # scope at all, so keeping one in its match set would double-count the same evidence and
-        # let a bare "kya hai?" carry a definition on its own.
-        #
-        # Deliberately not applied to the other nodes: "kitne din lagenge" is a real follow-up
-        # and "kitne"/"din" are exactly what identifies it. An interrogative is a stopword only
-        # where the gate has already spent it.
-        if f.id in {g.id for g in GLOSSARY}:
-            overlap = f.match & INTERROGATIVES
-            assert not overlap, f"glossary {f.id} matches on interrogative(s) {overlap}"
+        # An interrogative or an action word may sit in `frame` (always additive) but never in
+        # `topic`, which would make the question's grammar into its subject.
+        assert not (f.topic & (INTERROGATIVES | ACTION_WORDS)), \
+            f"{f.id}: interrogative/action word used as a topic"
+        for p in f.phrases:
+            assert len(p) >= 2, f"{f.id}: a phrase needs 2+ tokens, got {set(p)}"
+            assert not set(p) <= INTERROGATIVES, \
+                f"{f.id}: phrase {set(p)} is all interrogatives — a frame, not a topic"
+        # A GLOSSARY node must not score on an interrogative: it already REQUIRES one to be in
+        # scope, so counting it again would double-spend the same evidence.
+        if f.id in gloss_ids:
+            assert not (f.vocabulary & INTERROGATIVES), \
+                f"glossary {f.id} scores on an interrogative it already required"
         for child in f.then:
             assert child in _BY_ID, f"{f.id} points at unknown follow-up {child!r}"
         # Every placeholder in the answer must be declared in `needs`, and vice versa —
         # otherwise `.format()` raises KeyError mid-turn, or a declared fact silently does
         # nothing and the node is withheld for no reason.
-        import string
         holes = {n for _t, n, _s, _c in string.Formatter().parse(f.answer) if n}
         assert holes == set(f.needs), f"{f.id}: answer holes {holes} != needs {set(f.needs)}"
     for disp, graph in GRAPHS.items():
         assert graph, f"disposition {disp!r} maps to an empty graph"
+        # RULE 2 needs a domain for every graphed disposition, or the foreign-word test treats
+        # EVERY domain as foreign and the scope can never answer anything.
+        assert disp in SCOPE_DOMAIN, f"{disp!r} has a graph but no SCOPE_DOMAIN entry"
+    for disp, dom in SCOPE_DOMAIN.items():
+        assert dom in _DOMAIN_WORDS, f"SCOPE_DOMAIN[{disp!r}] = {dom!r} is not a router domain"
 
 
 _selfcheck()

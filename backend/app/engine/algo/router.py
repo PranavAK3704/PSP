@@ -138,10 +138,21 @@ def _multi_intent(message: str, ents: dict) -> bool:
     nothing (the tier still has to pass its own preconditions), while a false positive refuses
     a turn the router could have answered."""
     toks = _words(message)
-    if any(t in _CONJUNCTION_LOOKALIKES for t in toks):
-        # One lookalike is enough to stop guessing; the model handles it.
-        return False
     if not any(t in _CONJUNCTIONS for t in toks):
+        return False
+    # THE LOOKALIKE CHECK IS ORDER-DEPENDENT, and it was the wrong way round.
+    #
+    # It used to run FIRST and return False on any lookalike — so "load kam hai aur abhi payment
+    # nahi aaya" had the multi-intent refusal DISABLED by "abhi", and the turn was answered as a
+    # load question with the payment half silently dropped. "abhi" is one of the most common
+    # words in Hinglish ("abhi tak nahi aaya"), so that was not a rare path.
+    #
+    # The lookalikes exist to stop a SUBSTRING match — "aur" inside "aurangabad", "bhi" inside
+    # "abhi" — but `_words` already tokenises, so a lookalike token can only be itself. It
+    # therefore cannot mask a real conjunction, and it only matters when there is no real
+    # conjunction present. Checking it after the conjunction test keeps its intent (do not guess
+    # on an ambiguous token) without letting it veto an unambiguous one.
+    if not (toks & _CONJUNCTIONS) and any(t in _CONJUNCTION_LOOKALIKES for t in toks):
         return False
     # A conjunction alone is not multi-intent — "load kam hai aur badhana hai" is one concern.
     # It only counts alongside an identifier or a second domain signal, which is what makes it

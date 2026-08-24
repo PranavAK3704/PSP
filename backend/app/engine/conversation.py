@@ -143,6 +143,13 @@ RULES
 """
 
 
+#: Distinguishes "no decision was made this turn" from "a decision was made and it escalated".
+#: `None` cannot carry both meanings: the first must leave an existing scope alone (a plain
+#: informational turn should not wipe the scope from the turn before it), the second must clear
+#: it. A sentinel is the only way to keep those apart.
+_UNSET = object()
+
+
 def _evt(node, label, status="done", tier=None, detail="", data=None):
     return {"node": node, "label": label, "status": status, "tier": tier,
             "detail": detail, "data": data or {}}
@@ -398,6 +405,10 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
 
     sess.contents.append({"role": "user", "parts": [{"text": message + att_note}]})
     terminal_action, terminal_concern = "respond", None
+    #: The follow-up scope this turn WOULD arm, held until a reply actually reaches the captain.
+    #: Three states: `_UNSET` (no decision was made — leave the session alone), `None` (a
+    #: decision was made and it escalated — clear any scope), or (disposition, facts).
+    pending_scope: object = _UNSET
 
     for step in range(MAX_STEPS):
         try:
@@ -495,6 +506,18 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
                           data=cost))
             # Remembered so the router's "previous turn escalated" refusal can see it next turn.
             sess.last_action = terminal_action
+            # THE COMMIT POINT. A follow-up scope is a promise that the previous answer explained
+            # something, so it becomes live exactly here — where that answer is handed over —
+            # and nowhere else. Every other exit from this loop (a provider failure, the step
+            # budget) leaves the session's scope untouched or cleared.
+            if pending_scope is not _UNSET:
+                try:
+                    if pending_scope is None:
+                        sess.clear_disposition()
+                    else:
+                        sess.set_disposition(pending_scope[0], pending_scope[1])
+                except Exception:  # noqa: BLE001 — scoping never breaks a turn
+                    pass
             yield _y({"node": "reply", "label": "Reply", "status": "done", "detail": reply,
                    "data": {"reply": reply, "decision_action": terminal_action,
                             "concern_id": concern["id"], "cost": cost}})
@@ -551,11 +574,23 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
             # model proposes a disposition when it calls apply_policy; the engine may override
             # it from the row and frequently does. Trusting the argument would scope follow-ups
             # to a disposition that was never acted on.
+            # ONLY WHEN THE DECISION ACTUALLY RESOLVED SOMETHING.
+            # `policy_exec._out` returns disposition "load_planning" on all four of its ESCALATE
+            # branches too — including the one that fires because the growth dashboard could not
+            # be read at all. Stamping the scope from those armed a follow-up graph that answers
+            # "your load is low because RTO and OCF" to a captain who had just been told the
+            # engine could not read their data and was routing them to a human. The follow-up
+            # scope is a promise that something was explained; an escalation explained nothing.
+            #
+            # STASHED, NOT ARMED. The scope is committed only where the captain is actually
+            # handed a reply (see `pending_scope` below). Arming it here meant a turn whose tool
+            # succeeded but whose NEXT model call died left a live follow-up scope — plus the
+            # facts — for an answer that was never delivered: the captain saw only "I can't reach
+            # my reasoning model", and their next question was then answered from a graph
+            # premised on a diagnosis they never received.
             if isinstance(result, dict) and result.get("disposition"):
-                try:
-                    sess.set_disposition(result["disposition"], result.get("followup_facts"))
-                except Exception:  # noqa: BLE001 — scoping is a convenience, never a turn-breaker
-                    pass
+                pending_scope = (None if result.get("action") in (None, "", "escalate")
+                                 else (result["disposition"], result.get("followup_facts")))
             resp_parts.append({"functionResponse": {"name": name, "response": result}})
         sess.contents.append({"role": "user", "parts": resp_parts})
 

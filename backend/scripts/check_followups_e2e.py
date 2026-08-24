@@ -25,7 +25,11 @@ os.environ.pop("PSP_PREROUTER_GREETING", None)
 os.environ.pop("PSP_PREROUTER_FOLLOWUP", None)
 
 from app.engine import conversation, session as sessmod
+from app.engine import tools
+from app.llm.base import LLMProvider
 from app.engine.algo import followups as F
+from app.engine.algo.router import Ctx as _Ctx
+from app.substrate import loss_db
 
 FACTS = {"lever": "RTO Performance", "current": "31%", "target": "19%",
          "loss": 2108, "orders": 827, "max_potential": 1035}
@@ -108,6 +112,160 @@ assert st.last_options == [], f"a stale menu survived: {st.last_options}"
 r6, o6, t6, _ = turn("2")
 print(f"  '2' -> tier={t6!r}  (None = correctly fell through, no stale menu to hit)")
 assert t6 != "followup", "'2' resolved against a menu the captain was never shown this turn"
+
+print("\n─ SCOPE HYGIENE: what must NOT arm a follow-up graph ───────────────────")
+# All three were reproduced by the adversarial review. Each is a state where the follow-up
+# engine would answer as though a diagnosis had been delivered, when none had.
+
+# (a) An ESCALATING decision still returns disposition "load_planning" from policy_exec._out —
+#     including the branch that fires because the growth dashboard could not be read at all. So
+#     a captain told "I couldn't read your data, routing you to a human" would then have their
+#     next question answered with "your load is low because RTO and OCF".
+#     Driven through the REAL engine, not by calling clear_disposition() directly — a unit test
+#     of the method proves the method works, not that the wiring calls it. (It did not: an
+#     earlier version of this check passed against a build with the escalate guard removed.)
+#
+#     The load path is ideal here precisely because it ESCALATES for every seed captain: their
+#     hubs are DEL-DC-014-shaped and no growth fixture covers them, so `_exec_load_planning`
+#     returns action="escalate" — while still returning disposition="load_planning", which is
+#     exactly the combination that used to arm a graph.
+class _CallsLoadPolicy(LLMProvider):
+    def __init__(self):
+        self.calls = 0
+
+    def chat(self, contents, model=None, system=None, tools=None, **kw):   # noqa: D102
+        self.calls += 1
+        if self.calls == 1:
+            return {"role": "model", "parts": [{"functionCall": {
+                "name": "apply_policy",
+                "args": {"disposition": "load_planning"}}}]}, {"in": 0, "out": 0}
+        return {"role": "model", "parts": [{"text": "Main ise team ko bhej raha hoon."}]}, \
+            {"in": 0, "out": 0}
+
+    def chat_metered(self, contents, model=None, node=None, system=None, tools=None,
+                     turn=None, **kw):                                     # noqa: D102
+        return self.chat(contents, model=model, system=system, tools=tools)
+
+
+_esc_stub = _CallsLoadPolicy()
+_orig = conversation.llm_registry.for_node
+conversation.llm_registry.for_node = lambda node: (_esc_stub, "stub-model")
+try:
+    CONV_E = "hy-a"
+    esc_events = [ev for ev in conversation.handle_turn(CONV_E, CAP, "mera load kam hai")]
+finally:
+    conversation.llm_registry.for_node = _orig
+
+esc_pol = next((e for e in esc_events if e.get("node") == "policy"), None)
+esc_action = (esc_pol or {}).get("data", {}).get("action")
+print(f"  the decision: action={esc_action!r} — and it still reports "
+      f"disposition='load_planning'")
+assert esc_action == "escalate", \
+    f"expected an escalating decision to test against, got {esc_action!r}"
+esc_sess = sessmod.STORE.get_or_create(CONV_E, CAP)
+print(f"  session after it: disposition={esc_sess.disposition!r} "
+      f"facts={esc_sess.answer_facts}")
+assert esc_sess.disposition is None, \
+    f"an ESCALATING decision armed follow-up scope {esc_sess.disposition!r} — the captain was " \
+    "told a human would look at it, and the next turn would have answered as if it had been " \
+    "diagnosed"
+assert esc_sess.answer_facts == {}, f"and left facts: {esc_sess.answer_facts}"
+v = F.tier(_Ctx(message="load kam kyun hua", entities={}, context={}, session=esc_sess))
+assert v is None, "the follow-up tier answered after an escalation"
+print("  ✓ an escalation leaves no scope — the next turn goes to the LLM")
+
+# (b) STALE FACTS on the SAME disposition. A second decision that read nothing returns
+#     followup_facts={}, which tools.py then omits from the result entirely. The old
+#     `if facts: … elif changed:` kept the previous decision's figures, so "mera number kya hai"
+#     quoted a rate card the engine had just failed to read, as though it were current.
+s2 = sessmod.Session(conversation_id="hy-b", captain_id=CAP)
+s2.set_disposition("load_planning", FACTS)
+assert s2.answer_facts["current"] == FACTS["current"]
+s2.set_disposition("load_planning", {})          # same scope, read nothing
+print(f"  same disposition, no facts read -> answer_facts={s2.answer_facts}")
+assert s2.answer_facts == {}, f"stale facts survived: {s2.answer_facts}"
+v2 = F.tier(_Ctx(message="mera number kya hai", entities={}, context={}, session=s2))
+assert v2 is None, "a fact-filled node was offered with no facts to fill it"
+print("  ✓ the newest decision's facts are the facts; a decision that read nothing leaves none")
+
+# (c) A DEAD TURN. Tested by BEHAVIOUR, not by source layout: the tool call succeeds (arming a
+#     scope in the old code) and then the next model call raises, so the captain sees only the
+#     degradation message. Nothing was explained, so nothing may be followed up on.
+#
+#     An earlier version of this check compared source positions of the stash and the commit.
+#     That proved nothing — they sit in different branches of the same loop, so source order is
+#     not execution order — and it failed on correct code. Running the failure is the only test
+#     that means anything here.
+# A REAL seeded captain whose decision RESOLVES, so a scope genuinely would be armed. This
+# matters more than it looks: `_exec_load_planning` ESCALATES for all three seed captains — their
+# hubs are DEL-DC-014-shaped, not the 3-char hubs the growth fixtures cover — so a load-question
+# version of this check can never arm anything and passes vacuously. It did: an earlier version
+# used the load path and passed against a deliberately broken build.
+#
+# VLMO-CPT-3310 / VL0093310077 resolves at 0.92 with action=raise_for_reversal on
+# disposition=hardstop_loss, which is exactly the shape that arms a scope.
+DEAD_CAP, DEAD_AWB = "VLMO-CPT-3310", "VL0093310077"
+
+
+class _DiesAfterTool(LLMProvider):
+    """Step 1: call apply_policy on the resolving AWB. Step 2: raise, as an outage does."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def chat(self, contents, model=None, system=None, tools=None, **kw):   # noqa: D102
+        self.calls += 1
+        if self.calls == 1:
+            return {"role": "model", "parts": [{"functionCall": {
+                "name": "apply_policy",
+                "args": {"disposition": "hardstop_loss", "awb": DEAD_AWB}}}]}, \
+                {"in": 0, "out": 0}
+        raise RuntimeError("provider outage mid-turn")
+
+    def chat_metered(self, contents, model=None, node=None, system=None, tools=None,
+                     turn=None, **kw):                                     # noqa: D102
+        return self.chat(contents, model=model, system=system, tools=tools)
+
+
+# The verifier is stubbed rather than driven: this is a money action, so `_apply_policy` runs an
+# adversarial verify, and that is a second LLM call with nothing to do with the thing under test.
+# Stubbing it keeps the test about the scope commit and keeps the run offline.
+_orig_verify = tools.verifier.verify
+_orig_for_node = conversation.llm_registry.for_node
+_stub = _DiesAfterTool()
+tools.verifier.verify = lambda *a, **k: {"passed": True, "agrees": True,
+                                         "verdict": "agree", "reason": "stubbed for the test",
+                                         "model": "stub", "proposed_by": "stub",
+                                         "verified_by": "stub"}
+conversation.llm_registry.for_node = lambda node: (_stub, "stub-model")
+try:
+    CONV_D = "hy-c"
+    saw = [ev for ev in conversation.handle_turn(CONV_D, DEAD_CAP, "mera loss galat laga hai")]
+finally:
+    conversation.llm_registry.for_node = _orig_for_node
+    tools.verifier.verify = _orig_verify
+
+# Prove the decision RESOLVED, so the arming path was actually live on this turn.
+pol = next((e for e in saw if e.get("node") == "policy"), None)
+pol_action = (pol or {}).get("data", {}).get("action")
+print(f"  decision: action={pol_action!r} conf={(pol or {}).get('data', {}).get('confidence')}")
+assert pol_action and pol_action != "escalate", \
+    f"the decision did not resolve (action={pol_action!r}), so this turn could never have " \
+    "armed a scope and the check would pass vacuously"
+
+reply_ev = next((e for e in saw if e.get("node") == "reply"), None)
+print(f"  provider calls: {_stub.calls} (1 = tool, 2 = the one that died)")
+print(f"  captain saw: engine_error={(reply_ev or {}).get('data', {}).get('engine_error')}")
+assert _stub.calls == 2, f"the failure path was not reached ({_stub.calls} call(s))"
+assert (reply_ev or {}).get("data", {}).get("engine_error") is True, \
+    "expected the degradation reply, got a normal answer"
+dead = sessmod.STORE.get_or_create(CONV_D, DEAD_CAP)
+print(f"  session after the dead turn: disposition={dead.disposition!r} "
+      f"facts={dead.answer_facts}")
+assert dead.disposition is None, \
+    f"a turn the captain never got an answer to armed scope {dead.disposition!r}"
+assert dead.answer_facts == {}, f"and left facts behind: {dead.answer_facts}"
+print("  ✓ the scope commits only where a reply reaches the captain")
 
 print("\n─ WHATSAPP round trip, through the real FastAPI route ──────────────────")
 from fastapi.testclient import TestClient

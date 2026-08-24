@@ -92,16 +92,32 @@ class Session:
         A new disposition resets `offered` — the captain is on a different concern now, and
         suppressing "kitne din lagenge?" because they asked it about a previous case would hide
         the one question they most need answered about this one.
+
+        FACTS ARE REPLACED ON EVERY CALL, INCLUDING WITH NOTHING.
+        This was `if facts: … elif changed: …`, which cleared them only when the disposition
+        CHANGED. So a second decision on the SAME disposition that read nothing — the growth
+        dashboard having gone unreadable, `followup_facts` coming back `{}` — left the previous
+        decision's figures in place, and a later "mera number kya hai" quoted a rate card the
+        engine had just failed to read as though it were current. Stale numbers presented as
+        live is worse than no answer, so the rule is now simply: the newest decision's facts are
+        the facts, and a decision that read nothing leaves none.
         """
         disp = (disp or "").strip() or None
         changed = disp != self.disposition
         if changed:
             self.disposition, self.offered = disp, set()
-        if facts:
-            self.answer_facts = dict(facts)
-        elif changed:
-            self.answer_facts = {}
+        self.answer_facts = dict(facts or {})
         return changed
+
+    def clear_disposition(self) -> None:
+        """Drop the follow-up scope entirely. The next turn goes to the LLM.
+
+        Called when a turn cannot honour the scope it just armed — an escalation (nothing was
+        diagnosed, so there is nothing to follow up on) or a turn that died before the captain
+        saw a reply. A scope is a promise that the previous answer explained something; if there
+        was no such answer, the promise is false.
+        """
+        self.disposition, self.answer_facts, self.offered = None, {}, set()
 
     def trim(self, max_turns: int = MAX_HISTORY_TURNS) -> int:
         """Drop the oldest history beyond `max_turns` captain turns. Returns entries removed.

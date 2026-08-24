@@ -25,6 +25,29 @@ services:
       # value — set it to `demo` to go back to seed, or `prism` once a client token exists.
       - key: PSP_DATA_PROVIDER
         value: localdb
+      # ── the deterministic pre-router ────────────────────────────────────────
+      # THESE MUST BE HERE, not in scripts/load_env.sh. The Dockerfile CMD runs uvicorn
+      # directly and never sources that script, so anything set there reaches a local shell
+      # and nothing else. The gap was invisible: `router.mode()` falls back to `shadow` on an
+      # unset value, so the deployed instance quietly ran with greetings OFF while the local
+      # one had them on — a config difference that looks identical to working.
+      #
+      # `shadow` globally: the verdict is computed and traced, the LLM still answers. That is
+      # what collects the one number the corpus cannot give us — 81.6% of tickets are WhatsApp
+      # and the repo holds none of its message text, so absorption is unmeasurable offline.
+      - key: PSP_PREROUTER
+        value: shadow
+      # Greetings are the exception and they are LIVE. A closed whitelist over a fixed phrase
+      # list has nothing to learn from shadow mode (check_router holds it to zero false
+      # positives across 77 phrasings), and every shadowed turn pays the measured Rs 4.54 to
+      # answer with a model what a dictionary answers exactly.
+      - key: PSP_PREROUTER_GREETING
+        value: "on"
+      # At-risk shipments: `derived` reads the real loss ledger. Declared rather than left to
+      # the code default so a reader of this file can see which source is live — if it ever
+      # drops to `seed` the monitor shows FICTIONAL shipments and looks identical to working.
+      - key: PSP_RISK_SOURCE
+        value: derived
       # ── Dashboard-set secrets (never committed) ──
       # ACTIVE provider is `claude` (backend/config/models.yaml), so ANTHROPIC_API_KEY is the
       # one the running app actually needs. Declared here so a blueprint sync can never

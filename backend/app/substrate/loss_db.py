@@ -513,6 +513,77 @@ def known_partners(limit: int = 12) -> list[str]:
     return [str(r["partner_id"]) for r in rows]
 
 
+# ── the at-risk cohort ───────────────────────────────────────────────────────────────────────
+# `attribution ⋈ losses ON awb` — shipments that ALREADY became losses, with the money, the
+# dates and the reversal columns attached. Read by adapters/risk/derive.py.
+#
+# THESE LIVE HERE, and not in a new risk_db.py, for one reason: `_query`, `_conn`, `_i`, `_amt`
+# and `_consolidate` are module-private, and the per-thread connection discipline documented at
+# the top of this file is the single thing a new reader must not reimplement. A separate module
+# would either duplicate it or reach through the underscore.
+
+#: The projection both readers share. Every column is TEXT in this schema — even locally, where
+#: `attribution_amount` arrives as '341.0' — so `_amt`/`_i` on the way out are mandatory rather
+#: than defensive. Deliberately NOT `SELECT *`: an explicit list is what makes it obvious which
+#: columns the ladder and the reversal signal actually depend on.
+_AT_RISK_COLS = """a.awb, a.partner_id, a.entity_id, a.attribution_amount, a.current_status,
+       a.attribution_date, a.attribution_type, a.attribution_state, a.cn_number, a.loss_type,
+       l.created_date, l.lost_date, l.actual_lost_date, l.facility_inscan,
+       l.current_movement_type, l.leg, l.reason_l1, l.loss_value, l.shipment_value,
+       l.loss_percentage, l.location, l.attribution_changed"""
+
+
+def partner_at_risk_rows(partner_id: str, limit: int = 400) -> list[dict]:
+    """At-risk rows for one partner. INDEX-SERVED — the primary path.
+
+    Measured plan: `SEARCH a USING INDEX idx_attribution_partner_id` + `SEARCH l USING INDEX
+    idx_awb`, 0.3 ms for 26 rows. Prefer this over the hub-keyed reader wherever a partner id is
+    already to hand — and `main._hub_to_partner` already hands us one.
+    """
+    if not available() or not _has("attribution") or not _has("losses"):
+        return []
+    return _query(
+        f"SELECT {_AT_RISK_COLS}"
+        "  FROM attribution a JOIN losses l ON l.awb = a.awb"
+        " WHERE a.partner_id = ?"
+        " ORDER BY l.lost_date DESC, a.awb LIMIT ?",
+        (str(partner_id), int(limit)))
+
+
+def hub_at_risk_rows(hub_code: str, limit: int = 400) -> list[dict]:
+    """At-risk rows for one hub. UNINDEXED — a documented-cost secondary path.
+
+    `attribution` carries indexes on awb, partner_id, attribution_date, attribution_amount,
+    cn_number and invoice_id — but **not on entity_id**. So this is `SCAN a` over ~10,000
+    attribution rows (~7 ms) against the partner path's 0.3 ms. `losses` is never scanned: the
+    join is a rowid lookup per matched row through `idx_awb`, linear in the 26–34 matches rather
+    than in the million.
+    """
+    if not available() or not _has("attribution") or not _has("losses"):
+        return []
+    return _query(
+        f"SELECT {_AT_RISK_COLS}"
+        "  FROM attribution a JOIN losses l ON l.awb = a.awb"
+        " WHERE a.entity_id = ?"
+        " ORDER BY l.lost_date DESC, a.awb LIMIT ?",
+        (str(hub_code), int(limit)))
+
+
+def at_risk_corpus_stats() -> dict:
+    """Cohort shape, for the harness and the health panel. Never a captain-facing route."""
+    if not available() or not _has("attribution") or not _has("losses"):
+        return {"available": False}
+    raw = _query("SELECT COUNT(*) AS n FROM attribution a JOIN losses l ON l.awb = a.awb", ())
+    awbs = _query("SELECT COUNT(DISTINCT a.awb) AS n"
+                  " FROM attribution a JOIN losses l ON l.awb = a.awb", ())
+    hubs = _query("SELECT COUNT(DISTINCT a.entity_id) AS n"
+                  " FROM attribution a JOIN losses l ON l.awb = a.awb", ())
+    n_raw, n_awb = _i(raw[0]["n"] if raw else 0), _i(awbs[0]["n"] if awbs else 0)
+    return {"available": n_raw > 0, "cohort_rows": n_raw, "cohort_awbs": n_awb,
+            "consolidated_awbs": n_raw - n_awb,
+            "cohort_hubs": _i(hubs[0]["n"] if hubs else 0)}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # AGGREGATES — corpus-level only, for the Data Foundation panel. No partner is
 # identifiable from any of this, which is what makes the panel safe to show.

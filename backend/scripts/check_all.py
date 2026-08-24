@@ -21,6 +21,7 @@ HARNESSES = [
     ("check_verifier",   "verifier independence, never overclaimed"),
     ("check_connectors", "the endpoint registry, and that it calls nothing"),
     ("check_log10",      "typed scan timelines, UNKNOWN never reads as NO"),
+    ("check_risk",       "at-risk derivation over real rows, and what it refuses to claim"),
     ("check_calibration", "the gate's confidence is a label, not a probability"),
     ("check_router",      "the deterministic pre-router, and its false-positive floor"),
     ("check_followups",   "follow-ups answered in scope, and never out of it"),

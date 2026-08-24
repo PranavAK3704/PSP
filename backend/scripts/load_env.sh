@@ -29,3 +29,24 @@ set_from_file TURSO_AUTH_TOKEN   "$DATA/turso_token.txt"
 # removed deliberately: an env file that changes which model answers, based on whether a file
 # happens to exist, is a footgun — the demo can end up on the wrong model without anyone
 # choosing it. Provider selection now lives in exactly one place: config/models.yaml.
+
+# ── the deterministic pre-router ──────────────────────────────────────────────────────────
+# PSP_PREROUTER = off | shadow | on, with PSP_PREROUTER_<TIER> overriding per tier.
+#
+# The global default stays SHADOW because that is what collects the one number the corpus
+# cannot give us — which turns captains actually take deterministically. 81.6% of tickets are
+# WhatsApp and the repo holds none of its message text, so absorption is unmeasurable offline
+# and shadow mode is how it gets measured rather than asserted.
+#
+# GREETINGS ARE THE EXCEPTION, and they are live. A greeting is a closed whitelist over a fixed
+# phrase list: there is nothing shadow mode could teach us about "ok thanks bhai" that the
+# 77-phrase golden file has not already settled, and every turn spent in shadow costs the
+# measured Rs 4.54 to answer with a model what a dictionary answers exactly. check_router.py
+# holds it to zero false positives across all 77 phrasings.
+#
+# Follow-ups stay in shadow deliberately. Their whitelist is settled (check_followups.py, 38
+# phrasings, 22 sourced nodes) but WHICH follow-ups captains actually ask is not — that is
+# precisely what shadow reports from live traffic. Flip PSP_PREROUTER_FOLLOWUP=on once the
+# shadow diffs have been read.
+export PSP_PREROUTER="${PSP_PREROUTER:-shadow}"
+export PSP_PREROUTER_GREETING="${PSP_PREROUTER_GREETING:-on}"

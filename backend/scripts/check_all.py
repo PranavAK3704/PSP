@@ -23,6 +23,8 @@ HARNESSES = [
     ("check_log10",      "typed scan timelines, UNKNOWN never reads as NO"),
     ("check_calibration", "the gate's confidence is a label, not a probability"),
     ("check_router",      "the deterministic pre-router, and its false-positive floor"),
+    ("check_followups",   "follow-ups answered in scope, and never out of it"),
+    ("check_followups_e2e", "the wiring: disposition -> chips -> tap/number, both transports"),
 ]
 
 

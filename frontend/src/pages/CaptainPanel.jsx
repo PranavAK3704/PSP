@@ -121,7 +121,11 @@ export default function CaptainPanel() {
     return () => { alive = false; clearInterval(t); };
   }, [captainId]);
 
-  async function send(text) {
+  // `selectedOption` is the id of a reply chip the captain TAPPED. It rides alongside the text
+  // rather than replacing it: the chip's own label is sent as the message so the transcript
+  // reads like a conversation, while the id gives the engine an exact match that needs no
+  // spelling and no NLU — which is the whole reason the chips are there.
+  async function send(text, selectedOption) {
     const msg = (text ?? input).trim();
     if ((!msg && attachments.length === 0) || busy) return;
     const atts = attachments;
@@ -137,13 +141,15 @@ export default function CaptainPanel() {
     await stream(
       { url: "/api/chat", method: "POST",
         body: { captain_id: captainId, message: msg, conversation_id: cid,
+                ...(selectedOption ? { selected_option: selectedOption } : {}),
                 attachments: atts.map((a) => ({ filename: a.filename, mime: a.mime, size: a.size })) } },
       (ev) => {
         if (ev.node === "reply") {
           const replyText = ev.data?.reply || ev.detail || "";
           const failed = !!ev.data?.engine_error;
           setMessages((m) => [...m, { who: "bot", text: replyText, isError: failed,
-            action: ev.data?.decision_action, concernId: ev.data?.concern_id }]);
+            action: ev.data?.decision_action, concernId: ev.data?.concern_id,
+            options: ev.data?.options || [] }]);
           // A failed turn is not "resolved". Keeping the core green-and-steady on an engine
           // failure would claim work that did not happen.
           setPhase(failed ? "idle" : "resolved");
@@ -407,6 +413,26 @@ export default function CaptainPanel() {
                 )}
                 {m.rated && <div className="mono faint" style={{ fontSize: 10, marginTop: 8 }}>
                   {m.rated === "up" ? "✓ thanks for the feedback" : "✓ logged for CPD — we'll improve this"}</div>}
+                {/* ── predicted follow-ups ────────────────────────────────────────────
+                    Rendered on the LAST bot message only. Chips from three messages back are
+                    answers to a question that has moved on, and a stale menu is worse than no
+                    menu — the captain taps it and gets an answer to something they are no
+                    longer asking.
+
+                    Tapping sends the chip's own LABEL as the message (so the thread reads like
+                    a conversation) plus its id (so the match is exact). For a hub operator with
+                    limited literacy that is the difference between asking a question and
+                    failing to spell one — the same reason a phone menu asks for a keypress
+                    rather than a sentence. */}
+                {m.who === "bot" && m.options?.length > 0 && i === messages.length - 1 && !busy && (
+                  <div className="chips" style={{ padding: "10px 0 0" }}>
+                    {m.options.map((o) => (
+                      <button key={o.id} className="chip" onClick={() => send(o.label, o.id)}>
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
             {busy && <div className="msg system working">● engine resolving…</div>}

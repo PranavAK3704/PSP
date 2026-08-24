@@ -18,6 +18,7 @@ from ..llm import meter as llm_meter
 from ..llm import registry as llm_registry
 from ..substrate import captain_context as ctx
 from . import dataplane, tools
+from .algo import followups
 from .algo import router as prerouter
 from .algo.entities import extract as extract_entities
 from .session import STORE
@@ -194,7 +195,8 @@ def _blueprint_guidance() -> str:
 
 
 def handle_turn(conversation_id: str, captain_id: str, message: str,
-                channel: str = "chat", attachments: list | None = None) -> Iterator[dict]:
+                channel: str = "chat", attachments: list | None = None,
+                selected_option: str | None = None) -> Iterator[dict]:
     """Stream the resolution trace for one turn. Every yielded event is also
     ACCUMULATED and, once the turn's concern_id is known, persisted to the Trace
     Log (data/traces.json) so the Concern Log can replay HOW the engine resolved
@@ -204,7 +206,8 @@ def handle_turn(conversation_id: str, captain_id: str, message: str,
     trace: list[dict] = []           # accumulate every yielded event this turn
     holder: dict = {}                # carries the terminal concern id/ids to `finally`
     try:
-        yield from _run_turn(conversation_id, captain_id, message, channel, attachments, trace, holder)
+        yield from _run_turn(conversation_id, captain_id, message, channel, attachments, trace,
+                             holder, selected_option)
     finally:
         _persist_trace(conversation_id, captain_id, trace, holder)
 
@@ -236,7 +239,8 @@ def _persist_trace(conversation_id: str, captain_id: str, trace: list[dict], hol
 
 
 def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
-              attachments: list | None, trace: list[dict], holder: dict) -> Iterator[dict]:
+              attachments: list | None, trace: list[dict], holder: dict,
+              selected_option: str | None = None) -> Iterator[dict]:
     """The agentic loop. Wrapped by handle_turn so every event is accumulated for
     the Trace Log. `_y` yields AND records; `holder` carries the terminal concern
     id out to the persist step."""
@@ -313,10 +317,24 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
     # both) and BEFORE sess.contents grows (so a router-answered turn appends its own pair
     # rather than leaving a hole). Defaults to shadow: the verdict is computed and traced, the
     # LLM still answers. See algo/router.py for why that default matters.
+    # ── numbered-menu fallback, for every channel ────────────────────────────────────
+    # WhatsApp's send() is text-only and carries 81.6% of tickets, so the option list is shown
+    # there as "1. … 2. …" and a captain answers "2". Resolved HERE rather than in the WhatsApp
+    # adapter so a panel user who types the number instead of tapping gets the same behaviour —
+    # and so there is one place where a lone digit is interpreted, not two.
+    if not selected_option:
+        selected_option = followups.ordinal_choice(message, getattr(sess, "last_options", None))
+        if selected_option:
+            yield _y(_evt("firstpass", "Numbered option chosen", tier="fast",
+                          detail=f"{message.strip()!r} → {selected_option}",
+                          data={"selected_option": selected_option,
+                                "offered": list(getattr(sess, "last_options", []) or [])}))
+
     pr_verdict, pr_trace = prerouter.route(prerouter.Ctx(
         message=message, entities=ents, context=context, session=sess,
         attachments=attachments, channel=channel,
-        prev_action=getattr(sess, "last_action", None)))
+        prev_action=getattr(sess, "last_action", None),
+        selected_option=selected_option))
     # In SHADOW the event is emitted on EVERY turn, including a plain decline. Absorption is a
     # rate, and a trace that records only the hits gives you a numerator with no denominator —
     # which is precisely the number shadow mode exists to produce. In `on` mode the event is
@@ -340,6 +358,15 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
         sess.contents.append({"role": "user", "parts": [{"text": message + att_note}]})
         sess.contents.append({"role": "model", "parts": [{"text": pr_verdict.reply}]})
         sess.last_action = pr_verdict.action
+        # A follow-up that has been READ should not be re-offered as a chip on the next turn.
+        # Recorded here rather than inside the tier because a tier is pure by contract — it may
+        # not mutate the session it was handed.
+        _node = (pr_verdict.data or {}).get("node")
+        if _node:
+            sess.offered = set(sess.offered) | {_node}
+        # IN ORDER — the numbering the captain sees is positional, so this list is the contract
+        # that makes their "2" mean the second thing they were shown.
+        sess.last_options = [o["id"] for o in (pr_verdict.options or []) if o.get("id")]
         concern = _log_info_concern(conversation_id, captain_id, message,
                                     pr_verdict.reply, channel,
                                     disposition=f"router:{pr_verdict.tier}",
@@ -504,6 +531,22 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
                                   data={"tool": name, "leaks": leaks}))
             except Exception:  # noqa: BLE001 — a guard must never be the thing that fails
                 pass
+            # ── the follow-up scope, taken from the ENGINE'S decision ────────────────
+            # `policy_exec.execute` returns the disposition it actually acted on — for a loss
+            # that is `reason_l1_to_disposition` over the real row, not the model's guess. That
+            # provenance is the whole safety argument for answering the next turn from a lookup
+            # table: the scope was established by code reading data, so a follow-up matched
+            # within it cannot wander into a disposition nobody decided.
+            #
+            # Read from the tool RESULT rather than from the model's arguments on purpose. The
+            # model proposes a disposition when it calls apply_policy; the engine may override
+            # it from the row and frequently does. Trusting the argument would scope follow-ups
+            # to a disposition that was never acted on.
+            if isinstance(result, dict) and result.get("disposition"):
+                try:
+                    sess.set_disposition(result["disposition"], result.get("followup_facts"))
+                except Exception:  # noqa: BLE001 — scoping is a convenience, never a turn-breaker
+                    pass
             resp_parts.append({"functionResponse": {"name": name, "response": result}})
         sess.contents.append({"role": "user", "parts": resp_parts})
 

@@ -460,10 +460,18 @@ def _exec_load_planning(policy: dict, context: dict, entities: dict) -> dict:
     present: list[str] = []
     ev: list[dict] = []
 
+    #: Facts the deterministic follow-up engine may quote back on the NEXT turn (see
+    #: engine/algo/followups.py). Every value here is one this function read from the growth
+    #: dashboard — the same dashboard the captain is looking at — never one it derived. It is
+    #: populated as the checks pass, so an escalating branch carries only what it got as far as
+    #: reading, and a follow-up needing a fact that was never read is simply not offered.
+    facts: dict = {}
+
     def _out(action, conf, reason):
         return {"action": action, "disposition": "load_planning", "confidence": conf,
                 "reason": reason, "evidence_trail": ev, "checks_run": checks,
-                "evidence_present": present, "policy": policy, "hub": hub}
+                "evidence_present": present, "policy": policy, "hub": hub,
+                "followup_facts": dict(facts)}
 
     # ── check 1 — is there growth data for this hub at all? ──────────────────────────
     ym, osum = (g.get("your_metrics") or {}), (g.get("order_summary") or {})
@@ -519,6 +527,14 @@ def _exec_load_planning(policy: dict, context: dict, entities: dict) -> dict:
     present.append("performance_levers")
 
     failing = [l for l in levers if l["status"] is Tri.NO]
+    if failing:
+        # The WORST failing lever, which is the one the captain should work on and the one
+        # "mera number kya hai?" is asking about. `levers` is in the panel's own display order,
+        # so taking the first failing one matches what they see at the top of their screen —
+        # deliberately not a severity ranking, which would need a comparison across metrics with
+        # different units and directions and would be a PSP invention.
+        facts.update(lever=failing[0]["title"], current=failing[0]["current"],
+                     target=failing[0]["target"])
     for l in failing:
         ev.append({"label": f"{l['title']} below target",
                    "value": f"{l['current']} vs target {l['target']} — {l['why']}",
@@ -552,6 +568,11 @@ def _exec_load_planning(policy: dict, context: dict, entities: dict) -> dict:
     if isinstance(loss, (int, float)):
         ev.append({"label": "Earnings forgone (cycle)", "value": f"₹{int(loss)}",
                    "source": "growth_dashboard"})
+        # Guarded on the isinstance check, not on truthiness: a real ₹0 is a fact worth quoting,
+        # whereas a None or a string would render "₹None" into a captain's chat.
+        facts["loss"] = int(loss)
+    if isinstance(ym.get("current_orders"), int) and isinstance(ym.get("max_potential"), int):
+        facts.update(orders=ym["current_orders"], max_potential=ym["max_potential"])
     ev.append({"label": "Dashboard verdict",
                "value": f"is_good={is_good} · banner={osum.get('banner_type', '—')}"
                         + (f" · reasons: {', '.join(osum.get('reasons') or [])}"

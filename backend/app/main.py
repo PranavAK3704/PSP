@@ -34,6 +34,7 @@ from .auth import store as auth_store                  # noqa: E402
 from .auth import tokens as auth_tokens                # noqa: E402
 from .auth.deps import current_user, require_role      # noqa: E402
 from .channels import whatsapp                          # noqa: E402
+from .engine.algo import followups                      # noqa: E402
 from .engine import conversation, dispositions          # noqa: E402
 from .engine import write_mode                          # noqa: E402
 from .knowledge import blueprints, governance, sop_compiler, store  # noqa: E402
@@ -103,6 +104,10 @@ class ChatIn(BaseModel):
     conversation_id: str | None = None
     channel: str = "chat"
     attachments: list[dict] | None = None   # [{filename, mime, size}] — thumbnail kept client-side
+    #: The id of a reply chip the captain tapped, when the client offered one. A tap is an exact
+    #: choice, so it skips matching entirely — see engine/algo/followups.py. Optional and
+    #: ignored by every other path, so an older client that never sends it is unaffected.
+    selected_option: str | None = None
 
 
 class CompileIn(BaseModel):
@@ -426,7 +431,8 @@ def chat(body: ChatIn):
     conv_id = body.conversation_id or ("conv-" + uuid.uuid4().hex[:10])
     return EventSourceResponse(_sse(
         conversation.handle_turn(conv_id, body.captain_id, body.message, body.channel,
-                                 attachments=body.attachments)))
+                                 attachments=body.attachments,
+                                 selected_option=body.selected_option)))
 
 
 @app.get("/api/monitor/{captain_id}", dependencies=[_authed])
@@ -592,10 +598,18 @@ def whatsapp_webhook(body: WhatsAppIn):
         if ev["node"] == "reply":
             terminal = ev
             reply = ev["data"].get("reply") or ev.get("detail")
+    # ── the buttonless degradation ────────────────────────────────────────────────────
+    # `whatsapp.send()` takes text and nothing else — Meta's interactive-message API needs a
+    # Business account this environment does not have. So predicted follow-ups, which are
+    # tappable chips in the panel, go out here as a numbered list; `followups.ordinal_choice`
+    # turns the captain's "2" back into that exact option on the next turn. Same menu, same
+    # determinism, no transport features required.
+    opts = ((terminal or {}).get("data") or {}).get("options") or []
+    body_text = followups.as_numbered_text(reply, opts) if (reply and opts) else (reply or "…")
     # whatsapp.send is a STUB — pending real WhatsApp Business API wiring (see channels/whatsapp.py).
-    outbound = whatsapp.send(parsed["phone"], reply or "…")
+    outbound = whatsapp.send(parsed["phone"], body_text)
     return {"captain_id": parsed["captain_id"], "state": terminal["node"] if terminal else "?",
-            "reply": reply, "outbound": outbound}
+            "reply": reply, "options": opts, "outbound": outbound}
 
 
 # ── L3 functional-team platform ─────────────────────────────────────────────

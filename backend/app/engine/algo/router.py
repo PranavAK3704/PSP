@@ -46,14 +46,33 @@ OFF, SHADOW, ON = "off", "shadow", "on"
 _MODES = (OFF, SHADOW, ON)
 
 
-def mode() -> str:
+def mode(tier: str | None = None) -> str:
     """`PSP_PREROUTER` = off | shadow | on. Unknown values fall back to `shadow`.
 
     Shadow, not `on`: an unrecognised value must not be the thing that starts answering
     captains deterministically. Same reasoning as WRITE_MODE defaulting to simulated.
+
+    WHY A TIER CAN OVERRIDE THE GLOBAL MODE — `PSP_PREROUTER_<TIER>`
+    The tiers do not all earn trust at the same rate, and a single switch forces the most
+    cautious one to hold the least cautious one back — or the reverse, which is worse.
+
+    Greetings are a closed whitelist over a fixed phrase list: there is nothing to learn about
+    them from live traffic, so holding them in shadow buys nothing and costs ~Rs 4.54 per
+    "ok thanks". Follow-ups match real questions inside a scope, and the one thing the corpus
+    cannot tell us — WHICH follow-ups captains actually ask — is exactly what shadow mode
+    collects. So the right configuration is genuinely mixed, and this makes that expressible:
+
+        PSP_PREROUTER=shadow  PSP_PREROUTER_GREETING=on
+
+    Follows the `LLM_PROVIDER_<NODE>` idiom already in llm/registry.py — same shape, same
+    env-wins precedence — rather than inventing a second convention for the same job.
     """
     raw = (os.environ.get("PSP_PREROUTER") or "").strip().lower()
-    return raw if raw in _MODES else SHADOW
+    glob = raw if raw in _MODES else SHADOW
+    if not tier:
+        return glob
+    per = (os.environ.get(f"PSP_PREROUTER_{tier.upper()}") or "").strip().lower()
+    return per if per in _MODES else glob
 
 
 @dataclass
@@ -193,7 +212,12 @@ _TIERS: list = []
 def _install_default_tiers() -> None:
     """Register the shipped tiers. Called at import of `engine.algo`, not here, so this module
     stays importable by a harness that wants an empty registry."""
-    from . import greetings
+    from . import followups, greetings
+    # Follow-ups FIRST. Both tiers are conjunctions, so order only matters where both could
+    # fire — and there the follow-up must win: once a disposition is in scope, "theek hai kitne
+    # din?" is a question about the case, not a pleasantry. Greetings would otherwise swallow
+    # the acknowledgement tokens and answer "anything else?" to a captain who asked something.
+    register("followup", followups.tier)
     register("greeting", greetings.tier)
 
 
@@ -222,6 +246,10 @@ class Ctx:
     attachments: list = field(default_factory=list)
     channel: str = "chat"
     prev_action: str | None = None
+    #: The id of a reply chip the captain TAPPED, if the client sent one. A tap is an exact
+    #: choice: it needs no matching, no threshold and no spelling — which is the entire reason
+    #: chips exist for a low-literacy user group. Free text still works; this just skips it.
+    selected_option: str | None = None
 
 
 def route(ctx: Ctx) -> tuple[Verdict | None, dict]:
@@ -236,7 +264,11 @@ def route(ctx: Ctx) -> tuple[Verdict | None, dict]:
     is worse than no router.
     """
     trace: dict = {"mode": mode(), "tiers_tried": [], "refusals": [], "declined": []}
-    if mode() == OFF:
+    # A per-tier override can bring a tier up from a global `off`, so `off` is no longer a
+    # global early return — it is checked per tier below. The fast path is kept for the common
+    # case where nothing is overridden, so `off` stays byte-identical to pre-router behaviour.
+    if mode() == OFF and not any(os.environ.get(f"PSP_PREROUTER_{n.upper()}")
+                                 for n, _f in _TIERS):
         trace["skipped"] = "PSP_PREROUTER=off"
         return None, trace
 
@@ -249,6 +281,10 @@ def route(ctx: Ctx) -> tuple[Verdict | None, dict]:
         return None, trace
 
     for name, fn in _TIERS:
+        tier_mode = mode(name)
+        if tier_mode == OFF:
+            trace["declined"].append({"tier": name, "reason": "off"})
+            continue
         trace["tiers_tried"].append(name)
         try:
             v = fn(ctx)
@@ -258,15 +294,28 @@ def route(ctx: Ctx) -> tuple[Verdict | None, dict]:
         if v is None:
             trace["declined"].append({"tier": name, "reason": "preconditions not met"})
             continue
-        trace["fired"] = {"tier": v.tier, "because": v.because, "action": v.action,
-                          "options": len(v.options), **({"data": v.data} if v.data else {})}
         # In shadow the verdict is computed and REPORTED but not used. The reply is carried in
         # the trace so it can be diffed against what the LLM actually said on the same turn —
         # a tier that is confidently wrong is invisible from absorption numbers alone.
-        if mode() == SHADOW:
-            trace["shadow_reply"] = v.reply
-            trace["shadow_only"] = True
-            return None, trace
+        if tier_mode == SHADOW:
+            # CONTINUE, do not return. Under one global mode these were equivalent; with
+            # per-tier modes they are not, and returning here would let a tier held in shadow
+            # silently suppress a later tier that is live — the shadowed tier would be deciding
+            # turns by blocking them, which is the one thing shadow must never do.
+            #
+            # The FIRST shadow fire is the one recorded: tiers are ordered most-specific first,
+            # so it is the verdict that would have been used had the tier been on.
+            if "shadow_reply" not in trace:
+                trace["shadow_reply"] = v.reply
+                trace["shadow_only"] = True
+                trace["fired"] = {"tier": v.tier, "because": v.because, "action": v.action,
+                                  "options": len(v.options), "shadow": True,
+                                  **({"data": v.data} if v.data else {})}
+            continue
+        trace["fired"] = {"tier": v.tier, "because": v.because, "action": v.action,
+                          "options": len(v.options), **({"data": v.data} if v.data else {})}
+        # A live tier fired, so nothing was suppressed and the shadow note (if any) is history.
+        trace.pop("shadow_only", None)
         return v, trace
 
     return None, trace

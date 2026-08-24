@@ -529,6 +529,20 @@ def _apply_policy(args: dict, captain_id: str, context: dict, channel: str,
 
     result = {"action": action, "outcome": outcome, "amount_inr": decision.get("amount_inr"),
               "reason": relay_reason, "gate_passed": verdict["passed"],
+              # ── the follow-up scope, for the NEXT turn ──────────────────────────────
+              # `decision["disposition"]` is what the ENGINE acted on, which for a loss is
+              # derived from the row's reason_l1 and can differ from the `disposition` the model
+              # passed in. The follow-up tier scopes on this, so it must be the engine's value.
+              #
+              # `followup_facts` carries only values the decision READ from a source the captain
+              # can already see (their own growth dashboard), and it holds no identifiers — no
+              # AWB, no phone, no UTR — so the data-plane subset test has nothing to redact
+              # here. It rides on the model-facing result deliberately: that means it passes
+              # THROUGH `dataplane.violations`/`redact` in conversation.py before the session
+              # stores it, so a follow-up can never quote back something the boundary stripped.
+              "disposition": decision.get("disposition"),
+              **({"followup_facts": decision["followup_facts"]}
+                 if decision.get("followup_facts") else {}),
               # So the model cannot narrate a payment that did not happen. `reason` above is
               # already escalation- and simulation-truthful; this is the belt to that braces.
               "write_mode": write_mode.mode(),

@@ -67,6 +67,41 @@ class Session:
     #: deterministically after an escalation — continuing to answer talks over a case that is
     #: already with a human.
     last_action: str | None = None
+    #: The disposition the ENGINE decided on the last substantive turn — the scope the follow-up
+    #: tier matches within. Set from `policy_exec.execute`'s own return value (which for a loss
+    #: comes from `reason_l1_to_disposition` on the real row), never from the model's guess: the
+    #: whole safety argument for answering follow-ups deterministically is that the scope was
+    #: established by code.
+    disposition: str | None = None
+    #: Server-side facts from that decision, for follow-up answers that quote a number back.
+    #: Only values the decision already computed and the dashboard already showed the captain.
+    #: A follow-up whose placeholders are not all present here is not offered at all.
+    answer_facts: dict = field(default_factory=dict)
+    #: Follow-up node ids already answered in this conversation, so the chip row moves forward
+    #: instead of re-offering what was just read. Cleared whenever the disposition changes.
+    offered: set = field(default_factory=set)
+    #: The option ids offered on the PREVIOUS turn, IN THE ORDER they were shown. This is what
+    #: makes a bare "2" resolvable on a transport with no buttons — WhatsApp is text-only and is
+    #: 81.6% of tickets, so the numbered fallback is the majority path, not the edge case.
+    #: Order is the contract: it must match the numbering the captain was actually shown.
+    last_options: list = field(default_factory=list)
+
+    def set_disposition(self, disp: str | None, facts: dict | None = None) -> bool:
+        """Record the engine's disposition for follow-up scoping. True if the scope CHANGED.
+
+        A new disposition resets `offered` — the captain is on a different concern now, and
+        suppressing "kitne din lagenge?" because they asked it about a previous case would hide
+        the one question they most need answered about this one.
+        """
+        disp = (disp or "").strip() or None
+        changed = disp != self.disposition
+        if changed:
+            self.disposition, self.offered = disp, set()
+        if facts:
+            self.answer_facts = dict(facts)
+        elif changed:
+            self.answer_facts = {}
+        return changed
 
     def trim(self, max_turns: int = MAX_HISTORY_TURNS) -> int:
         """Drop the oldest history beyond `max_turns` captain turns. Returns entries removed.

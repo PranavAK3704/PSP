@@ -322,13 +322,22 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
     # there as "1. … 2. …" and a captain answers "2". Resolved HERE rather than in the WhatsApp
     # adapter so a panel user who types the number instead of tapping gets the same behaviour —
     # and so there is one place where a lone digit is interpreted, not two.
+    #
+    # A MENU IS ONLY LIVE FOR ONE TURN. `last_options` is captured and then CLEARED here, and
+    # re-set below only on a turn the router actually answers with chips. Without the clear it
+    # was write-only: a menu offered on turn 1 stayed live after the LLM answered turn 2, so a
+    # "2" on turn 3 — meaning "2 days", answering the LLM's own question — resolved against a
+    # menu two turns stale. That failure lands hardest on exactly the population this feature is
+    # for: someone replying to a question with a bare number.
+    offered_last_turn = list(getattr(sess, "last_options", []) or [])
+    sess.last_options = []
     if not selected_option:
-        selected_option = followups.ordinal_choice(message, getattr(sess, "last_options", None))
+        selected_option = followups.ordinal_choice(message, offered_last_turn)
         if selected_option:
             yield _y(_evt("firstpass", "Numbered option chosen", tier="fast",
                           detail=f"{message.strip()!r} → {selected_option}",
                           data={"selected_option": selected_option,
-                                "offered": list(getattr(sess, "last_options", []) or [])}))
+                                "offered": offered_last_turn}))
 
     pr_verdict, pr_trace = prerouter.route(prerouter.Ctx(
         message=message, entities=ents, context=context, session=sess,

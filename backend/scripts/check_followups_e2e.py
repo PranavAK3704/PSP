@@ -98,6 +98,17 @@ seen = [r, r2, r3, r4]
 print(f"  {len(seen)} answers, {len(set(seen))} distinct")
 assert len(set(seen)) == len(seen), "the engine repeated itself"
 
+print("\n─ TURN 6: a menu is live for ONE turn only ─────────────────────────────")
+# Turn 5 fell through to the LLM, so the menu from turn 4 must already be dead. A bare "2" now
+# is far more likely to be an ANSWER ("2 din se") than a menu choice — and resolving it against
+# a stale menu would answer a question the captain never asked.
+st = sessmod.STORE.get_or_create(CONV, CAP)
+print(f"  session.last_options after an LLM-path turn: {st.last_options}")
+assert st.last_options == [], f"a stale menu survived: {st.last_options}"
+r6, o6, t6, _ = turn("2")
+print(f"  '2' -> tier={t6!r}  (None = correctly fell through, no stale menu to hit)")
+assert t6 != "followup", "'2' resolved against a menu the captain was never shown this turn"
+
 print("\n─ WHATSAPP round trip, through the real FastAPI route ──────────────────")
 from fastapi.testclient import TestClient
 from app.main import app

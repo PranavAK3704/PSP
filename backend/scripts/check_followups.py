@@ -612,6 +612,30 @@ def main() -> int:
             check(f"{f.id}: requires and needs are disjoint",
                   not (set(f.requires) & set(f.needs)))
 
+        # ── 10g. no reversal offered for a debit that does not exist ────────────
+        head("[10g] three branches conclude nothing was taken — none may offer a reversal")
+        # `_eval_real_loss` has THREE branches that conclude nothing was debited (a credit note
+        # already on record, the loss attributed to Meesho/upstream at 0%, or the debit already
+        # REVOKED). All three return action="respond", so all three armed this graph — and the
+        # captain was told "there is nothing to reverse" and then offered "Paisa wapas milega?"
+        # on the same turn, plus a warning about default liability for a debit nobody raised.
+        DEBITED = {"mechanism": "shortage_loss", "debited": "yes"}
+        NO_DEBIT = {"mechanism": "shortage_loss"}
+        for nid in ("h_can_reverse", "s_can_reverse", "i_can_reverse",
+                    "s_evidence", "i_evidence"):
+            n = F._BY_ID[nid]
+            check(f"{nid} requires a live debit", "debited" in n.requires, str(n.requires))
+            check(f"{nid} answerable when one exists", F._renderable(n, DEBITED))
+            check(f"{nid} WITHHELD when nothing was debited", not F._renderable(n, NO_DEBIT))
+        # The cause question is still answerable — "why was this loss recorded" is reasonable
+        # even when the money stayed with Meesho.
+        check("the cause node is NOT gated", F._renderable(F._BY_ID["s_why"], NO_DEBIT),
+              "'why was this recorded' is fair to ask either way")
+        for facts, name in ((DEBITED, "debited"), (NO_DEBIT, "nothing debited")):
+            ids = {c["id"] for c in F.chips_for("shortage_loss", facts=facts)}
+            bad = {i for i in ids if not F._renderable(F._BY_ID[i], facts)}
+            check(f"no unanswerable chip offered ({name})", not bad, str(bad))
+
         # ── 10d. per-mechanism graphs, not one graph for 'losses' ───────────────
         head("[10d] each graph cites the sources for ITS OWN mechanism")
         MECHANISM_SOURCE = {

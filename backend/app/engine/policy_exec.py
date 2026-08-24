@@ -178,7 +178,20 @@ def _eval_real_loss(row: dict, policy: dict, awb: str, pend: dict | None = None,
                 "reason": f"Good news — a credit note ({row.get('cn_number') or 'issued'}) is already on record for AWB "
                           f"{awb}, so the ₹{amount} has been / is being credited back. Nothing pending from your side.",
                 "evidence_trail": ev, "checks_run": [{"id": "credit_note", "description": "Credit note issued",
-                "result": "PASS", "passed": True}], "evidence_present": present, "policy": policy}
+                "result": "PASS", "passed": True}], "evidence_present": present, "policy": policy,
+                # No `debited`: a credit note is already on record, so there is nothing to seek.
+                "followup_facts": {"mechanism": disp}}
+    #: Facts for the deterministic follow-up engine (engine/algo/followups.py).
+    #:
+    #: `debited` is the one that matters: THREE of this function's branches conclude that
+    #: nothing was ever taken from this captain — a credit note is already on record, the loss
+    #: was attributed to Meesho/upstream at 0%, or the debit is already REVOKED. All three
+    #: return action="respond", so they armed the loss follow-up graph, which then offered
+    #: "Paisa wapas milega?" and warned about default liability for a debit that does not exist.
+    #: The follow-up nodes about reversal and evidence require this fact, so those branches
+    #: simply do not offer them.
+    fu_facts: dict = {"mechanism": disp}
+
     checks = [
         {"id": "loss_record_present", "description": "Disputed AWB found in the loss data",
          "result": "PASS", "passed": True},
@@ -192,14 +205,18 @@ def _eval_real_loss(row: dict, policy: dict, awb: str, pend: dict | None = None,
         return {"action": "respond", "disposition": disp, "amount_inr": amount, "awb": awb, "confidence": 0.9,
                 "reason": f"On record this {reason_l1} loss was attributed to Meesho/upstream (loss {pct or '0%'}), "
                           f"so no debit was raised on your account for AWB {awb} — there is nothing to reverse.",
-                "evidence_trail": ev, "checks_run": checks, "evidence_present": present, "policy": policy}
+                "evidence_trail": ev, "checks_run": checks, "evidence_present": present, "policy": policy,
+                # No `debited`: nothing was taken, so no reversal or evidence follow-up applies.
+                "followup_facts": dict(fu_facts)}
 
     # 2) Already revoked on record.
     if action_kind == "inform" or reason_l1 == "debit_revoked":
         return {"action": "respond", "disposition": disp, "amount_inr": amount, "awb": awb, "confidence": 0.9,
                 "reason": f"Good news — the ₹{amount} debit on AWB {awb} is already marked REVOKED/reversed on record. "
                           f"Nothing is pending from your side.",
-                "evidence_trail": ev, "checks_run": checks, "evidence_present": present, "policy": policy}
+                "evidence_trail": ev, "checks_run": checks, "evidence_present": present, "policy": policy,
+                # No `debited`: already revoked on record.
+                "followup_facts": dict(fu_facts)}
 
     # 3) Auto-reversible category WITH a reversal signal, within cap → reverse.
     if action_kind == "raise_for_reversal" and reversal_signal and amount is not None and (cap is None or amount <= cap):
@@ -209,7 +226,9 @@ def _eval_real_loss(row: dict, policy: dict, awb: str, pend: dict | None = None,
                 "reason": f"The ₹{amount} debit on AWB {awb} was auto-marked as '{reason_l1}', but the loss record shows "
                           f"{why} — so it connected / is not attributable to you. Per policy this debit "
                           f"should be reversed, and I have raised it for reversal.",
-                "evidence_trail": ev, "checks_run": checks, "evidence_present": present, "policy": policy}
+                "evidence_trail": ev, "checks_run": checks, "evidence_present": present, "policy": policy,
+                # A real debit stands, so the reversal and evidence follow-ups are legitimate.
+                "followup_facts": {**fu_facts, "debited": "yes"}}
 
     # 4) Everything else → ground the real record and escalate to the owning team.
     if action_kind == "raise_for_reversal" and amount is not None and cap is not None and amount > cap:

@@ -540,6 +540,13 @@ _HARDSTOP = (
         # it was false in every case where it could fire.
         source="engine/write_mode.py (there is no write path; a favourable decision is a "
                "recommendation to L2, never a payment) + tools.py _DOMAIN_TEAM",
+        # `requires=("debited",)` — three of `_eval_real_loss`'s branches conclude that NOTHING
+        # was taken from this captain (a credit note is already on record, the loss sat with
+        # Meesho/upstream at 0%, or the debit is already REVOKED) and all three return
+        # action="respond", so they armed this graph. The captain was told "there is nothing to
+        # reverse" and then offered "Paisa wapas milega?" on the same turn. Only the branch where
+        # a real debit stands stamps `debited`.
+        requires=("debited",),
         topic=frozenset({"reversal", "reverse", "refund"}),
         phrases=(frozenset({"paisa", "wapas"}), frozenset({"paise", "wapas"}),
                  frozenset({"money", "back"})),
@@ -598,6 +605,10 @@ _SHORTAGE = (
                "is missing) + kt_lm_kapture_selfserve (the CAPTAIN-facing portal: "
                "selfserveapp.kapturecrm.com, registered email → OTP) + "
                "kt_lm_lost_shipment_ticket_7days (raise within 7 days of loss marking)",
+        # `requires=("debited",)` — a captain whose loss was attributed upstream at 0% has no
+        # evidence to submit and no deadline to meet. Warning them about default liability for a
+        # debit that was never raised is alarming and useless in equal measure.
+        requires=("debited",),
         topic=frozenset({"evidence", "proof", "cctv", "sabut", "dastavez"}),
         frame=frozenset({"footage", "camera"}),
         then=("s_can_reverse",)),
@@ -611,6 +622,13 @@ _SHORTAGE = (
         source="sopkt_2_shortage_loss (loss attributed to one node based on evidence) + "
                "kt_lm_shortage_liability_cctv (default-liability rules) + "
                "engine/write_mode.py (no write path exists)",
+        # `requires=("debited",)` — three of `_eval_real_loss`'s branches conclude that NOTHING
+        # was taken from this captain (a credit note is already on record, the loss sat with
+        # Meesho/upstream at 0%, or the debit is already REVOKED) and all three return
+        # action="respond", so they armed this graph. The captain was told "there is nothing to
+        # reverse" and then offered "Paisa wapas milega?" on the same turn. Only the branch where
+        # a real debit stands stamps `debited`.
+        requires=("debited",),
         topic=frozenset({"reversal", "reverse", "refund"}),
         phrases=(frozenset({"paisa", "wapas"}), frozenset({"paise", "wapas"}),
                  frozenset({"money", "back"})),
@@ -665,6 +683,10 @@ _INTRANSIT = (
         # captain with a 72-hour deadline and no idea it existed.
         source="kt_lm_intransit_pendency (the three artefacts, the 72-hour window, the "
                "destination-revert rule, and the up-to-10-extra-days external-factor clause)",
+        # `requires=("debited",)` — a captain whose loss was attributed upstream at 0% has no
+        # evidence to submit and no deadline to meet. Warning them about default liability for a
+        # debit that was never raised is alarming and useless in equal measure.
+        requires=("debited",),
         topic=frozenset({"evidence", "proof", "cctv", "sabut", "dastavez", "challan"}),
         frame=frozenset({"footage", "prealert", "camera"}),
         then=("i_can_reverse",)),
@@ -674,6 +696,13 @@ _INTRANSIT = (
                 "& Debits (L2) team ko reversal ke liye bhejne ki **sifarish** karta hoon. "
                 "Paisa main khud wapas nahi kar sakta — confirmation wahi team degi."),
         source="engine/write_mode.py (no write path exists) + tools.py _DOMAIN_TEAM",
+        # `requires=("debited",)` — three of `_eval_real_loss`'s branches conclude that NOTHING
+        # was taken from this captain (a credit note is already on record, the loss sat with
+        # Meesho/upstream at 0%, or the debit is already REVOKED) and all three return
+        # action="respond", so they armed this graph. The captain was told "there is nothing to
+        # reverse" and then offered "Paisa wapas milega?" on the same turn. Only the branch where
+        # a real debit stands stamps `debited`.
+        requires=("debited",),
         topic=frozenset({"reversal", "reverse", "refund"}),
         phrases=(frozenset({"paisa", "wapas"}), frozenset({"paise", "wapas"}),
                  frozenset({"money", "back"})),

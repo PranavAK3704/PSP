@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, Send, Sparkles, TriangleAlert, Info, ExternalLink } from "lucide-react";
 import { getGrowthIndex, getGrowth, stream } from "../lib/api.js";
+import { n0, inr, num } from "../lib/format.js";
+import { S, RP, LEVERS, WHY } from "../growth/strings.js";
 
 /* ── Growth Dashboard + docked support widget ─────────────────────────────────────────────
    THE POINT OF THIS SCREEN, in one sentence: the captain is looking at their own dashboard,
@@ -17,49 +19,9 @@ import { getGrowthIndex, getGrowth, stream } from "../lib/api.js";
    The widget DOCKS; it does not replace. Both have to be visible at once or the demo beat
    ("same data, two presentations") is a claim rather than a demonstration. ── */
 
-// Verbatim from growth-dashboard/constants.ts — GROWTH_DASHBOARD_STRINGS.
-const S = {
-  PAGE_TITLE: "Growth Dashboard",
-  YOUR_METRICS: "Your Metrics",
-  YOUR_ORDERS_SUBTITLE: "Your Orders (Out of Max Potential):",
-  CURRENT: "Current",
-  TARGET: "Target",
-  YOUR_ORDER_SUMMARY: "Your Order Summary",
-  ORDER_SUMMARY_SUBTITLE: "View the reasons for missing out extra orders",
-  GRAPH_DATE: "Graph Date:",
-  MAXIMUM_POTENTIAL: "Maximum\nPotential",
-  ORDERS_MISSED_ALLOCATION: "Orders Missed\nin Allocation",
-  CURRENT_ELIGIBLE: "Current\nEligible",
-  ORDERS_MISSED_CAPACITY: "Orders Missed in\nCapacity Cut",
-  EXTRA_ORDERS: "Extra\nOrders",
-  FINAL_MANIFESTED: "Final Manifested\nOrders",
-};
+/* Strings, levers and tooltips live in ../growth/strings.js — a mirror of the upstream
+   constants.ts, kept in one diffable block. Formatters live in ../lib/format.js. */
 
-// The four levers, in the panel's own order, with its own titles. `higherIsBetter` matters:
-// day0-attempt is the ONLY one where a bigger number is better, and inverting it would tell a
-// captain at 94% against a 70% target that they are failing.
-const LEVERS = [
-  { key: "pilot_rate_card", title: "Pilot Rate Card (CPS)", higherIsBetter: false },
-  { key: "rto_performance", title: "RTO Performance", higherIsBetter: false },
-  { key: "day0_attempt", title: "Day-0 Attempt %", higherIsBetter: true },
-  { key: "pendency", title: "Pendency (DOH)", higherIsBetter: false },
-];
-
-// METRIC_TARGET_TOOLTIPS, verbatim. This is the authored explanation of WHY each target is
-// what it is — a captain has to find and open a tooltip to read it, which is precisely the gap
-// the widget closes by saying it out loud.
-const WHY = {
-  pilot_rate_card: "The target rate card is calculated based on your neighbouring DCs rate",
-  rto_performance: "The target RTO is computed based on the best 3PL in your area",
-  day0_attempt: "The target is to increase your delivery attempt, keep your performance above 70% to avoid capacity cut",
-  pendency: "Target is set to avoid shipment pendency, please clear pendencies within 2.5 days to avoid capacity cut",
-};
-
-const num = (v) => {
-  if (typeof v === "number") return v;
-  const m = String(v ?? "").replace(/,/g, "").match(/-?\d+(\.\d+)?/);
-  return m ? parseFloat(m[0]) : null;
-};
 // Mirrors the engine's Tri: null when unreadable, so an unparseable value is never styled as
 // passing. The panel's own parseNumeric returns 0 here, which for a lower-is-better metric
 // renders as good — see backend adapters/growth/contract.py for why we diverge.
@@ -68,8 +30,6 @@ const statusOf = (cur, tgt, higherIsBetter) => {
   if (c === null || t === null) return null;
   return (higherIsBetter ? c >= t : c <= t) ? "good" : "not_good";
 };
-const n0 = (v) => Number(v || 0).toLocaleString("en-IN");
-const inr = (v) => "₹" + Number(v || 0).toLocaleString("en-IN");
 
 /* ── The waterfall. Five bars, and bar 4 changes MEANING with its sign: positive is extra
    orders won (green), negative is orders lost to a capacity cut (rose). Rendering the
@@ -271,7 +231,19 @@ export default function GrowthDashboard() {
   const [index, setIndex] = useState(null);
   const [hub, setHub] = useState("");
   const [data, setData] = useState(null);
+  // THREE error slots, not one.
+  //
+  // This was a single sticky `err` string, and `if (err) return <banner/>` blanked the ENTIRE
+  // page. That is survivable while one fetch exists; it stops being survivable the moment a
+  // second, independent fetch is added, because a failure in the newer one would blank the
+  // dashboard that was working. Upstream makes the same split for the same reason — its two
+  // sections have independent loading/error/data triads, so one can show data while the other
+  // shows Retry.
+  //
+  //   err       — the INDEX failed. Nothing can be drawn, so this one may blank the page.
+  //   growthErr — this hub's payload failed. Scoped to the panels that read it.
   const [err, setErr] = useState("");
+  const [growthErr, setGrowthErr] = useState("");
 
   useEffect(() => {
     getGrowthIndex().then((r) => {
@@ -281,19 +253,42 @@ export default function GrowthDashboard() {
     }).catch(() => setErr("Could not read the growth index."));
   }, []);
 
+  // A STALENESS GUARD, and it is not theoretical.
+  //
+  // This was `getGrowth(hub).then(setData)` with nothing tying the response to the request that
+  // asked for it. Click LZ5 → HKS quickly and whichever response lands last wins, so the slower
+  // LZ5 payload can overwrite HKS. With a second hub-keyed fetch alongside it the failure gets
+  // worse than stale: LZ5's waterfall can render beside HKS's at-risk rows, and a viewer reads
+  // that as ONE hub. Numbers from two different hubs on one screen, presented as a single hub,
+  // is the kind of wrong that a demo cannot recover from.
+  //
+  // The ref is compared on arrival; a response for a hub that is no longer selected is dropped.
+  const wantHub = useRef("");
   useEffect(() => {
     if (!hub) return;
+    wantHub.current = hub;
     setData(null);
-    getGrowth(hub).then(setData).catch(() => setErr(`No growth data for hub ${hub}.`));
+    setGrowthErr("");
+    getGrowth(hub)
+      .then((r) => { if (wantHub.current === hub) setData(r); })
+      .catch(() => { if (wantHub.current === hub) setGrowthErr(`No growth data for hub ${hub}.`); });
   }, [hub]);
 
   if (err) {
     return <div className="df-note" style={{ color: "var(--warn)", background: "var(--warn-soft)",
       border: "1px solid rgba(255,185,95,.3)", padding: "13px 15px" }}>{err}</div>;
   }
-  if (!index || !data) {
+  if (!index) {
     return <div className="mono" style={{ fontSize: 12, color: "var(--text-faint)", padding: 18 }}>
       Reading the growth dashboard…</div>;
+  }
+  if (growthErr) {
+    return <div className="df-note" style={{ color: "var(--warn)", background: "var(--warn-soft)",
+      border: "1px solid rgba(255,185,95,.3)", padding: "13px 15px" }}>{growthErr}</div>;
+  }
+  if (!data) {
+    return <div className="mono" style={{ fontSize: 12, color: "var(--text-faint)", padding: 18 }}>
+      Reading hub {hub}…</div>;
   }
 
   const ym = data.your_metrics || {};
@@ -382,12 +377,16 @@ export default function GrowthDashboard() {
             </div>
             <div style={{ padding: "13px 15px" }}>
               <Waterfall os={os} />
+              {/* `financial_summary` verbatim, and NOTHING appended.
+                  This used to append "₹X forgone" from `extra_earnings_loss`. That field is in
+                  the contract but is never rendered anywhere upstream — so the sentence a
+                  captain would recognise was being extended with one they would not, in the
+                  voice of the panel. A display string is passed through or omitted; it is not
+                  edited. (contract.py:27-32 makes the same point about branching on one.) */}
               {os.financial_summary && (
                 <div className="df-note" style={{ marginTop: 13, color: bannerTone,
                   borderColor: bannerTone, background: "var(--surface-2)" }}>
                   {os.financial_summary}
-                  {os.extra_earnings_loss > 0 &&
-                    <b style={{ marginLeft: 6 }}>{inr(os.extra_earnings_loss)} forgone</b>}
                 </div>
               )}
             </div>

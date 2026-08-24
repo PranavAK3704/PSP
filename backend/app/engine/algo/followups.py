@@ -102,6 +102,17 @@ from .router import _DOMAIN_WORDS, Ctx, Verdict, normalise
 MAX_CHIP_CHARS = 34
 #: How many chips to offer. Four is the IVR convention — beyond that a menu stops being scanned.
 MAX_CHIPS = 4
+#: The last slot is RESERVED for the route to a human, always.
+#:
+#: An exhaustive sweep of chips_for() over every disposition and every `after` found
+#: `u_talk_human` in ZERO menus: `_scope` appends UNIVERSAL after all nine GLOSSARY nodes, so it
+#: sat at position 11+ and MAX_CHIPS=4 never reached it. On WhatsApp the numbered list IS the
+#: interface for someone who cannot reliably spell — so the only route to a human was
+#: unreachable for exactly the users who need it most.
+#:
+#: This is also the IVR convention the module note already cites: every phone menu ends with
+#: "press 0 for an operator", and it is the last option precisely so it is always there.
+ESCAPE_HATCH = "u_talk_human"
 #: A match must STRICTLY beat the runner-up.
 #:
 #: Margin 1 (strictly better), not 2. Overlap between nodes is deliberate, so a 2-hit margin
@@ -151,6 +162,9 @@ INTERROGATIVES = frozenset({
     "what", "why", "how", "when", "who", "which", "explain", "samjhao", "batao", "bataiye",
 })
 
+#: Interrogatives that ask HOW MUCH rather than WHAT. A definition never answers one of these.
+QUANTITY_INTERROGATIVES = frozenset({"kitna", "kitne", "kitni"})
+
 # Imperative markers — the captain is asking for something to be DONE.
 #
 # FOUND BY THE HARNESS: "cod pendency clear karo" scored one glossary hit on "pendency" and was
@@ -158,6 +172,16 @@ INTERROGATIVES = frozenset({
 # the most patronising failure available here, and for someone with limited literacy it reads as
 # the system not understanding them at all — which the auto-close numbers say is already the
 # commonest way these conversations die.
+# Third parties. If the message names one, the money in question is not the captain's own debit.
+#
+# FOUND BY THE REVIEW: "customer ka paisa wapas karna hai" — a question about refunding a
+# CUSTOMER — matched the phrase (paisa, wapas) and was answered with a recommendation to seek a
+# reversal of the CAPTAIN'S loss. Two different people's money, one answer.
+THIRD_PARTY = frozenset({
+    "customer", "grahak", "gaahak", "buyer", "seller", "supplier", "consignee",
+    "receiver", "sender", "shopkeeper", "dukandar",
+})
+
 ACTION_WORDS = frozenset({
     "kardo", "kariye", "kijiye", "dijiye", "dedo", "dena", "chahiye", "clear",
     "karwao", "karvao", "solve", "fix", "please", "jaldi", "turant", "abhi",
@@ -331,8 +355,22 @@ _LOAD = (
         # capacity cut, and kt_lm_pbca makes recovery conditional and 10 days away.
         source="captain panel METRIC_TARGET_TOOLTIPS (all four levers and their thresholds) "
                "+ growth/contract.py LEVERS (the four, in panel order)",
-        topic=frozenset({"theek", "thik", "tik", "sudhar", "improve", "badhau",
-                         "badhaun", "behtar"}),
+        # "theek"/"thik"/"tik" are GONE. They are the canonical Hinglish acknowledgement
+        # ("theek hai", "thik h") and greetings.CLOSERS carries them for exactly that reason —
+        # so a captain saying "ok, fine" under a load scope was handed the four-lever remedy
+        # list. Worse, because this tier is registered BEFORE greetings, it also bypassed
+        # greetings.py's documented consent guard, which exists so a bare "haan" after the
+        # engine asks "should I escalate?" is not swallowed as a pleasantry.
+        #
+        # "theek karun" (fix it) is a real phrasing, so it survives as a phrase — where the verb
+        # is present and the acknowledgement reading is impossible.
+        topic=frozenset({"sudhar", "sudharu", "improve", "badhau", "badhaun", "behtar"}),
+        # The discriminator is the INTERROGATIVE, not the verb: "kaise theek karun" carries
+        # "kaise" and "theek hai" does not. ("karun"/"karu" would be the natural discriminator
+        # but they are stopwords — "kya karun", "kaise karun" — and the import-time guard
+        # correctly refuses them.)
+        phrases=(frozenset({"kaise", "theek"}), frozenset({"kaise", "thik"}),
+                 frozenset({"kese", "theek"}), frozenset({"kese", "thik"})),
         frame=frozenset({"kaise", "kese", "how"}),
         then=("l_how_long", "g_pbca")),
     FollowUp(
@@ -358,16 +396,32 @@ _LOAD = (
         # "wapas" and "milega" are GONE. Together they scored 2 on "paisa wapas milega" — a
         # money question — and this answer opens with "Haan" (yes), so a captain asking whether
         # they get their money back was told "yes", followed by capacity talk.
-        topic=frozenset({"badhega", "badhegi", "increase", "recover", "recovery"}),
-        frame=frozenset({"phir", "load", "volume"})),
+        # "badhega" is GONE as a bare topic. This answer opens with "Haan" (yes), so "mera rate
+        # badhega?" — a question about the captain's own per-shipment PAY rate — got an
+        # affirmative followed by load-volume talk. It now needs the subject named.
+        phrases=(frozenset({"load", "badhega"}), frozenset({"volume", "badhega"}),
+                 frozenset({"load", "badhegi"}), frozenset({"load", "increase"}),
+                 frozenset({"capacity", "recovery"})),
+        frame=frozenset({"phir", "load", "volume", "badhega", "badhegi", "increase",
+                         "recover", "recovery"})),
     FollowUp(
         id="l_my_numbers", ask="Mera number kya hai?",
         answer=("Aapka {lever} abhi **{current}** hai, aur target **{target}** hai. Yahi metric "
                 "target se peeche hai — isi par kaam karna hai."),
         source="_exec_load_planning evidence trail — the failing lever, its value and its "
                "target, read from growth-dashboard and never re-derived",
-        topic=frozenset({"number", "metric", "score", "aankda"}),
-        frame=frozenset({"value", "figure"}),
+        # "number" is GONE as a bare topic. In Hinglish "mera number" overwhelmingly means the
+        # PHONE number, so "mera phone number update karo" and "gaadi ka number kya hai" were
+        # answered with the growth-dashboard rate card. The chip label still reads "Mera number
+        # kya hai?" and the TAP path is unaffected — only free text needs the tighter gate.
+        # Free text keeps only the UNAMBIGUOUS words. "number" is frame-only, so "mera number
+        # kya hai" now declines to the LLM rather than being answered with the rate card — the
+        # cost of that is one phrasing, and the chip labelled "Mera number kya hai?" still
+        # answers it in one tap, which is the primary interface for this user group anyway.
+        # Being strict on free text and generous with taps is the design.
+        topic=frozenset({"metric", "aankda"}),
+        phrases=(frozenset({"number", "target"}), frozenset({"score", "target"})),
+        frame=frozenset({"value", "figure", "number", "score", "target"}),
         needs=("lever", "current", "target"),
         then=("l_how_fix",)),
     FollowUp(
@@ -381,8 +435,20 @@ _LOAD = (
         # hai" and "meri earning kitni hai" were ALL answered with the load cycle's rupee
         # figure — a confident, quantified answer from the wrong queue. Only "nuksan"/"ghata"
         # (the shortfall itself) remain, and RULE 2 now refuses the payment words outright.
-        topic=frozenset({"nuksan", "ghata"}),
-        frame=frozenset({"kitna", "rupee"}),
+        # `nuksan` is GONE as a bare topic, and this is the subtlest hole the review found:
+        # `nuksan` is in router._DOMAIN_WORDS["losses"] AND was this node's topic, so RULE 2
+        # subtracted it as "in this scope's own vocabulary" and RULE 1 was then satisfied by it.
+        # THE TWO RULES CANCELLED EACH OTHER OUT for that one word — so "mera nuksan wapas karo"
+        # ("give my loss back") and "mera nuksan kaun bharega" ("who will compensate me") were
+        # answered with the missed-order rupee figure from the LOAD queue, while the English
+        # "mera loss reverse karo" was correctly refused. Same question, opposite outcome by
+        # language.
+        #
+        # As a PHRASE it needs the quantity interrogative, which is what distinguishes "how much
+        # did I lose" (this node) from "give it back" (a debit dispute, and a different queue).
+        phrases=(frozenset({"kitna", "nuksan"}), frozenset({"kitni", "nuksan"}),
+                 frozenset({"kitna", "ghata"})),
+        frame=frozenset({"kitna", "rupee", "nuksan", "ghata"}),
         needs=("loss", "orders", "max_potential"),
         then=("l_how_fix", "l_how_long")),
     FollowUp(
@@ -516,10 +582,14 @@ _INTRANSIT = (
         # sends the captain off to collect CCTV nobody will ask them for.
         source="sopkt_3_in_transit_loss ('Shipment or bag is lost in transit from Node A to "
                "Node B. Simpler than shortage — no evidence process.')",
-        topic=frozenset({"intransit", "transit"}),
-        phrases=(frozenset({"loss", "kyun"}), frozenset({"loss", "kyu"}),
+        # "transit" is GONE as a bare topic — it is the everyday word for a shipment that is
+        # still MOVING, so "transit me kitna time lagta hai" (an ETA question) was answered with
+        # the in-transit LOSS mechanism.
+        topic=frozenset({"intransit"}),
+        phrases=(frozenset({"transit", "loss"}), frozenset({"transit", "kho"}),
+                 frozenset({"loss", "kyun"}), frozenset({"loss", "kyu"}),
                  frozenset({"debit", "kyun"}), frozenset({"debit", "kyu"})),
-        frame=frozenset({"kyun", "kyu", "why", "wajah", "loss", "debit"}),
+        frame=frozenset({"kyun", "kyu", "why", "wajah", "loss", "debit", "transit"}),
         then=("i_can_reverse",)),
     FollowUp(
         id="i_can_reverse", ask="Paisa wapas milega?",
@@ -559,9 +629,14 @@ _QC = (
                 "Dhyan rakhiye — secondary-QC-failed shipment LMSC tak connect nahi hote."),
         source="kt_lm_secondary_qc_dc (full process in its own step order; secondary-QC-failed "
                "shipments are prevented from connecting to the LMSC)",
-        topic=frozenset({"process", "tarika", "tareeka", "steps"}),
-        phrases=(frozenset({"qc", "kaise"}),),
-        frame=frozenset({"kaise", "how", "qc"})),
+        # "process"/"tarika" are GONE as bare topics: under a QC scope they claimed EVERY "what
+        # is the process" question, so "appeal ka process kya hai" and "dispute ka process kya
+        # hai" — asking how to CONTEST the debit — were answered with the operational DC
+        # scanning SOP, which is the opposite of what was asked.
+        phrases=(frozenset({"qc", "process"}), frozenset({"qc", "kaise"}),
+                 frozenset({"qc", "tarika"}), frozenset({"qc", "tareeka"}),
+                 frozenset({"qc", "steps"})),
+        frame=frozenset({"kaise", "how", "qc", "process", "tarika", "tareeka", "steps"})),
 )
 
 # ═══ UNIVERSAL — askable after ANY disposition ════════════════════════════════════════════════
@@ -606,8 +681,14 @@ UNIVERSAL = (
 #: `debit_revoked` and `capacity_panel_issue` are deliberately ABSENT. A revoked debit has no
 #: authored follow-up in the corpus, and mapping it onto the shortage graph — as the first
 #: version did — told a captain whose debit was already reversed that a destination facility had
-#: marked a shortage against them. No graph means the turn goes to the LLM, which is the correct
-#: outcome for a question nobody has authored an answer to.
+#: marked a shortage against them.
+#:
+#: PRECISELY WHAT "no graph" MEANS, because the earlier wording here overclaimed: an ungraphed
+#: disposition gets NO MECHANISM ANSWERS — no cause, no evidence, no reversal recommendation.
+#: `_scope` still appends GLOSSARY and UNIVERSAL, so "RTO kya hai?" and the route to a human
+#: remain available, which is deliberate: those are true regardless of disposition, and refusing
+#: a captain a human because their disposition has no authored graph would be the worst possible
+#: reading of "be careful". It does NOT mean the turn always goes to the LLM.
 GRAPHS: dict[str, tuple[FollowUp, ...]] = {
     "load_planning": _LOAD,
     "hardstop_loss": _HARDSTOP,
@@ -698,12 +779,17 @@ def chips_for(disposition: str | None, *, facts: dict | None = None,
     for f in ordered:
         if f.id in seen or f.id in already or not _renderable(f, facts):
             continue
+        if f.id == ESCAPE_HATCH:
+            continue                      # placed last, unconditionally — see ESCAPE_HATCH
         if len(f.ask) > MAX_CHIP_CHARS:
             continue
         seen.add(f.id)
         out.append({"id": f.id, "label": f.ask})
-        if len(out) >= MAX_CHIPS:
+        if len(out) >= MAX_CHIPS - 1:
             break
+    hatch = _BY_ID.get(ESCAPE_HATCH)
+    if hatch is not None:
+        out.append({"id": hatch.id, "label": hatch.ask})
     return out
 
 
@@ -740,10 +826,24 @@ def resolve(message: str, disposition: str | None, *, facts: dict | None = None,
         named = ", ".join(f"{d}({'/'.join(w)})" for d, w in sorted(foreign.items()))
         return None, f"foreign queue named: {named} — a new concern, not a follow-up"
 
-    # A definition needs a question. Filtered out of the scope BEFORE scoring rather than
-    # rejected after, so a blocked glossary node cannot tie with — and thereby suppress — a
-    # legitimate follow-up that would have answered the turn.
-    if not (toks & INTERROGATIVES) or (toks & ACTION_WORDS):
+    # RULE 2b — a third party's money is a different question entirely.
+    tp = toks & THIRD_PARTY
+    if tp:
+        return None, f"names a third party ({'/'.join(sorted(tp))}) — not the captain's own case"
+
+    # A definition needs a question, and specifically a DEFINITION question.
+    #
+    # Filtered out of the scope BEFORE scoring rather than rejected after, so a blocked glossary
+    # node cannot tie with — and thereby suppress — a legitimate follow-up that would have
+    # answered the turn.
+    #
+    # QUANTITY interrogatives are excluded too: "kitni" asks for a VALUE, "kya" asks for a
+    # meaning. "meri pendency kitni hai" was answered with the DEFINITION of Days On Hand —
+    # a captain asking for their own number was handed a vocabulary entry instead, which is the
+    # same patronising failure as the "cod pendency clear karo" case and reads, to someone with
+    # limited literacy, as the system not understanding them.
+    asks_definition = bool(toks & (INTERROGATIVES - QUANTITY_INTERROGATIVES))
+    if not asks_definition or (toks & ACTION_WORDS):
         gloss = {f.id for f in GLOSSARY}
         scope = tuple(f for f in scope if f.id not in gloss)
 
@@ -851,7 +951,14 @@ def tier(ctx: Ctx) -> Verdict | None:
     chips = chips_for(disp, facts=facts, already=already | {node.id}, after=node.id)
     return Verdict(
         tier="followup",
-        reply=reply + ("\n\nKuch aur poochna hai?" if chips else ""),
+        # NO QUESTION MARK. `greetings.tier` derives `prev_asked_question` from
+        # `_last_model_text(...).endswith("?")`, and its consent guard then declines every
+        # closer and affirmation — so one follow-up answer ending in "?" disabled the greeting
+        # tier's pleasantry path for the REST of the conversation, sending every subsequent
+        # "ok thanks" to a full model call at the measured ₹4.00–5.29. The guard is right (a
+        # bare "haan" after "should I escalate?" is consent, not a pleasantry); this reply just
+        # should not have been claiming to ask anything.
+        reply=reply + ("\n\nKuch aur poochna ho to bataiye." if chips else ""),
         because=f"{node.id} in scope '{disp}' — {why}",
         action="respond",
         options=chips,

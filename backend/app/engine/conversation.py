@@ -338,7 +338,15 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
     # for: someone replying to a question with a bare number.
     offered_last_turn = list(getattr(sess, "last_options", []) or [])
     sess.last_options = []
-    if not selected_option:
+    # ONLY WHERE THE NUMBERS WERE ACTUALLY SHOWN.
+    #
+    # `as_numbered_text` renders the menu as "1. … 2. …" on the buttonless transports. The panel
+    # does not: CaptainPanel.jsx renders labelled buttons and no digits appear anywhere. So a "2"
+    # typed in the panel is DATA — "2 din se pending hai", an amount, a count — and treating it
+    # as an explicit chip tap answered a question the captain never asked. Resolving an ordinal
+    # against a menu they were never shown is not a fallback, it is a guess.
+    numbered_channel = (channel or "chat") != "chat"
+    if not selected_option and numbered_channel:
         selected_option = followups.ordinal_choice(message, offered_last_turn)
         if selected_option:
             yield _y(_evt("firstpass", "Numbered option chosen", tier="fast",

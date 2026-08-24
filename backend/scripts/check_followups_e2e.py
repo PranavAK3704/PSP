@@ -59,25 +59,36 @@ print(f"  session.last_options: {sessmod.STORE.get_or_create(CONV, CAP).last_opt
 assert t == "followup", t
 assert (c or {}).get("calls") == 0, "a router turn must make ZERO model calls"
 
-print("\n─ TURN 2: reply with a NUMBER (the WhatsApp shape) ──────────────────────")
-# Captured BEFORE the turn: the menu the captain was actually shown. Asserting against this is
-# the only thing that proves the number landed where they pointed.
+print("\n─ TURN 2: a bare digit in the PANEL is data, not a menu pick ───────────")
+# The panel renders labelled buttons and shows no numbers, so a typed "2" cannot be a chip
+# choice — it is far more likely "2 din se", an amount, or a count. Resolving it against a menu
+# the captain was never shown is a guess, not a fallback.
+before_opts = list(sessmod.STORE.get_or_create(CONV, CAP).last_options)
+r_digit, _o, t_digit, _c = turn("2")
+print(f"  '2' on channel=chat -> tier={t_digit!r} (None = correctly NOT treated as a tap)")
+assert t_digit != "followup", "a typed digit in the panel was treated as a chip tap"
+# Re-arm for the tap test below: the turn above cleared last_options, as every turn does.
+r, o, t, c = turn("kaise theek karun")
+assert t == "followup", t
+
+print("\n─ TURN 2b: the SAME chip, chosen by TAP on the panel ───────────────────")
+# The panel's route to option 2 is the tap, not the digit — so that is what is asserted here.
+# The digit path is asserted on the WhatsApp route below, where the numbers are actually shown.
 expect_id = o[1]["id"]
-r2, o2, t2, c2 = turn("2")
-print(f"  tier={t2}")
-print(f"  reply: {r2}")
+r2, o2, t2, c2 = turn(o[1]["label"], selected=expect_id)
+print(f"  tapped {expect_id}  tier={t2}")
+print(f"  reply: {r2[:120]}")
 print(f"  chips: {[x['label'] for x in o2]}")
 assert t2 == "followup", t2
-# THE DECISIVE ASSERTION, and the reason it is written this way:
-# this first read `assert r2 != r` — "the answer differs from turn 1". That is far too weak. A
-# deliberately broken ordinal_choice that ALWAYS returned option 1 passed this whole script,
-# because option 1's answer also differs from turn 1's. The script even PRINTED the expected
-# option and then asserted something else. So the assertion has to name the expected node's own
-# authored text, not merely observe that something changed.
+# THE DECISIVE ASSERTION. This first read `assert r2 != r` — "the answer differs from turn 1" —
+# which is far too weak: a deliberately broken resolver that ALWAYS returned option 1 passed the
+# whole script, because option 1's answer also differs from turn 1's. The script even PRINTED
+# the expected option and then asserted something else. It has to name the expected node's own
+# authored text.
 assert F._BY_ID[expect_id].answer in r2, (
-    f"'2' resolved to the wrong option: expected {expect_id} "
+    f"the tap resolved to the wrong option: expected {expect_id} "
     f"({F._BY_ID[expect_id].ask!r}), got {r2[:90]!r}")
-print(f"  ✓ '2' landed on option 2 = {expect_id} ({F._BY_ID[expect_id].ask!r})")
+print(f"  ✓ the tap landed on {expect_id} ({F._BY_ID[expect_id].ask!r})")
 
 print("\n─ TURN 3: TAP a chip ───────────────────────────────────────────────────")
 tap = o2[0]["id"]

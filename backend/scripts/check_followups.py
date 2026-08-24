@@ -53,7 +53,10 @@ GOLDEN = [
     ("kaise improve karun", "load_planning", "l_how_fix", "English verb, Hindi frame"),
     ("kitne din lagenge", "load_planning", "l_how_long", "phrase topic"),
     ("phir load badhega", "load_planning", "l_will_increase", ""),
-    ("mera number kya hai", "load_planning", "l_my_numbers", "fact-filled"),
+    # NOT ("mera number kya hai") any more — "number" is the commonest noun in a support
+    # conversation, so free text reaching this node answered "mera phone number update karo"
+    # with the growth-dashboard rate card. It is a tap-only node now; section [4] asserts that.
+    ("mera metric kya hai", "load_planning", "l_my_numbers", "fact-filled, unambiguous word"),
     ("kitna nuksan hua", "load_planning", "l_money_lost", "fact-filled, rupee figure"),
     ("target kaun decide karta hai", "load_planning", "l_who_decides", ""),
     # ── in scope: each loss MECHANISM, from its own sources ──────────────────
@@ -123,6 +126,48 @@ GOLDEN = [
     ("mera payment nahi aaya", "load_planning", None, "the original regression"),
     ("load kam hai aur abhi payment nahi aaya", "load_planning", None,
      "REPRODUCED: 'abhi' disabled the multi-intent refusal, so the payment half was dropped"),
+
+    # ══ ROUND 2 — a second adversarial review found these, all reproduced ═════
+    # Every one is a bare common noun that was serving as a node's topic. RULE 1 was necessary
+    # but not sufficient: it bars interrogatives, auxiliaries and vocatives structurally, and
+    # these slipped through because they LOOK domain-specific until you see them in a sentence.
+    ("mera nuksan wapas karo", "load_planning", None,
+     "'give my loss back' — a debit dispute, answered with the missed-order rupee figure. "
+     "`nuksan` was BOTH a losses domain word AND this node's topic, so RULE 2 exempted it as "
+     "'in scope vocabulary' and RULE 1 was satisfied by it — the two rules cancelled out"),
+    ("mera nuksan kaun bharega", "load_planning", None, "'who will compensate me'"),
+    ("nuksan bhar do mera", "load_planning", None, "'reimburse my loss'"),
+    ("mera phone number update karo", "load_planning", None,
+     "bare 'number' -> the growth-dashboard rate card; in Hinglish 'mera number' means phone"),
+    ("gaadi ka number kya hai", "load_planning", None, "vehicle number"),
+    ("appeal ka process kya hai", "secondary_qc_fail", None,
+     "bare 'process' -> the DC scanning SOP, to someone asking how to CONTEST the debit"),
+    ("dispute ka process kya hai", "secondary_qc_fail", None, "same"),
+    ("mera rate badhega", "load_planning", None,
+     "bare 'badhega' -> an answer opening 'Haan' (yes) about LOAD, to a question about the "
+     "captain's own per-shipment PAY rate"),
+    ("rate kab badhega", "load_planning", None, "same"),
+    ("transit me kitna time lagta hai", "intransit_loss", None,
+     "bare 'transit' -> the in-transit LOSS mechanism, for an ETA question"),
+    ("customer ka paisa wapas karna hai", "hardstop_loss", None,
+     "a CUSTOMER refund answered with a reversal recommendation for the captain's own debit"),
+    ("customer ko paisa wapas dena hai", "shortage_loss", None, "same"),
+    ("meri pendency kitni hai", "hardstop_loss", None,
+     "asks for their own NUMBER, was handed the DEFINITION of Days On Hand"),
+    ("pendency kitni hai", "load_planning", None, "same — 'kitni' asks how much, not what"),
+    # ── the acknowledgement hijack, which was the worst of the round ─────────
+    # `theek`/`thik`/`tik` were topics on l_how_fix, and they are exactly what greetings.CLOSERS
+    # carries as the canonical Hinglish "ok/fine". Because this tier is registered BEFORE
+    # greetings, "theek hai" was answered with the four-lever remedy list — AND it bypassed
+    # greetings.py's consent guard, which exists so a bare "haan" after "should I escalate?" is
+    # not swallowed as a pleasantry.
+    ("theek hai", "load_planning", None, "the canonical Hinglish acknowledgement"),
+    ("thik hai", "load_planning", None, ""),
+    ("tik hai", "load_planning", None, ""),
+    ("ok theek hai", "load_planning", None, ""),
+    ("haan theek hai", "load_planning", None, "and this one is CONSENT, not a pleasantry"),
+    ("theek", "load_planning", None, ""),
+    ("bilkul theek hai", "load_planning", None, ""),
 
     # ── ordinary declines ────────────────────────────────────────────────────
     ("kuch samajh nahi aaya", "load_planning", None, "no topic — the LLM should take this"),
@@ -220,11 +265,17 @@ def main() -> int:
         # the tier itself declines rather than raising a KeyError on .format()
         s2 = sessmod.Session(conversation_id="c2", captain_id="x")
         s2.set_disposition("load_planning")          # no facts
-        v = F.tier(router.Ctx(message="mera number kya hai", entities={}, context={}, session=s2))
+        # Driven by a TAP, because free text no longer reaches this node: "number" is the
+        # commonest noun in a support conversation ("mera phone number update karo") so it is
+        # frame-only now. The chip is the supported route, and it is the one this user group
+        # actually uses.
+        v = F.tier(router.Ctx(message="Mera number kya hai?", entities={}, context={},
+                              session=s2, selected_option="l_my_numbers"))
         check("tier declines a fact-filled node when the fact is absent", v is None)
         # with facts, it renders and the number appears
         s2.answer_facts = dict(FACTS)
-        v = F.tier(router.Ctx(message="mera number kya hai", entities={}, context={}, session=s2))
+        v = F.tier(router.Ctx(message="Mera number kya hai?", entities={}, context={},
+                              session=s2, selected_option="l_my_numbers"))
         check("with facts it renders the real value",
               v is not None and "₹21" in v.reply and "₹16" in v.reply,
               (v.reply[:70] if v else ""))
@@ -326,6 +377,45 @@ def main() -> int:
                                 ("shortage kyun laga", "shortage_loss", "s_why")):
             got, why = F.resolve(msg, disp, facts=FACTS)
             check(f"{msg!r} -> {want}", got is not None and got.id == want, why)
+
+        # ── 9c. the escape hatch is ALWAYS reachable ────────────────────────────
+        head("[9c] the route to a human is in every menu, under every disposition")
+        # An exhaustive sweep found u_talk_human in ZERO chip rows: _scope appends UNIVERSAL
+        # after all nine GLOSSARY nodes, so it sat at position 11+ and MAX_CHIPS=4 never reached
+        # it. On WhatsApp the numbered list IS the interface for someone who cannot reliably
+        # spell — so the only route to a human was unreachable for exactly the people who need
+        # it most. It is now the reserved last slot, which is also the IVR convention ("press 0
+        # for an operator") the module note already cites.
+        missing = []
+        for disp in list(F.GRAPHS) + ["debit_revoked", "capacity_panel_issue", None]:
+            for after in [None] + [f.id for f in F._scope(disp)]:
+                chips = F.chips_for(disp, facts=FACTS, after=after)
+                if F.ESCAPE_HATCH not in {c["id"] for c in chips}:
+                    missing.append((disp, after))
+        check("u_talk_human is offered in EVERY menu", not missing,
+              f"{len(missing)} menus without it: {missing[:3]}")
+        for disp in list(F.GRAPHS) + [None]:
+            chips = F.chips_for(disp, facts=FACTS)
+            check(f"{disp}: the hatch is LAST", chips[-1]["id"] == F.ESCAPE_HATCH,
+                  str([c["id"] for c in chips]))
+            check(f"{disp}: still within MAX_CHIPS", len(chips) <= F.MAX_CHIPS, str(len(chips)))
+
+        # ── 9d. the trailing question mark, and the tier it disabled ────────────
+        head("[9d] a follow-up reply must not end in '?'")
+        # greetings.tier derives prev_asked_question from _last_model_text().endswith("?"), and
+        # its consent guard then declines every closer and affirmation. So one follow-up answer
+        # ending in "?" disabled the greeting tier's pleasantry path for the REST of the
+        # conversation — every later "ok thanks" became a full model call at ₹4.00–5.29.
+        s_q = sessmod.Session(conversation_id="q", captain_id="x")
+        s_q.set_disposition("load_planning", FACTS)
+        v_q = F.tier(router.Ctx(message="load kam kyun hua", entities={}, context={},
+                                session=s_q))
+        check("a follow-up verdict is produced", v_q is not None)
+        check("...and its reply does not end in a question mark",
+              v_q is not None and not v_q.reply.rstrip().endswith("?"),
+              repr(v_q.reply[-40:]) if v_q else "")
+        check("...while still inviting another question",
+              v_q is not None and "poochna" in v_q.reply)
 
         # ── 9b. RULE 2 — the foreign-queue refusal ──────────────────────────────
         head("[9b] RULE 2 — a word from another queue refuses the turn")

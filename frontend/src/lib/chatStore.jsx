@@ -16,10 +16,28 @@ const EMPTY_CONV = { id: null, convId: null, title: "New chat", messages: [] };
 const rid = () => (crypto.randomUUID ? crypto.randomUUID() : "c" + Math.random().toString(36).slice(2));
 const newConv = () => ({ id: rid(), convId: null, title: "New chat", messages: [], createdAt: Date.now(), updatedAt: Date.now() });
 
+// A reply-option menu is LIVE STATE, not transcript, so it is stripped on hydration.
+//
+// WHY: the server holds the offered menu in an in-memory session (engine/session.py), and a
+// follow-up menu is deliberately valid for exactly one turn. A chip that survives a page reload
+// is therefore pointing at a menu that no longer exists — and worse, the labels are
+// context-dependent: "Kaise theek karun?" sent to a fresh conversation asks the model to fix
+// something it was never told about. The transcript is worth keeping; the menu is not.
+function stripOptions(threads) {
+  for (const t of Object.values(threads || {})) {
+    for (const c of t?.conversations || []) {
+      for (const m of c?.messages || []) {
+        if (m && m.options) delete m.options;
+      }
+    }
+  }
+  return threads;
+}
+
 function load() {
   try {
     const v2 = JSON.parse(localStorage.getItem(KEY) || "null");
-    if (v2) return v2;
+    if (v2) return stripOptions(v2);
     // migrate v1 (one thread per captain) → v2 (one conversation per captain)
     const v1 = JSON.parse(localStorage.getItem(V1) || "null");
     if (v1 && typeof v1 === "object") {

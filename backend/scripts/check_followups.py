@@ -175,8 +175,10 @@ GOLDEN = [
     ("", "load_planning", None, "empty"),
     ("   ", "load_planning", None, "whitespace only"),
     ("gaadi kab aayegi", "load_planning", None, "in-domain-sounding, not an authored follow-up"),
-    ("kya evidence chahiye", "intransit_loss", None,
-     "in-transit has NO evidence process (sopkt_3) — offering one would invent a procedure"),
+    ("kya evidence chahiye", "intransit_loss", "i_evidence",
+     "in-transit DOES have an evidence process — 72h, Pre-Alert + Challan + CCTV "
+     "(kt_lm_intransit_pendency). sopkt_3's one-line 'no evidence process' is the wrong "
+     "reading and this case used to assert it"),
     ("ye loss kyun laga", "debit_revoked", None,
      "no graph: a revoked debit has no authored follow-up, so it must not borrow shortage's"),
 ]
@@ -516,16 +518,27 @@ def main() -> int:
         check("s_evidence names CCTV", "cctv" in s_ev_low)
         check("s_evidence states the 72-hour window", "72 ghante" in s_ev.answer)
         check("s_evidence names the Kapture tool", "kapture" in s_ev_low)
-        check("s_evidence says the attachment is mandatory", "zaroori" in s_ev_low)
+        # NOT "the attachment is mandatory" any more: that is the Mid-Mile console's rule
+        # (kt_lm_mm_kapture_shortage_evidence), and asserting it here was holding the answer to a
+        # requirement from a tool the captain cannot log into. The self-serve portal's own steps
+        # are Hub Code + issue description + download-and-upload the template.
+        for step in ("Hub Code", "template"):
+            check(f"s_evidence names the self-serve step: {step}", step.lower() in s_ev_low)
+        # TOKEN-based, not substring: "mail" is inside "email", and the corrected answer now
+        # legitimately says "registered email se login". A substring check flagged its own fix.
+        s_ev_toks = set(s_ev_low.replace("*", " ").replace("(", " ").replace(")", " ").split())
         check("s_evidence does NOT say to mail a photo",
-              "mail" not in s_ev_low and "photo" not in s_ev_low,
-              s_ev.answer[:80])
-        # in-transit: the corpus says explicitly there is NO evidence process, so this graph
-        # must not carry an evidence node at all.
+              not ({"mail", "photo", "video"} & s_ev_toks), str({"mail","photo","video"} & s_ev_toks))
+        # IN-TRANSIT REVERSED, and this assertion is kept as the record of why.
+        # It used to assert the graph has NO evidence node, on the authority of sopkt_3's
+        # one-line "Simpler than shortage — no evidence process". The operational chunk
+        # kt_lm_intransit_pendency documents a full one, and it governs: a 5-day trigger, a
+        # 72-hour window, three named artefacts, and "else shipments are deemed lost and
+        # debited". The earlier assertion was locking in the more dangerous reading.
         it_ids = {f.id for f in F.GRAPHS["intransit_loss"]}
-        check("the in-transit graph has NO evidence node",
-              not any("evidence" in i for i in it_ids), str(it_ids))
-        check("...and sopkt_3 is why", "no evidence process" in F._BY_ID["i_why"].source)
+        check("the in-transit graph HAS an evidence node", "i_evidence" in it_ids, str(it_ids))
+        check("...and the operational chunk is why",
+              "kt_lm_intransit_pendency" in F._BY_ID["i_evidence"].source)
         # l_how_fix must name all FOUR levers; it omitted Pilot Rate Card, the one most often
         # diagnosed as failing.
         fix = F._BY_ID["l_how_fix"].answer
@@ -534,12 +547,77 @@ def main() -> int:
         check("l_how_fix does not promise automatic recovery",
               "apne aap" not in fix.lower(), fix[-70:])
 
+        # ── 10e. round-2 content fidelity: four more facts that were wrong ──────
+        head("[10e] content fidelity, round 2")
+        # IN-TRANSIT: the corpus contradicts itself. sopkt_3 says "no evidence process";
+        # kt_lm_intransit_pendency documents a 5-day trigger, a 72-hour window, three named
+        # artefacts and "else shipments are deemed lost and debited". The operational chunk
+        # governs — a captain told there is no process misses the window and is debited.
+        iw, ie = F._BY_ID["i_why"], F._BY_ID["i_evidence"]
+        check("i_why no longer denies the evidence process",
+              "nahi hota" not in iw.answer, iw.answer[:90])
+        check("i_why states the 72-hour window", "72 ghante" in iw.answer)
+        check("in-transit now HAS an evidence node", "i_evidence" in F._BY_ID)
+        for artefact in ("Pre-Alert", "Delivery Challan", "CCTV"):
+            check(f"i_evidence names the {artefact}", artefact in ie.answer)
+        check("i_why records which source it preferred, and why",
+              "PREFERRED OVER" in iw.source and "sopkt_3" in iw.source)
+        # HARDSTOP: D5 is the loss-marking day, not the SLA. The connect SLA is 48 HOURS on
+        # every leg a DC captain works except LM Forward. Working to 5 days breaches on D3.
+        hw = F._BY_ID["h_why"]
+        check("h_why states the 48-hour connect SLA", "48" in hw.answer, hw.answer[:90])
+        check("h_why no longer calls 5 days 'the only way'",
+              "ek hi tareeka" not in hw.answer)
+        check("h_why cites the SLA matrix", "kt_lm_sla_hardstop_matrix" in hw.source)
+        # KAPTURE: the MM Sort-Centre console is not the captain's. Sending them to a screen
+        # they cannot log into, inside an evidence deadline, loses the case.
+        se = F._BY_ID["s_evidence"]
+        check("s_evidence points at the captain-facing self-serve portal",
+              "selfserveapp" in se.answer, se.answer[-120:])
+        check("s_evidence does NOT send them to the Mid-Mile console",
+              "Assigned to Me" not in se.answer)
+        check("s_evidence states the 7-day callout window", "7 din" in se.answer)
+        # QC: kt_lm_secondary_qc_dc says in its own last line that NO debit applies to hubs for
+        # DC secondary-QC failures. The debit clause belongs to Wrong RVP / FM-marked cases.
+        qw = F._BY_ID["q_why"]
+        check("q_why says DC secondary QC carries no hub debit",
+              "koi debit" in qw.answer and "nahi lagta" in qw.answer, qw.answer[:140])
+        check("q_why attributes the debit case to FM locations / Wrong RVP",
+              "FM location" in qw.answer)
+        check("q_why cites the no-debit clause", "NO DEBIT" in qw.source)
+
+        # ── 10f. an answer that is only true SOMETIMES is gated on facts ────────
+        head("[10f] preconditions — no answer describes a process that is not happening")
+        CUT = {**FACTS, "stage": "capacity_loss", "cut": "yes"}
+        ALLOC = {**FACTS, "stage": "allocation_miss"}
+        HEALTHY = {"orders": 1180, "max_potential": 1210, "loss": 0, "stage": "allocation_miss"}
+        for nid in ("l_how_long", "l_will_increase"):
+            n = F._BY_ID[nid]
+            check(f"{nid} requires a capacity cut", "cut" in n.requires, str(n.requires))
+            check(f"{nid} answerable after a cut", F._renderable(n, CUT))
+            check(f"{nid} WITHHELD with no cut", not F._renderable(n, ALLOC),
+                  "PBCA's clock never started on an allocation-miss hub")
+        lw = F._BY_ID["l_why_low"]
+        check("l_why_low requires a failing lever", "lever" in lw.requires)
+        check("l_why_low WITHHELD when every target is met", not F._renderable(lw, HEALTHY),
+              "the engine's own turn-1 reply says every metric is meeting its target — this "
+              "follow-up would have contradicted it")
+        for facts, name in ((CUT, "cut"), (ALLOC, "no cut"), (HEALTHY, "all targets met")):
+            ids = {c["id"] for c in F.chips_for("load_planning", facts=facts)}
+            bad = {i for i in ids if not F._renderable(F._BY_ID[i], facts)}
+            check(f"no unanswerable chip is offered ({name})", not bad, str(bad))
+        # And a precondition must never be a placeholder — they are different jobs, and merging
+        # them is what broke the placeholder assertion in the first place.
+        for f in F._BY_ID.values():
+            check(f"{f.id}: requires and needs are disjoint",
+                  not (set(f.requires) & set(f.needs)))
+
         # ── 10d. per-mechanism graphs, not one graph for 'losses' ───────────────
         head("[10d] each graph cites the sources for ITS OWN mechanism")
         MECHANISM_SOURCE = {
             "hardstop_loss": "sopkt_1_hardstop_loss",
             "shortage_loss": "sopkt_2_shortage_loss",
-            "intransit_loss": "sopkt_3_in_transit_loss",
+            "intransit_loss": "kt_lm_intransit_pendency",
             "secondary_qc_fail": "kt_lm_secondary_qc_dc",
         }
         for disp, expect in MECHANISM_SOURCE.items():

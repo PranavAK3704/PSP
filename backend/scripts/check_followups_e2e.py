@@ -99,7 +99,12 @@ print(f"  chips: {[x['label'] for x in o3]}")
 assert t3 == "followup"
 
 print("\n─ TURN 4: a glossary question ──────────────────────────────────────────")
-r4, o4, t4, _ = turn("rto kya hai")
+# Deliberately a term NOT reachable from the early chip rows. Turn 3 taps whatever chip 1 is,
+# and when that happened to be `g_rto` this asked "rto kya hai" straight afterwards — so the
+# distinctness check below failed on the engine correctly answering the same question twice.
+# The bug was in the test, not the engine: a captain who asks something twice should be told
+# twice.
+r4, o4, t4, _ = turn("bic kya hai")
 print(f"  tier={t4}")
 print(f"  reply: {r4[:150]}...")
 

@@ -558,6 +558,14 @@ def _exec_load_planning(policy: dict, context: dict, entities: dict) -> dict:
                     f"allocation or to a capacity cut, so I can't explain the cause. Routing to {team}.")
     present.append("right_panel_counts")
     if dominant:
+        # Stamped for the follow-up engine, which must NOT talk about capacity-cut recovery on a
+        # hub that never had a cut. `l_how_long` and `l_will_increase` quote PBCA's 10-day window
+        # and 80% recovery — true only once a cut exists. On an allocation-miss hub, or one
+        # meeting every target, PBCA's clock has never started and those answers describe a
+        # process that is not happening to this captain.
+        facts["stage"] = dominant
+        if dominant == "capacity_loss":
+            facts["cut"] = "yes"
         rp = (osum.get("right_panel") or {}).get(dominant) or {}
         window = (f" (cut {rp.get('cut_start_date')}–{rp.get('cut_end_date')})"
                   if dominant == "capacity_loss" and rp.get("cut_start_date") else "")

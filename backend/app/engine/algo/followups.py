@@ -206,7 +206,22 @@ class FollowUp:
     then: tuple = ()                # ids of the follow-ups to offer AFTER this one
     #: Placeholders this answer needs. If a fact is missing the node is SKIPPED rather than
     #: rendered with a hole — "your RTO is {rto}%" with no value is worse than not offering it.
+    #: Must match the answer's `{}` fields exactly, by import-time assertion.
     needs: tuple = ()
+    #: PRECONDITION facts. Not interpolated anywhere — they gate whether the answer is TRUE.
+    #:
+    #: Separate from `needs` because they are a different job, and merging them broke the
+    #: placeholder assertion. `l_how_long` describes what happens after a capacity cut, so it
+    #: requires `cut`; nothing in its text quotes the value. Without the split, a precondition
+    #: either had to appear in the prose or could not be expressed at all — and the second
+    #: option is how "you get 10 days to improve" ended up being offered to a captain whose hub
+    #: never had a cut.
+    requires: tuple = ()
+
+    @property
+    def gates(self) -> tuple:
+        """Every fact that must be present: placeholders and preconditions alike."""
+        return tuple(self.needs) + tuple(self.requires)
 
     @property
     def vocabulary(self) -> frozenset:
@@ -340,6 +355,12 @@ _LOAD = (
         phrases=(frozenset({"kam", "kyun"}), frozenset({"kam", "kyu"}),
                  frozenset({"kam", "why"})),
         frame=frozenset({"kyun", "kyu", "why", "wajah", "kam", "low", "reason"}),
+        # `needs=("lever",)` — the closing sentence "jo metric peeche hai wahi wajah hai" asserts
+        # that a metric IS behind target, and `_exec_load_planning` stamps `lever` only when one
+        # actually is. On hub LZI every lever passes and the engine's own turn-1 reply says so
+        # ("every performance metric is meeting its target"), so offering this as chip 1 had the
+        # follow-up contradicting the answer it was following up on.
+        requires=("lever",),
         then=("l_how_fix", "g_rto", "g_ocf")),
     FollowUp(
         id="l_how_fix", ask="Kaise theek karun?",
@@ -385,6 +406,13 @@ _LOAD = (
                  frozenset({"kitna", "time"}), frozenset({"kab", "tak"}),
                  frozenset({"how", "long"})),
         frame=frozenset({"lagenge", "lagega", "din", "time", "kab"}),
+        # `needs=("cut",)` — this answer is entirely about what happens AFTER a capacity cut, and
+        # `_exec_load_planning` stamps `cut` only when capacity_loss is the dominant stage. On an
+        # allocation-miss hub (LZ5: 545 orders missed in allocation, no cut) or one meeting every
+        # target (LZI: is_good=True, all four levers passing), PBCA's clock has never started —
+        # so "you get 10 days to improve" describes a process that is not happening to this
+        # captain, and the chip is not offered at all.
+        requires=("cut",),
         then=("l_will_increase",)),
     FollowUp(
         id="l_will_increase", ask="Phir load badhega?",
@@ -403,7 +431,9 @@ _LOAD = (
                  frozenset({"load", "badhegi"}), frozenset({"load", "increase"}),
                  frozenset({"capacity", "recovery"})),
         frame=frozenset({"phir", "load", "volume", "badhega", "badhegi", "increase",
-                         "recover", "recovery"})),
+                         "recover", "recovery"}),
+        # Same gate: "capacity recovery" and the 80% figure are post-cut mechanics.
+        requires=("cut",)),
     FollowUp(
         id="l_my_numbers", ask="Mera number kya hai?",
         answer=("Aapka {lever} abhi **{current}** hai, aur target **{target}** hai. Yahi metric "
@@ -467,12 +497,21 @@ _LOAD = (
 _HARDSTOP = (
     FollowUp(
         id="h_why", ask="Hardstop kyun laga?",
-        answer=("Hardstop tab lagta hai jab shipment ek hi hub par **5 din (120 ghante) se "
-                "zyada** pada rehta hai aur agle node tak connect nahi hota. Yeh system "
-                "automatically mark karta hai — isliye ise rokne ka ek hi tareeka hai: "
-                "shipment 5 din ke andar aage connect ho jaaye."),
-        source="sopkt_1_hardstop_loss (more than 5 days / 120 hours without being connected; "
-               "'The system marks it as hardstop loss')",
+        answer=("Hardstop tab lagta hai jab shipment agle node tak time par connect nahi hota. "
+                "Dhyan dijiye — **loss D5 par eligible hota hai, lekin connect karne ka SLA 48 "
+                "ghante hai** (FM Forward/RTO, FMSC aur LMSC Forward/RTO, aur LM RTO ke liye). "
+                "Sirf LM Forward mein 5 din milte hain deliver ya RTO karne ke liye. Breach D3 "
+                "par hota hai, loss D5 par, aur LOST D6 par mark hota hai."),
+        # The previous version said "connect within 5 days" and called that "the only way" to
+        # prevent it. D5 is the LOSS-MARKING day, not the SLA — and prescribing it as the target
+        # is the actionable half being wrong: `kt_lm_sla_hardstop_matrix` gives 48 HOURS for FM
+        # Forward/RTO, FMSC & LMSC Forward/RTO, and LM RTO (the RVP connection a DC captain
+        # actually performs), with 5 days only for LM Forward delivery. A captain working to a
+        # 5-day deadline on a 48-hour leg has already breached on D3, and is loss-eligible by
+        # the time they think they still have two days left.
+        source="kt_lm_sla_hardstop_matrix (48 hrs to connect for FM Forward/RTO, FMSC & LMSC "
+               "Forward/RTO and LM RTO; 5 days for LM Forward; breach D3, loss-eligible D5, "
+               "marked LOST D6) + sopkt_1_hardstop_loss (the D5 loss-marking rule)",
         # NO bare topic. `g_hardstop` (the definition) and this node (the cause) would otherwise
         # both match the bare term and tie at 1-1, so "hardstop kya hai" declined into chips.
         # "X kya hai" and "X kyun laga" are different questions; the term alone does not
@@ -537,19 +576,28 @@ _SHORTAGE = (
         answer=("Shortage mein evidence **CCTV footage** hota hai. Agar shortage mark hone ke "
                 "5 din tak resolve nahi hota, to origin aur destination dono ko notice jaata "
                 "hai aur **72 ghante ke andar** valid CCTV dena hota hai. Footage ek hi dock "
-                "camera se, continuous, aur **2 ghante se zyada nahi**. Submit Kapture tool "
-                "se hota hai — Tickets → 'Assigned to Me' → Dispose Ticket — aur **attachment "
-                "lagana zaroori hai**, SLA countdown ke andar. Evidence na dene par default "
-                "liability aap par aa sakti hai."),
+                "camera se, continuous, aur **2 ghante se zyada nahi**. Ticket Kapture "
+                "**self-serve portal** par raise kijiye (selfserveapp.kapturecrm.com) — "
+                "registered email se login, phir OTP → Raise a Ticket → Hub Code, issue "
+                "description, aur template download karke upload kijiye. Lost shipment ka "
+                "callout **loss marking ke 7 din ke andar** karna hota hai. Evidence na dene "
+                "par default liability aap par aa sakti hai."),
         # Also wrong before: it said "evidence mail karke", and listed "AWB number, shipment ki
         # photo ya video, aur jis din bheja tha uska record" — none of which appears in any
         # source. Following that advice would miss the 72-hour CCTV window and the mandatory
         # Kapture attachment, and default liability falls on the facility when evidence is
         # missing. This is the finding that would have cost a captain real money.
+        # The Kapture screen was WRONG. `kt_lm_mm_kapture_shortage_evidence` describes the
+        # **Mid-Mile Sort-Centre** tool — "Tickets → Assigned to Me → Dispose Ticket" — which a
+        # DC captain has no credentials for. The captain-facing route is the self-serve portal
+        # (`kt_lm_kapture_selfserve`), and `kt_lm_lost_shipment_ticket_7days` supplies the 7-day
+        # callout window the MM description does not mention. Sending a captain to a console they
+        # cannot log into, inside an evidence deadline, loses the case.
         source="kt_lm_shortage_liability_cctv (5 days → notice; valid CCTV within 72 hours; "
                "single dock camera, continuous, max 2 hours; default liability when evidence "
-               "is missing) + kt_lm_mm_kapture_shortage_evidence (Kapture tool, Tickets → "
-               "'Assigned to Me' → Dispose Ticket, attachment MANDATORY, SLA countdown)",
+               "is missing) + kt_lm_kapture_selfserve (the CAPTAIN-facing portal: "
+               "selfserveapp.kapturecrm.com, registered email → OTP) + "
+               "kt_lm_lost_shipment_ticket_7days (raise within 7 days of loss marking)",
         topic=frozenset({"evidence", "proof", "cctv", "sabut", "dastavez"}),
         frame=frozenset({"footage", "camera"}),
         then=("s_can_reverse",)),
@@ -573,15 +621,27 @@ _SHORTAGE = (
 _INTRANSIT = (
     FollowUp(
         id="i_why", ask="Ye loss kyun laga?",
-        answer=("In-transit loss tab lagta hai jab shipment ya bag Node A se Node B ke beech "
-                "raaste mein kho jaata hai. Shortage se alag — ismein CCTV evidence ka process "
-                "nahi hota, seedha attribution dekha jaata hai."),
-        # An evidence node is deliberately ABSENT from this graph. sopkt_3 says in-transit is
-        # "Simpler than shortage — no evidence process", so offering the shortage evidence
-        # answer here — which the shared graph did — invents a procedure that does not exist and
-        # sends the captain off to collect CCTV nobody will ask them for.
-        source="sopkt_3_in_transit_loss ('Shipment or bag is lost in transit from Node A to "
-               "Node B. Simpler than shortage — no evidence process.')",
+        answer=("In-transit loss tab lagta hai jab trip/vehicle origin se nikal gayi lekin "
+                "**5 din** ke andar destination par receive nahi hui. Origin vendor ko notice "
+                "jaata hai aur **72 ghante ke andar** teen cheezein deni hoti hain: Pre-Alert "
+                "email copy, SC outbound desk security se signed/stamped Delivery Challan, aur "
+                "valid CCTV. Destination ko departure ke 5 din ke andar pre-alert email par "
+                "revert karna hota hai. Proof adhoora nikla to origin ko 24 ghante extra "
+                "milte hain — uske baad shipment lost maan kar debit ho jaata hai."),
+        # THE CORPUS CONTRADICTS ITSELF HERE, and the earlier version of this node picked the
+        # wrong side. `sopkt_3_in_transit_loss` is a one-line summary saying "Simpler than
+        # shortage — no evidence process". `kt_lm_intransit_pendency` is the operational
+        # procedure and documents a full one: a 5-day trigger, a 72-hour window, three named
+        # artefacts, a +24-hour grace, and "else shipments are deemed lost and debited".
+        #
+        # The operational chunk governs, because the summary's claim is the kind that costs money
+        # if believed: a captain told there is no evidence process does not send the Pre-Alert
+        # copy, the Delivery Challan or the CCTV — and the shipments are then deemed lost and
+        # debited to them. The conflict is recorded here rather than silently resolved.
+        source="kt_lm_intransit_pendency (5-day flag; origin must furnish Pre-Alert email copy "
+               "+ signed/stamped Delivery Challan + valid CCTV within 72 hours; +24h if "
+               "incomplete, else deemed lost and debited) — PREFERRED OVER "
+               "sopkt_3_in_transit_loss, whose one-line 'no evidence process' contradicts it",
         # "transit" is GONE as a bare topic — it is the everyday word for a shipment that is
         # still MOVING, so "transit me kitna time lagta hai" (an ETA question) was answered with
         # the in-transit LOSS mechanism.
@@ -590,6 +650,23 @@ _INTRANSIT = (
                  frozenset({"loss", "kyun"}), frozenset({"loss", "kyu"}),
                  frozenset({"debit", "kyun"}), frozenset({"debit", "kyu"})),
         frame=frozenset({"kyun", "kyu", "why", "wajah", "loss", "debit", "transit"}),
+        then=("i_evidence", "i_can_reverse")),
+    FollowUp(
+        id="i_evidence", ask="Kya evidence chahiye?",
+        answer=("In-transit mein origin vendor ko **72 ghante ke andar** teen cheezein deni "
+                "hoti hain: (1) Pre-Alert email ki copy, (2) Delivery Challan jo SC outbound "
+                "desk security se signed aur stamped ho, (3) valid CCTV. Agar origin valid "
+                "departure proof de aur destination revert na kare, to liability destination par "
+                "jaati hai. Police custody, sales-tax detention ya accident jaise external "
+                "factors pre-alert thread par supporting docs ke saath report karein — 10 din "
+                "tak extra mil sakte hain."),
+        # This node exists because the operational chunk documents a process the summary chunk
+        # denies. Omitting it — as the previous version did, on the summary's authority — left a
+        # captain with a 72-hour deadline and no idea it existed.
+        source="kt_lm_intransit_pendency (the three artefacts, the 72-hour window, the "
+               "destination-revert rule, and the up-to-10-extra-days external-factor clause)",
+        topic=frozenset({"evidence", "proof", "cctv", "sabut", "dastavez", "challan"}),
+        frame=frozenset({"footage", "prealert", "camera"}),
         then=("i_can_reverse",)),
     FollowUp(
         id="i_can_reverse", ask="Paisa wapas milega?",
@@ -609,14 +686,23 @@ _QC = (
         id="q_why", ask="QC fail kyun hua?",
         answer=("Secondary QC har return shipment par DC pe hoti hai — AWB scan, QR/packet ID "
                 "scan, 3 photo (Side, Back, Front), aur FE ke category/design jawab ka milaan. "
-                "Mismatch hua to 'QC Failed' lagta hai. Debit alag baat hai: agar Meesho "
-                "Central QC team QC failure maanti hai to shipment ki value LM Pilot/Captain "
-                "par debit hoti hai, aur yeh Pareto analysis se tay hota hai — isliye agar "
-                "shipment aapke node se kabhi bhi guzri hai to debit aa sakta hai."),
-        source="kt_lm_secondary_qc_dc (the scan/3-image process; mismatch → 'QC Failed') "
-               "+ kt_lm_wrong_rvp_debits (Meesho Central QC determines the failure; shipment "
-               "value debited to the LM Pilot/Captain; Pareto analysis; a shipment that passed "
-               "through your node at any point may incur a debit)",
+                "Mismatch hua to system 'QC Failed' dikhata hai, aur woh shipment LMSC tak "
+                "connect nahi hota. **DC ki secondary QC fail par filhaal hubs par koi debit "
+                "nahi lagta.** Debit alag case mein aata hai — jab QC fail **FM location** par "
+                "RTO journey ke dauraan mark hota hai, ya Wrong RVP pick hota hai; tab Meesho "
+                "Central QC team ke decision par shipment value LM Pilot/Captain par debit ho "
+                "sakti hai."),
+        # THE TWO SOURCES DESCRIBE DIFFERENT SITUATIONS and the previous version merged them,
+        # telling a captain their DC secondary-QC failure had been debited to them.
+        # `kt_lm_secondary_qc_dc` says the opposite in its own last line: "for now no debit is
+        # applied to hubs for those shipments". The debit clause in `kt_lm_wrong_rvp_debits`
+        # applies to Wrong RVP picks and to Secondary QC Fail "marked at FM locations during the
+        # RTO journey" — not to the DC check this disposition is about. Telling someone they owe
+        # money they do not owe is the same class of error as telling them they have been paid.
+        source="kt_lm_secondary_qc_dc (the scan/3-image process; mismatch → 'QC Failed'; "
+               "prevented from connecting to the LMSC; 'for now NO DEBIT is applied to hubs for "
+               "those shipments') + kt_lm_wrong_rvp_debits (the debit case: Wrong RVP picked, "
+               "and Secondary QC Fail marked at FM locations during the RTO journey)",
         topic=frozenset({"qc"}),
         phrases=(frozenset({"fail", "kyun"}), frozenset({"fail", "kyu"})),
         frame=frozenset({"fail", "kyun", "kyu", "why", "wajah", "reject"}),
@@ -753,8 +839,13 @@ def foreign_domains(toks: set, disposition: str | None,
 
 
 def _renderable(f: FollowUp, facts: dict) -> bool:
-    """A node whose placeholders cannot all be filled is SKIPPED, never rendered with a hole."""
-    return all(k in facts and facts[k] not in (None, "") for k in f.needs)
+    """True only if every placeholder AND every precondition fact is present.
+
+    A missing placeholder would render a hole; a missing precondition would render a sentence
+    that is false. Both are withheld, and the second is the more dangerous of the two because it
+    reads perfectly well.
+    """
+    return all(k in facts and facts[k] not in (None, "") for k in f.gates)
 
 
 def chips_for(disposition: str | None, *, facts: dict | None = None,
@@ -1006,6 +1097,10 @@ def _selfcheck() -> None:
         # nothing and the node is withheld for no reason.
         holes = {n for _t, n, _s, _c in string.Formatter().parse(f.answer) if n}
         assert holes == set(f.needs), f"{f.id}: answer holes {holes} != needs {set(f.needs)}"
+        # A precondition must NOT also be a placeholder: it is checked, never interpolated, and
+        # listing it twice would make the two fields silently redundant.
+        assert not (set(f.requires) & set(f.needs)), \
+            f"{f.id}: {set(f.requires) & set(f.needs)} is both a placeholder and a precondition"
     for disp, graph in GRAPHS.items():
         assert graph, f"disposition {disp!r} maps to an empty graph"
         # RULE 2 needs a domain for every graphed disposition, or the foreign-word test treats

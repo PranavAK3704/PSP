@@ -93,6 +93,12 @@
   --accent-line: rgba(78,222,163,0.38); --accent-glow: rgba(78,222,163,0.42); }
 .app[data-view="l3"]      { --accent: var(--violet); --accent-soft: var(--violet-soft);
   --accent-line: rgba(177,139,255,0.38); --accent-glow: rgba(177,139,255,0.42); }
+/* --signal and not a new hue: the real captain panel IS blue, and recognition is the whole
+   point of that screen. It does mean `captain` and `growth` share a hue, which softens the
+   colour-coded-map claim above — accepted deliberately, because re-tinting would also re-tint
+   `.card-head h3` across the docked widget and clash with the blue banner. */
+.app[data-view="growth"]  { --accent: var(--signal); --accent-soft: var(--signal-soft);
+  --accent-line: var(--signal-line); --accent-glow: var(--signal-glow); }
 .app[data-view="support"] { --accent: var(--teal); --accent-soft: var(--teal-soft);
   --accent-line: rgba(53,214,214,0.38); --accent-glow: rgba(53,214,214,0.42); }
 
@@ -135,6 +141,14 @@ body {
 .nav-item[data-view="monitor"] { --nav: var(--good); }
 .nav-item[data-view="l3"]      { --nav: var(--violet); }
 .nav-item[data-view="support"] { --nav: var(--teal); }
+/* growth, connectors and calibration had NO --nav entry, and the consequence is not merely
+   cosmetic: `.nav-item.active::before` is `background: var(--nav)`, which with --nav undefined
+   is invalid-at-computed-value-time — so the active left spine and its glow silently did not
+   render for those three, and `.nav-item svg { color: var(--nav) }` fell back to inherited
+   --text-mute so the icon was never tinted. */
+.nav-item[data-view="growth"]      { --nav: var(--signal); }
+.nav-item[data-view="connectors"]  { --nav: var(--info); }
+.nav-item[data-view="calibration"] { --nav: var(--warn); }
 
 /* Inactive: label stays quiet, icon carries the hue at low intensity — enough to identify,
    not enough to compete with the active row. */
@@ -502,3 +516,56 @@ pre.json .s { color: var(--good); }
   text-transform: uppercase; color: var(--text-faint); padding: 7px 10px; background: var(--surface-2); }
 .df-table td { padding: 7px 10px; border-top: 1px solid var(--line-soft); color: var(--text-mute); }
 .df-table td.n { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+
+
+/* ── Growth Dashboard ─────────────────────────────────────────────────────────────────────
+   A CSS block rather than inline styles, for one reason: the tooltip's 6px arrow is an
+   `::after` pseudo-element, and a React style object cannot express one. Since the block has
+   to exist, it also gets `:focus-within` — the metric target was previously a native `title=`
+   attribute, which is invisible until you hover and wait, and unreachable by keyboard.
+
+   Right-anchored (`right: 0`) deliberately: the fourth metric card sits at the right edge of
+   its column, and a centred bubble there would push `.content` (overflow: auto) into a
+   horizontal scrollbar for the whole app. ── */
+.gd-tt { position: relative; display: inline-flex; cursor: help; outline: none; }
+.gd-tt-bubble {
+  position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 20;
+  min-width: 200px; max-width: 260px; padding: 8px 11px;
+  background: var(--surface-3); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow);
+  font-family: var(--sans); font-size: 12px; font-weight: 400; line-height: 1.45;
+  text-align: left; white-space: normal; pointer-events: none;
+  opacity: 0; transform: translateY(3px); transition: opacity .14s ease, transform .14s ease;
+}
+.gd-tt:hover .gd-tt-bubble,
+.gd-tt:focus-visible .gd-tt-bubble,
+.gd-tt:focus-within .gd-tt-bubble { opacity: 1; transform: translateY(0); }
+.gd-tt-bubble::after {
+  content: ""; position: absolute; top: 100%; right: 12px;
+  border: 6px solid transparent; border-top-color: var(--surface-3);
+}
+.gd-tt:focus-visible { border-radius: 4px; outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* The sticky right-panel title bar. `position: sticky` needs a direct-child relationship with
+   the scrolling ancestor, so this class carries only the paint. */
+.gd-sticky-title {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--surface-2); border: 1px solid var(--line-soft);
+  border-radius: 8px; padding: 12px 14px;
+}
+
+/* Below 1180px the docked widget would be crushed to its 320px floor, and the 65/35 summary
+   split leaves the right panel too narrow for "Reasons For Capacity Loss (-188 Orders)". Both
+   stack instead. 1180px matches `.split`'s existing breakpoint so the app collapses at ONE
+   width rather than at two. */
+@media (max-width: 1180px) {
+  .gd-dock { grid-template-columns: minmax(0, 1fr) !important; }
+  .gd-dock > div:last-child { position: static !important; max-height: none !important; }
+  .gd-summary { flex-direction: column !important; }
+  .gd-summary > div:first-child { width: 100% !important; }
+  .gd-summary > div:last-child {
+    width: 100% !important; max-height: none !important;
+    border-left: none !important; padding-left: 0 !important;
+    border-top: 1px solid var(--line); padding-top: 16px;
+  }
+}

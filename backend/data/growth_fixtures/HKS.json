@@ -1,117 +1,118 @@
 {
- "_provenance": {
-  "fixture": true,
-  "why": "capacity_loss dominant: Day-0 below the 70% floor and pendency over 2.5 days, so capacity was cut. bar4_value is NEGATIVE, which is the sign case worth showing.",
-  "contract_source": "valmo-partner-webview :: src/modules/captain/growth-dashboard/typings/growth-dashboard.d.ts",
-  "numbers_from": [
-   "waterfall arithmetic consistent with the panel's bar assembly (max_potential - missed_in_allocation = current_eligible; current_eligible + bar4_value = final_manifested)"
-  ],
-  "synthesised": [
-   "hub_code HKS (a real hub from valmo.db)",
-   "all growth figures",
-   "date windows"
-  ],
-  "not_real_data": "These are fixture payloads shaped to the real contract. The hub code is a real hub from valmo.db attribution.entity_id; the growth figures are NOT this hub's real figures. Served as growth-dashboard-fixture, never as growth-dashboard."
- },
- "your_metrics": {
-  "success": true,
-  "error_msg": "",
-  "hub_code": "HKS",
-  "start_date": "23/03/2026",
-  "end_date": "30/03/2026",
-  "current_orders": 402,
-  "max_potential": 890,
-  "order_share": 28.4,
-  "order_share_delta": -11.7,
-  "order_change_text": "188 Orders Reduced due to capacity cut",
-  "is_good": false,
-  "pilot_rate_card": {
-   "current": "₹21",
-   "target": "₹16"
-  },
-  "rto_performance": {
-   "current": "17%",
-   "target": "19%"
-  },
-  "day0_attempt": {
-   "current": "58%",
-   "target": "70%"
-  },
-  "pendency": {
-   "current": "3.4 Days",
-   "target": "2.5 Days"
-  }
- },
- "order_summary": {
-  "success": true,
-  "error_msg": "",
-  "start_date": "23/03/2026",
-  "end_date": "30/03/2026",
-  "max_potential": 890,
-  "missed_in_allocation": 300,
-  "current_eligible": 590,
-  "bar4_value": -188,
-  "final_manifested": 402,
-  "bar_tooltips": [
-   "Maximum orders your polygon can generate",
-   "Orders lost before allocation",
-   "Orders you were eligible for",
-   "Orders lost to a capacity cut",
-   "Orders finally manifested"
-  ],
-  "extra_earnings_loss": 6420,
-  "reasons": [
-   "low Day-0 attempt",
-   "pendency above target"
-  ],
-  "financial_summary": "A capacity cut removed 188 orders this cycle.",
-  "banner_type": "red_capacity_cut",
-  "right_panel": {
-   "allocation_miss": {
-    "count": 300,
-    "metrics": [
-     {
-      "label": "Pilot Rate Card (CPS):",
-      "value": "₹21",
-      "status": "not_good",
-      "comparison": "vs ₹16 neighbouring DCs"
-     },
-     {
-      "label": "RTO Performance:",
-      "value": "17%",
-      "status": "good",
-      "comparison": "better than the 19% target"
-     }
+  "_provenance": {
+    "fixture": true,
+    "why": "capacity_loss dominant: Day-0 below the 70% floor and pendency over 2.5 days, so capacity was cut. bar4_value is NEGATIVE, which is the sign case worth showing.",
+    "contract_source": "valmo-partner-webview :: src/modules/captain/growth-dashboard/typings/growth-dashboard.d.ts",
+    "numbers_from": [
+      "waterfall arithmetic consistent with the panel's bar assembly (max_potential - missed_in_allocation = current_eligible; current_eligible + bar4_value = final_manifested)"
     ],
-    "pilot_rate_card_evaluation_start_date": "01/03/2026",
-    "pilot_rate_card_evaluation_end_date": "22/03/2026",
-    "rto_percentage_evaluation_start_date": "01/03/2026",
-    "rto_percentage_evaluation_end_date": "22/03/2026"
-   },
-   "capacity_loss": {
-    "count": 488,
-    "metrics": [
-     {
-      "label": "Day-0 Attempt %:",
-      "value": "58%",
-      "status": "not_good",
-      "comparison": "below the 70% floor"
-     },
-     {
-      "label": "Pendency (DOH):",
-      "value": "3.4 Days",
-      "status": "not_good",
-      "comparison": "above the 2.5 day limit"
-     }
+    "synthesised": [
+      "hub_code HKS (a real hub from valmo.db)",
+      "all growth figures",
+      "date windows"
     ],
-    "low_capacity_message": "Your capacity was reduced for 10 days from 12/03/2026.",
-    "cut_start_date": "12/03/2026",
-    "cut_end_date": "22/03/2026",
-    "D0_evaluation_start_date": "01/03/2026",
-    "D0_evaluation_end_date": "11/03/2026",
-    "DOH_evaluation_start_date": "01/03/2026",
-    "DOH_evaluation_end_date": "11/03/2026"
-   }
+    "not_real_data": "These are fixture payloads shaped to the real contract. The hub code is a real hub from valmo.db attribution.entity_id; the growth figures are NOT this hub's real figures. Served as growth-dashboard-fixture, never as growth-dashboard.",
+    "fix_capacity_count": "capacity_loss.count was 488 = max_potential - final_manifested, i.e. ALL missed orders rather than the capacity cut alone. The page rendered 'Orders Missed in Capacity Cut −188' in the waterfall and '488' in the panel ten lines below, and the inflated figure flowed into _compose_load_status's 'biggest single loss is a capacity cut' sentence.\nCorrecting it to |bar4_value| = 188 alone made allocation_miss (300) DOMINANT, which destroys this fixture's only purpose — it is the capacity-cut-dominant case, the one that exercises the negative bar4 sign. So allocation_miss was lowered to 120 and the waterfall recomputed to keep the identity exact: 890 - 120 = 770; 770 - 188 = 582. Capacity (188) now genuinely dominates allocation (120), and total missed (308) equals max - final (308)."
+  },
+  "your_metrics": {
+    "success": true,
+    "error_msg": "",
+    "hub_code": "HKS",
+    "start_date": "23/03/2026",
+    "end_date": "30/03/2026",
+    "current_orders": 582,
+    "max_potential": 890,
+    "order_share": 28.4,
+    "order_share_delta": -11.7,
+    "order_change_text": "188 Orders Reduced due to capacity cut",
+    "is_good": false,
+    "pilot_rate_card": {
+      "current": "₹21",
+      "target": "₹16"
+    },
+    "rto_performance": {
+      "current": "17%",
+      "target": "19%"
+    },
+    "day0_attempt": {
+      "current": "58%",
+      "target": "70%"
+    },
+    "pendency": {
+      "current": "3.4 Days",
+      "target": "2.5 Days"
+    }
+  },
+  "order_summary": {
+    "success": true,
+    "error_msg": "",
+    "start_date": "23/03/2026",
+    "end_date": "30/03/2026",
+    "max_potential": 890,
+    "missed_in_allocation": 120,
+    "current_eligible": 770,
+    "bar4_value": -188,
+    "final_manifested": 582,
+    "bar_tooltips": [
+      "Maximum orders your polygon can generate",
+      "Orders lost before allocation",
+      "Orders you were eligible for",
+      "Orders lost to a capacity cut",
+      "Orders finally manifested"
+    ],
+    "extra_earnings_loss": 6420,
+    "reasons": [
+      "low Day-0 attempt",
+      "pendency above target"
+    ],
+    "financial_summary": "A capacity cut removed 188 orders this cycle.",
+    "banner_type": "red_capacity_cut",
+    "right_panel": {
+      "allocation_miss": {
+        "count": 120,
+        "metrics": [
+          {
+            "label": "Pilot Rate Card (CPS):",
+            "value": "₹21",
+            "status": "not_good",
+            "comparison": "vs ₹16 neighbouring DCs"
+          },
+          {
+            "label": "RTO Performance:",
+            "value": "17%",
+            "status": "good",
+            "comparison": "better than the 19% target"
+          }
+        ],
+        "pilot_rate_card_evaluation_start_date": "01/03/2026",
+        "pilot_rate_card_evaluation_end_date": "22/03/2026",
+        "rto_percentage_evaluation_start_date": "01/03/2026",
+        "rto_percentage_evaluation_end_date": "22/03/2026"
+      },
+      "capacity_loss": {
+        "count": 188,
+        "metrics": [
+          {
+            "label": "Day-0 Attempt %:",
+            "value": "58%",
+            "status": "not_good",
+            "comparison": "below the 70% floor"
+          },
+          {
+            "label": "Pendency (DOH):",
+            "value": "3.4 Days",
+            "status": "not_good",
+            "comparison": "above the 2.5 day limit"
+          }
+        ],
+        "low_capacity_message": "Your capacity was reduced for 10 days from 12/03/2026.",
+        "cut_start_date": "12/03/2026",
+        "cut_end_date": "22/03/2026",
+        "D0_evaluation_start_date": "01/03/2026",
+        "D0_evaluation_end_date": "11/03/2026",
+        "DOH_evaluation_start_date": "01/03/2026",
+        "DOH_evaluation_end_date": "11/03/2026"
+      }
+    }
   }
- }
 }

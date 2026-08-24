@@ -189,6 +189,11 @@ export const getDataFoundation = () => apiGet("/api/data/foundation");
 // The dashboard page and the support widget read the SAME payload the engine reasons over.
 export const getGrowthIndex = () => apiGet("/api/growth");
 export const getGrowth = (hub) => apiGet(`/api/growth/${encodeURIComponent(hub)}`);
+// At-risk shipments, hub-keyed. A SEPARATE route from /api/growth on purpose: these are real
+// valmo.db rows, and putting them inside a payload labelled "growth-dashboard-fixture" would
+// make the provenance unreconstructable. Two sources, two routes, two chips on screen.
+export const getAtRisk = (hub, asOf) =>
+  apiGet(`/api/risk/hub/${encodeURIComponent(hub)}` + (asOf ? `?as_of=${encodeURIComponent(asOf)}` : ""));
 
 // Calibration — reliability bins over the real Concern Log, plus the Kapture agreement set.
 export const getCalibration = () => apiGet("/api/calibration");

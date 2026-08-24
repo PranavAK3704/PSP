@@ -56,10 +56,6 @@ CAPTAIN_API_ROUTES = [
     ("MISROUTE_SHIPMENT_SUMMARY", "/v1/misroute-shipment-summary", 100000),
     ("MISROUTE_SHIPMENT_DETAILS", "/v1/misroute-shipment-details", 5000),
     ("SHIPMENT_ADDRESS", "/api/v1/valmo/shipment/address-details/bulk", 1600),
-    ("SHIPMENT_RISK_SUMMARY", "/v1/shipments/risk-summary", 10000),
-    ("SHIPMENT_RISK_CATEGORY_OVERVIEW", "/v1/shipments/risk-category-overview", 10000),
-    ("SHIPMENT_RISK_DETAILS", "/v1/shipments/risk-details", 15000),
-    ("SHIPMENT_RISK_DETAILS_FILTERS", "/v1/shipments/risk-details-filters", 10000),
     ("SHIPMENT_TRACKING_DETAILS", "/v1/shipment/tracking-details", 10000),
     ("CASH_PENDENCY_PAYMENT_METHODS", "/v1/cod-pendency/get-available-payment-methods", 10000),
     ("CASH_PENDENCY_RISK_CATEGORY", "/v1/cod-pendency/get-cod-pendency-buckets", 10000),
@@ -99,6 +95,16 @@ OTHER_SERVICE_ROUTES = [
 # ── which PSP queue each group serves, and which adapter would serve it ──────────────────────
 # `adapter` names a module that exists (or would). `status` is about the ADAPTER, not the
 # endpoint: the endpoints are all live in production; the question is what PSP does with them.
+# MOVED out of CAPTAIN_API_ROUTES, not copied — check_connectors.py asserts there are no
+# duplicate paths across the whole registry, so a copy trips it immediately. They earn their own
+# group because they are the four an adapter now stands in for, with its own env var.
+SHIPMENT_RISK_API_ROUTES = [
+    ("SHIPMENT_RISK_SUMMARY", "/v1/shipments/risk-summary", 10000),
+    ("SHIPMENT_RISK_CATEGORY_OVERVIEW", "/v1/shipments/risk-category-overview", 10000),
+    ("SHIPMENT_RISK_DETAILS", "/v1/shipments/risk-details", 15000),
+    ("SHIPMENT_RISK_DETAILS_FILTERS", "/v1/shipments/risk-details-filters", 10000),
+]
+
 _GROUPS = [
     {
         "group": "GROWTH_DASHBOARD_API_ROUTES",
@@ -110,6 +116,19 @@ _GROUPS = [
         "routes": GROWTH_DASHBOARD_API_ROUTES,
         "note": "Hub-keyed, so PSP needs no join — the profile already carries the hub. "
                 "The two endpoints this build actually serves.",
+    },
+    {
+        "group": "SHIPMENT_RISK_API_ROUTES",
+        "queue": "Losses & Debits (prevention)",
+        "service": "captain-service → shipment-risk",
+        "adapter": "substrate/adapters/risk",
+        "status": "fixture",
+        "env": "PSP_RISK_SOURCE=live",
+        "routes": SHIPMENT_RISK_API_ROUTES,
+        "note": "The at-risk ladder the captain panel already shows — BREACHED / Extreme / High "
+                "/ Moderate. PSP stands in for these by deriving the cohort from the real loss "
+                "ledger (attribution JOIN losses), which is a HINDSIGHT reconstruction: every "
+                "shipment in it already became a loss. Live would be the forward-looking queue.",
     },
     {
         "group": "CAPTAIN_PAYOUTS_AUTO_API_ROUTES",
@@ -131,9 +150,9 @@ _GROUPS = [
         "status": "fixture",
         "env": "PSP_DATA_PROVIDER=prism",
         "routes": CAPTAIN_API_ROUTES,
-        "note": "The widest group. /v1/shipment/tracking-details and the risk-* routes are the "
-                "scan and risk data the Hardstop date rules need; cod-pendency-buckets is the "
-                "COD gap (~16% of tickets).",
+        "note": "The widest group. /v1/shipment/tracking-details is the scan data the Hardstop "
+                "date rules need; cod-pendency-buckets is the COD gap (~16% of tickets). The "
+                "risk-* routes moved to SHIPMENT_RISK_API_ROUTES once an adapter served them.",
     },
     {
         "group": "DC_CAPACITY_API_ROUTES",

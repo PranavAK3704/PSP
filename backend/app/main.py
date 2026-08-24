@@ -313,7 +313,12 @@ def health():
                                          f"the model until LLM_BUDGET_USD is raised."}
                        if spend and spend["remaining_usd"] <= 0 else {}),
                     },
-            "knowledge": store.corpus_stats(), "data": ds}
+            "knowledge": store.corpus_stats(), "data": ds,
+            # Two adapters that can each be misconfigured on their own. `risk` in particular:
+            # if it silently drops to `seed` the monitor shows FICTIONAL shipments, which looks
+            # identical to working — so its mode belongs on the health check, not in a log.
+            "growth": ctx.growth_provider().status(),
+            "risk": ctx.risk_provider().status()}
 
 
 @app.get("/api/calibration", dependencies=[_authed])
@@ -436,9 +441,64 @@ def chat(body: ChatIn):
 
 
 @app.get("/api/monitor/{captain_id}", dependencies=[_authed])
-def monitor_scan(captain_id: str):
-    """Proactive monitoring — streams detect->nudge trace as SSE."""
-    return EventSourceResponse(_sse(monitor.scan_captain(captain_id)))
+def monitor_scan(captain_id: str, as_of: str | None = None):
+    """Proactive monitoring — streams the detect→nudge trace as SSE.
+
+    `?as_of=YYYY-MM-DD` replays the severity ladder at one shared date instead of at each row's
+    own terminal date. An invalid date is a 400 rather than a silent fall-back to `terminal`:
+    the two clocks produce different distributions, so quietly ignoring the parameter would
+    stream a terminal distribution that the caller reads as a replay.
+    """
+    clock_mode = None
+    if as_of:
+        from .substrate.adapters.risk import ladder as _ladder
+        if _ladder.parse_date(as_of) is None:
+            raise HTTPException(status_code=400,
+                                detail=f"as_of must be YYYY-MM-DD, got {as_of!r}")
+        clock_mode = "replay"
+    return EventSourceResponse(_sse(
+        monitor.scan_captain(captain_id, as_of=as_of, clock_mode=clock_mode)))
+
+
+# ── at-risk shipments ────────────────────────────────────────────────────────
+# A SEPARATE route from /api/growth, deliberately. The growth payload is served under
+# `source: "growth-dashboard-fixture"`, and putting real valmo.db rows inside it would make the
+# provenance unreconstructable — the inverse of the rule adapters/growth/connector.py states.
+# Two labels, two routes, and the UI shows both chips.
+
+def _risk_params(as_of: str | None):
+    from .substrate.adapters.risk import ladder as _ladder
+    if as_of and _ladder.parse_date(as_of) is None:
+        raise HTTPException(status_code=400,
+                            detail=f"as_of must be YYYY-MM-DD, got {as_of!r}")
+    return {"as_of": as_of, "clock_mode": "replay" if as_of else "terminal"}
+
+
+@app.get("/api/risk/{captain_id}", dependencies=[_authed])
+def risk_partner(captain_id: str, as_of: str | None = None, limit: int = 200):
+    """At-risk shipments for one partner. Index-served on attribution.partner_id."""
+    try:
+        out = ctx.risk_provider().for_partner(captain_id, limit=max(1, min(limit, 500)),
+                                             **_risk_params(as_of))
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=str(e)) from e
+    # 200 + available:false for a KNOWN partner with an empty cohort; 404 only when the partner
+    # is unknown. Those need different UI — "no rows join this partner" is an absence of data,
+    # not a bad id — and GrowthConnector.growth() draws the same distinction.
+    from .substrate import loss_db
+    if not out["summary"].get("available") and captain_id not in loss_db.known_partners(500):
+        raise HTTPException(status_code=404, detail=f"unknown partner {captain_id}")
+    return out
+
+
+@app.get("/api/risk/hub/{hub_code}", dependencies=[_authed])
+def risk_hub(hub_code: str, as_of: str | None = None, limit: int = 200):
+    """At-risk shipments for one hub. UNINDEXED — the payload states the cost in `keyed_on`."""
+    try:
+        return ctx.risk_provider().for_hub(hub_code, limit=max(1, min(limit, 500)),
+                                          **_risk_params(as_of))
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=str(e)) from e
 
 
 @app.post("/api/sop/compile", dependencies=[_author])

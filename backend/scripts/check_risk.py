@@ -516,6 +516,81 @@ def main() -> int:
         check("the reconciliation is written down, not just believed",
               "connect_sla_hours and never sla_within" in prov["sla_reconciliation"])
 
+        # ── 13b. the monitor: the leak, the meter, and the event shape ─────────
+        head("[13b] the monitor — the AWB leak, the spend ceiling, and the trace")
+        from app.engine import dataplane
+        from app.monitor import monitor as mon
+        os.environ["PSP_DATA_PROVIDER"] = "localdb"
+        pid = next((p for p in loss_db.known_partners()
+                    if loss_db.partner_profile(p).get("hub") == "LZ5"), None)
+        check("a real LZ5 partner exists to scan", bool(pid), str(pid))
+        out = rc.for_partner(pid)
+        banded = [x for x in out["shipments"] if x["risk_verdict"] == "YES"]
+        prompt = mon._cohort_prompt({"language": "hinglish"},
+                                    {**out["summary"], "hub": "LZ5"}, banded)
+        # THE LEAK. The allowed set is EMPTY on this path — there is no captain message, so
+        # nothing has been supplied and every identifier is unsupplied by definition.
+        check("the cohort prompt has ZERO unsupplied identifiers",
+              dataplane.violations(prompt, set()) == [],
+              str(dataplane.violations(prompt, set())[:2]))
+        check("...and no real AWB appears in it, checked against all of them",
+              not any(x["awb"] and x["awb"] in prompt for x in banded),
+              f"{len(banded)} AWBs checked")
+        check("...nor the partner id", pid not in prompt)
+        check("the HUB code IS present — its absence would mean an ungrounded nudge",
+              "LZ5" in prompt)
+        # THE GUARD MUST BE ABLE TO FAIL. A guard that always passes is not a guard —
+        # check_op makes exactly this point about an evidence check that could not fail.
+        old_shape = (f"Risk: shipment {banded[0]['awb']} is not on the correct manifest "
+                     f"path — warn them before the hardstop.")
+        check("the guard FIRES on the old prompt shape",
+              len(dataplane.violations(old_shape, set())) >= 1,
+              str(dataplane.violations(old_shape, set())[:1]))
+        # The deadline quoted must be the connect SLA, never `within`.
+        row = next((x for x in banded if x.get("connect_sla_hours")), None)
+        if row:
+            check("the prompt quotes connect_sla_hours, not sla_within",
+                  f"{row['connect_sla_hours']} hours" in prompt
+                  and f"{row['sla_within']} days" not in prompt,
+                  f"connect={row['connect_sla_hours']}h within={row['sla_within']}d")
+        # The prompt must forbid the claims the payload forbids.
+        for banned in ("saved", "prevented", "avoided", "caught"):
+            check(f"the prompt instructs the model not to say {banned!r}",
+                  banned in prompt.lower())
+
+        # The event shape.
+        evts = list(mon.scan_captain(pid))
+        nodes = [e["node"] for e in evts]
+        check("`source` is the FIRST event — provenance before any number",
+              nodes[0] == "source", str(nodes[:2]))
+        check("`honesty` is the LAST event, terminal and not a footnote",
+              nodes[-1] == "honesty", str(nodes[-3:]))
+        check("exactly ONE compose step (by seq), not one per risk",
+              len({e["seq"] for e in evts if e["node"] == "compose"}) == 1,
+              str([(e["seq"], e["status"]) for e in evts if e["node"] == "compose"]))
+        check("the compose pair SHARES a seq, so running->done collapses to one node",
+              len([e for e in evts if e["node"] == "compose"]) >= 2
+              and len({e["seq"] for e in evts if e["node"] == "compose"}) == 1)
+        check("no compose event is left `running` — the spinner resolved",
+              [e for e in evts if e["node"] == "compose"][-1]["status"] != "running",
+              [e for e in evts if e["node"] == "compose"][-1]["status"])
+        check("every event carries a seq, so Pipeline can key on node#seq",
+              all(isinstance(e.get("seq"), int) for e in evts))
+        check("a `cost` event is emitted — the scan is metered",
+              "cost" in nodes)
+        check("the firstpass label no longer claims a vector step",
+              not any("vector" in e["label"].lower() for e in evts),
+              "the monitor never calls knowledge/store.py, which has no embeddings either")
+        check("no event yields a raw AWB into `detail`",
+              not any(x["awb"] and x["awb"] in str(e.get("detail", ""))
+                      for e in evts for x in banded[:5]))
+        # `turn=` is what puts this path inside the per-turn ceiling.
+        import inspect
+        src = inspect.getsource(mon)
+        check("_compose_nudge threads turn= into provider.generate",
+              "turn=turn" in src, "without it meter.check skips the per-turn branch entirely")
+        check("scan_captain holds a TurnMeter", "TurnMeter()" in src)
+
         # ── 14. coverage, stated honestly ──────────────────────────────────────
         head("[14] what this covers, and what it refuses to claim")
         print(f"       cohort            : {corpus['cohort_rows']:,} rows -> "

@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 
 from .adapters.growth import GrowthConnector
+from .adapters.risk import RiskConnector
 from .adapters.log10_connector import Log10Connector
 from .adapters.mock_connectors import DemoDataProvider
 
@@ -48,6 +49,10 @@ _log10 = Log10Connector()       # Log10 scans/shipments (canned today; live call
 # is why it needs no join: the profile already carries the hub. Fixture-backed today; the
 # source label says so, and the composers print it.
 _growth = GrowthConnector()
+# At-risk shipments, from the real loss ledger. PARTNER-keyed (indexed), unlike growth which is
+# hub-keyed — see adapters/risk/connector.py. This is what replaced the monitor's seeded
+# shipment source; `PSP_RISK_SOURCE=seed` restores it.
+_risk = RiskConnector()
 
 
 def data_provider():
@@ -58,6 +63,11 @@ def data_provider():
 def growth_provider():
     """The Growth Dashboard connector (for /api/health, the widget, and diagnostics)."""
     return _growth
+
+
+def risk_provider():
+    """The at-risk shipment connector (for /api/health, the monitor, and diagnostics)."""
+    return _risk
 
 
 def get_context(captain_id: str) -> dict:
@@ -88,17 +98,25 @@ def get_context(captain_id: str) -> dict:
         growth = _growth.growth(hub) if hub else {}
     except Exception:  # noqa: BLE001 — includes the deliberate NotImplementedError under live
         growth = {}
+    # At-risk cohort, partner-keyed. Wrapped for the same reason growth is: it is ADDITIVE, and a
+    # malformed cohort must degrade to "no risk data for this partner" rather than break a loss
+    # conversation that has nothing to do with monitoring.
+    try:
+        risk = _risk.for_partner(captain_id)
+    except Exception:  # noqa: BLE001 — includes the deliberate NotImplementedError under live
+        risk = {}
     return {
         "captain_id": captain_id,
         "profile": profile,
         "growth": growth,                              # Orders & Planning (hub-keyed)
+        "risk": risk,                                  # at-risk shipments (partner-keyed)
         "ledger": _data.get_ledger(captain_id),        # Metabase
         "losses": losses,                              # Metabase
         "cash": _data.get_cash(captain_id),            # Metabase
         "shipments": _log10.get_shipments(captain_id), # Log10
         "summary": summary,                            # aggregates for the model (never rows)
         "_sources": {"account": _data.source, "shipments": _log10.source,
-                     "growth": _growth.source},
+                     "growth": _growth.source, "risk": _risk.source},
     }
 
 

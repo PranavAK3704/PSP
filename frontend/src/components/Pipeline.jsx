@@ -256,12 +256,28 @@ function NodeBody({ ev }) {
 }
 
 export default function Pipeline({ events = [] }) {
-  // collapse by node id, preserve first-seen order, keep latest state
+  // Collapse to keep the latest state of each step, preserving first-seen order.
+  //
+  // THE KEY IS `node#seq`, NOT `node`.
+  //
+  // Collapsing on `node` alone means a repeated node id overwrites its predecessor, latest
+  // wins — which is exactly right for a `running` → `done` pair on the SAME step, and exactly
+  // wrong for a step that legitimately occurs more than once. A monitor scan that emitted 26
+  // compose/nudge pairs collapsed to ONE, and the one shown was whichever landed last: not the
+  // most severe, not the largest, just the last. Twenty-five findings silently discarded.
+  //
+  // The backend now stamps a monotonic `seq` on every event. Where it is present, a step keeps
+  // its own slot; where it is absent (any caller not yet stamping) the behaviour is unchanged,
+  // so this is safe for the two other call sites.
+  //
+  // `running` → `done` on one step still collapses correctly, because the backend re-emits the
+  // SAME seq for the resolving event — see monitor.py's compose pair.
   const order = [];
   const map = new Map();
   for (const e of (events || [])) {
-    if (!map.has(e.node)) order.push(e.node);
-    map.set(e.node, e);
+    const key = e.seq != null ? `${e.node}#${e.seq}` : e.node;
+    if (!map.has(key)) order.push(key);
+    map.set(key, { ...e, _key: key });
   }
   const nodes = order.map((n) => map.get(n));
 
@@ -297,7 +313,7 @@ export default function Pipeline({ events = [] }) {
             : ev.node === "gate" && ev.data && !ev.data.passed ? "blocked"
             : ev.node === "escalate" ? "blocked" : "done";
           return (
-            <motion.div key={ev.node} className={`pnode ${state}`}
+            <motion.div key={ev._key ?? ev.node} className={`pnode ${state}`}
               initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
               <div className="rail">
                 <div className="bead"><Icon size={15} /></div>

@@ -67,6 +67,36 @@ export const RP = {
   SET_DC_CAPACITY: "Set DC Capacity Here",
 };
 
+/* Hardcoded in the upstream components rather than in constants.ts, so quoted from there. */
+export const HEADER = {
+  NEED_HELP: "Need Help?",                       // GrowthDashboardHeader/index.tsx
+  ACHIEVE: "Achieve your targets faster. Get more orders in next 7-10 days",  // index.tsx
+};
+
+/* Upstream renders "23rd Mar - 30th Mar", not the raw "23/03/2026 – 30/03/2026" the API sends.
+   The section titles read "Your Metrics (23rd Mar - 30th Mar)" and the chart footer "Graph Date:
+   23rd Mar - 30th Mar". formatDateRangeFromDDMMYYYY does this upstream, with a try/catch falling
+   back to the raw pair — the fallback is deliberate and reproduced: a date we cannot parse is
+   shown verbatim rather than silently becoming today. */
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+             "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const ord = (d) => (d % 10 === 1 && d !== 11 ? "st"
+                  : d % 10 === 2 && d !== 12 ? "nd"
+                  : d % 10 === 3 && d !== 13 ? "rd" : "th");
+
+function one(ddmmyyyy) {
+  const m = String(ddmmyyyy || "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const d = parseInt(m[1], 10), mo = parseInt(m[2], 10);
+  if (d < 1 || d > 31 || mo < 1 || mo > 12) return null;
+  return `${d}${ord(d)} ${MON[mo - 1]}`;
+}
+
+export function dateRange(start, end) {
+  const a = one(start), b = one(end);
+  return a && b ? `${a} - ${b}` : [start, end].filter(Boolean).join(" – ");
+}
+
 /* ── The four levers, in the panel's own order, with its own titles.
 
    `higherIsBetter` matters: day0_attempt is the ONLY one where a bigger number is better, and

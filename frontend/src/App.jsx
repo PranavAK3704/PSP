@@ -9,6 +9,7 @@ import SupportCommand from "./pages/SupportCommand.jsx";
 import Shader from "./components/Shader.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import { ChatStoreProvider } from "./lib/chatStore.jsx";
+import { AudienceProvider } from "./lib/audienceMode.js";
 import { getHealth, listUsers, createUser } from "./lib/api.js";
 import { AuthProvider, useAuth } from "./lib/auth.jsx";
 
@@ -312,6 +313,9 @@ function Shell() {
 
   return (
     <NavCtx.Provider value={setView}>
+      {/* The audience toggle is view-scoped state, so it lives above the shell but is read only
+          by the captain view. See lib/audienceMode.js for why it is not a global demo mode. */}
+      <AudienceProvider>
       <ChatStoreProvider>
         {/* background: animated field + faint grid, behind the shell (z 0 / 1; .app is z 2) */}
         <Shader opacity={0.16} />
@@ -387,6 +391,7 @@ function Shell() {
 
         {teamOpen && <TeamAdmin onClose={() => setTeamOpen(false)} />}
       </ChatStoreProvider>
+      </AudienceProvider>
     </NavCtx.Provider>
   );
 }

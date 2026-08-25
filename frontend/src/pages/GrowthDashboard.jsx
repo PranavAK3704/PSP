@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, Send, Sparkles, TriangleAlert, ExternalLink, TrendingUp,
          TrendingDown, ChevronRight, Database, ThumbsUp, PartyPopper,
-         ArrowDown, Star, Scissors } from "lucide-react";
-import { getGrowthIndex, getGrowth, stream } from "../lib/api.js";
+         ArrowDown, Star, Scissors, FolderOpen, CheckCircle2, Clock,
+         Rocket } from "lucide-react";
+import { getGrowthIndex, getGrowth, getCaptainCases, stream } from "../lib/api.js";
 import { n0, inr, num } from "../lib/format.js";
-import { S, RP, LEVERS, WHY } from "../growth/strings.js";
+import { S, RP, HEADER, LEVERS, WHY, dateRange } from "../growth/strings.js";
 import AtRiskPanel, { SeverityBanner } from "../components/AtRiskPanel.jsx";
+import MonitorDock from "../components/MonitorDock.jsx";
+import TraceView from "../components/TraceView.jsx";
+import { useAudience } from "../lib/audienceMode.js";
 
 /* ── Growth Dashboard + docked support widget ─────────────────────────────────────────────
    THE POINT OF THIS SCREEN, in one sentence: the captain is looking at their own dashboard,
@@ -336,11 +340,11 @@ function PanelSection({ label, count, metrics, dotColour, wellDone, extra, child
   );
 }
 
-function RightPanel({ rp, totalMissed, onAsk }) {
+function RightPanel({ rp, totalMissed, onAsk, inner }) {
   const alloc = rp.allocation_miss || { count: 0, metrics: [] };
   const cap = rp.capacity_loss || { count: 0, metrics: [] };
   return (
-    <div style={{ width: "35%", minWidth: 0, maxHeight: 500, display: "flex",
+    <div style={{ width: inner ? "100%" : "35%", minWidth: 0, maxHeight: 460, display: "flex",
       flexDirection: "column", borderLeft: "1px solid var(--line)", paddingLeft: 20 }}>
       <div className="custom-scrollbar" style={{ flex: 1, minHeight: 0, overflowY: "auto",
         display: "flex", flexDirection: "column", gap: 14, paddingRight: 4 }}>
@@ -388,11 +392,82 @@ function RightPanel({ rp, totalMissed, onAsk }) {
    Advocate uses and streams the same trace, but shows only what a captain would see plus the
    two things that make the point on stage: which named query ran, and what the engine decided.
    Not a second chat implementation; a second VIEW of the one that exists. ── */
-function SupportWidget({ hub, partnerId, askRef }) {
+/* ── My cases — the loop, closed on the screen the captain actually uses ───────────────────
+   The resolve loop already worked end to end: an L3 member presses "resolve", `l3.resolve()`
+   appends a linked follow-up carrying the note, and `l3.cases()` returns it with live status.
+   But the only UI consuming that was the INTERNAL Advocate console — so the thing that tells a
+   captain "your case was resolved" was sitting on an operator's screen, not theirs.
+
+   This is ~90px and it is what makes the story close: the reference the widget handed over in
+   one beat comes back green with a human's note in a later one. Same record, same id, and the
+   captain never left their dashboard.
+
+   Polls on the same 6s cadence the Advocate console uses. Renders nothing when there are no
+   cases — an empty strip on a dashboard is noise. */
+function MyCases({ partnerId }) {
+  const [cases, setCases] = useState([]);
+  useEffect(() => {
+    if (!partnerId) { setCases([]); return; }
+    let alive = true;
+    const pull = () => getCaptainCases(partnerId)
+      .then((d) => { if (alive) setCases(d.cases || []); })
+      .catch(() => {});
+    pull();
+    const t = setInterval(pull, 6000);
+    return () => { alive = false; clearInterval(t); };
+  }, [partnerId]);
+
+  if (!cases.length) return null;
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3><FolderOpen size={14} />My cases</h3>
+        <span className="mono" style={{ fontSize: 9, color: "var(--text-faint)" }}>
+          {cases.length} on record
+        </span>
+      </div>
+      <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 7 }}>
+        {cases.slice(0, 4).map((c) => {
+          const done = !!c.resolved || c.status === "resolved";
+          return (
+            <div key={c.concern_id} style={{ display: "flex", gap: 8, alignItems: "flex-start",
+              padding: "8px 10px", borderRadius: 8, background: "var(--surface-2)",
+              border: `1px solid ${done ? "rgba(78,222,163,0.30)" : "var(--line)"}` }}>
+              {done ? <CheckCircle2 size={13} style={{ color: "var(--good)", flex: "none",
+                marginTop: 1 }} />
+                    : <Clock size={13} style={{ color: "var(--warn)", flex: "none",
+                        marginTop: 1 }} />}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="mono" style={{ fontSize: 10, color: "var(--text-mute)" }}>
+                  {c.concern_id}{c.team ? ` · ${c.team}` : ""}
+                </div>
+                <div style={{ fontSize: 11.5, color: done ? "var(--good)" : "var(--text-faint)",
+                  marginTop: 2, lineHeight: 1.5 }}>
+                  {done ? (c.resolution_note || "Resolved by the team.")
+                        : "With the team — you'll be updated."}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SupportWidget({ hub, partnerId, askRef, showEngine }) {
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [steps, setSteps] = useState([]);
+  // The RAW event list, not a pre-flattened list of strings.
+  //
+  // This was `steps` — an array of one-line mono strings built by an 8-line mapping that read
+  // five fields and threw the rest away: the individual checks, the evidence rows, the gate's
+  // confidence and threshold, every `blocks` string, and the entire `escalate` and `verify`
+  // nodes. Those are precisely the things that make the engine's reasoning legible. Keeping the
+  // events lets <TraceView> render the same three visual elements the L3 desk and the ledger
+  // render, off the same record.
+  const [events, setEvents] = useState([]);
   const convRef = useRef(null);
   const endRef = useRef(null);
   const abortRef = useRef(null);
@@ -410,9 +485,9 @@ function SupportWidget({ hub, partnerId, askRef }) {
   useEffect(() => {
     abortRef.current?.abort();
     turnRef.current += 1;
-    setMsgs([]); setSteps([]); setBusy(false); convRef.current = null;
+    setMsgs([]); setEvents([]); setBusy(false); convRef.current = null;
   }, [hub, partnerId]);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, steps]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, events]);
   // Publish `send` upward so the dashboard's own CTAs can drive this widget. Kept as a ref
   // assignment rather than lifted state: the widget owns its conversation id, its AbortController
   // and its turn guard, and hoisting those into the page would mean re-plumbing three things
@@ -423,7 +498,7 @@ function SupportWidget({ hub, partnerId, askRef }) {
     const msg = (text ?? input).trim();
     if (!msg || busy || !partnerId) return;
     setInput(""); setMsgs((m) => [...m, { who: "captain", text: msg }]);
-    setSteps([]); setBusy(true);
+    setEvents([]); setBusy(true);
     if (!convRef.current) convRef.current = crypto.randomUUID();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -437,14 +512,15 @@ function SupportWidget({ hub, partnerId, askRef }) {
         body: { captain_id: partnerId, message: msg, conversation_id: convRef.current } },
       (ev) => {
         if (!mine()) return;
-        const d = ev.data || {};
-        if (ev.node === "query" && d.query) setSteps((s) => [...s, { kind: "query", text: `named query: ${d.query}` }]);
-        if (ev.node === "policy") setSteps((s) => [...s, { kind: "policy", text: `policy → ${d.action} · confidence ${d.confidence}` }]);
-        if (ev.node === "gate") setSteps((s) => [...s, { kind: "gate", text: `trust gate ${d.passed ? "PASS" : "BLOCK"}${d.money_moving ? " · money-moving" : " · no money at stake"}` }]);
-        if (ev.node === "act") setSteps((s) => [...s, { kind: d.simulated ? "warn" : "ok", text: ev.label }]);
-        if (ev.node === "cost" && d.cost_usd != null) setSteps((s) => [...s, { kind: "cost", text: `turn cost $${Number(d.cost_usd).toFixed(4)} · ${d.calls} call(s)` }]);
-        if (ev.node === "reply" && d.reply) {
-          setMsgs((m) => [...m, { who: "psp", text: d.reply, failed: !!d.engine_error }]);
+        // Keep EVERY event. TraceView decides what to show at this width; the widget's job is
+        // not to pre-digest the trace, and the old version's 8-line filter is exactly how the
+        // checks and the gate verdict went missing.
+        setEvents((e) => [...e, ev]);
+        if (ev.node === "reply" && ev.data?.reply) {
+          setMsgs((m) => [...m, { who: "psp", text: ev.data.reply,
+                                  failed: !!ev.data.engine_error,
+                                  ref: ev.data.concern_id || "",
+                                  action: ev.data.decision_action || "" }]);
         }
       },
       () => { if (mine()) setBusy(false); });
@@ -456,8 +532,6 @@ function SupportWidget({ hub, partnerId, askRef }) {
     }
   }
 
-  const TONE = { query: "var(--c-teal)", policy: "var(--c-violet)", gate: "var(--c-amber)",
-                 ok: "var(--c-teal)", warn: "var(--warn)", cost: "var(--text-faint)" };
 
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -488,16 +562,25 @@ function SupportWidget({ hub, partnerId, askRef }) {
             border: `1px solid ${m.failed ? "rgba(255,185,95,.35)" : "var(--line-soft)"}`,
             color: "var(--text)" }}>
             {m.text}
+            {/* THE LINE A REAL CAPTAIN GETS. It survives with the engine trace hidden, because
+                it is the only part of the escalation that concerns them: it went somewhere, here
+                is the reference, here is roughly when to expect an answer. */}
+            {m.action === "escalate" && m.ref && (
+              <div className="mono" style={{ fontSize: 10, color: "var(--text-faint)",
+                marginTop: 6, paddingTop: 5, borderTop: "1px solid var(--line-soft)" }}>
+                ref {m.ref} · expect an update within ~24h
+              </div>
+            )}
           </div>
         ))}
-        {steps.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 2 }}>
-            {steps.map((s, i) => (
-              <div key={i} className="mono" style={{ fontSize: 9.5, color: TONE[s.kind] || "var(--text-faint)" }}>
-                ▸ {s.text}
-              </div>
-            ))}
-          </div>
+
+        {/* ── the engine's own reasoning, for the audience only ──────────────────
+            Rendered by the SAME component the L3 desk and the concern log use, at the
+            `widget` scope. Capped at 340px with its own scroller: the column this lives in
+            is sticky, so its overflow is unreachable — the thing that would scroll it is
+            pinned — and an uncapped trace here would push the rest off screen for good. */}
+        {showEngine && events.length > 0 && (
+          <TraceView events={events} scope="widget" maxHeight={340} />
         )}
         {busy && <div className="mono" style={{ fontSize: 10, color: "var(--text-faint)" }}>thinking…</div>}
         <div ref={endRef} />
@@ -540,6 +623,9 @@ export default function GrowthDashboard() {
   // would mean re-plumbing the abort/turn guards that already work.
   const askRef = useRef(null);
   const [riskData, setRiskData] = useState(null);
+  // Scoped to THIS view, deliberately. An operator reading a trace on Support Command or the test
+  // bench is doing their job; a global "a captain does not see this" pill would be wrong on both.
+  const [showEngine, setShowEngine] = useAudience();
 
   useEffect(() => {
     getGrowthIndex().then((r) => {
@@ -611,18 +697,35 @@ export default function GrowthDashboard() {
     pendency: "meri pendency kyun badh rahi hai",
     capacity: "why did my capacity get cut",
     risk: "mere kitne shipment loss mein gaye hain",
+    help: "mera load kaise badhega",
   };
   const ask = (key) => askRef.current?.(ASK[key] || "why is my load low");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
-      {/* ── TWO SOURCES, TWO CHIPS ───────────────────────────────────────────────────────
-          This was ONE full-width amber banner, and its width was the problem: it read as
-          page-wide provenance, so a viewer discounted everything below it as fixture — including
-          the at-risk panel, which is the only real data on the screen. Undersell is a form of
-          dishonesty too.
+      {/* ── THE AUDIENCE TOGGLE ──────────────────────────────────────────────────────────
+          The captain's screen is the default. This says out loud that what follows is more than
+          they see, and flipping it off is the demo's strongest ten seconds: same conversation,
+          same replies, nothing re-run, and the internals vanish. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
+        <button className="chip" onClick={() => setShowEngine((v) => !v)}
+          style={showEngine
+            ? { borderColor: "var(--accent-line)", color: "var(--accent)",
+                background: "var(--accent-soft)" }
+            : undefined}>
+          {showEngine ? "SHOWING THE ENGINE" : "captain's view"}
+        </button>
+        <span className="mono" style={{ fontSize: 9.5, color: "var(--text-faint)" }}>
+          {showEngine
+            ? "a captain does not see the trace, the sources or the hub switcher"
+            : "exactly what the partner sees — click to show the engine"}
+        </span>
+      </div>
 
-          Chip 1 (amber) covers the order figures. Chip 2 (info) covers the at-risk rows. ── */}
+      {/* Provenance: ONE collapsed line, and only for the audience. Two stacked banners read as
+          page-wide doubt and made a viewer discount the at-risk rows, which are the only real
+          data here. A captain has no use for either. */}
+      {showEngine && (
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <div className="df-note" style={{ display: "flex", alignItems: "center", gap: 9,
           flexWrap: "wrap", borderColor: "rgba(255,185,95,.3)", background: "var(--warn-soft)",
@@ -651,6 +754,7 @@ export default function GrowthDashboard() {
           </span>
         </div>
       </div>
+      )}
 
       {/* Proactive, and before the captain has asked anything. Returns null when there are no
           rows, while loading, on error, and when `as_of` is missing — a severity with no clock
@@ -663,17 +767,31 @@ export default function GrowthDashboard() {
         <h2 style={{ margin: 0, fontSize: 16, display: "flex", alignItems: "center", gap: 7 }}>
           <BarChart3 size={16} />{S.PAGE_TITLE}
         </h2>
-        <div style={{ display: "flex", gap: 5 }}>
-          {(index.hubs || []).map((h) => (
-            <button key={h} className="chip" onClick={() => setHub(h)}
-              style={h === hub ? { borderColor: "var(--c-teal)", color: "var(--c-teal)" } : undefined}>
-              {h}
-            </button>
-          ))}
-        </div>
-        <span className="mono" style={{ fontSize: 10, color: "var(--text-faint)", marginLeft: "auto" }}>
-          {S.GRAPH_DATE} {os.start_date} – {os.end_date}
+        {/* A captain has ONE hub. The switcher is an operator affordance, and leaving it live
+            would let whoever is looking read another hub's volume and earnings. */}
+        {showEngine ? (
+          <div style={{ display: "flex", gap: 5 }}>
+            {(index.hubs || []).map((h) => (
+              <button key={h} className="chip" onClick={() => setHub(h)}
+                style={h === hub ? { borderColor: "var(--c-teal)", color: "var(--c-teal)" } : undefined}>
+                {h}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <span className="mono" style={{ fontSize: 11, color: "var(--text-mute)" }}>Hub {hub}</span>
+        )}
+        <span className="mono" style={{ fontSize: 10, color: "var(--text-faint)",
+          marginLeft: "auto" }}>
+          {dateRange(os.start_date, os.end_date)}
         </span>
+        {/* Upstream's own pill, a real affordance on the real page — a link to the growth FAQ PDF.
+            Rendered as a button that asks the widget instead, because the PDF is not ours to
+            serve and a pill that 404s is worse than one that answers. */}
+        <button className="chip" onClick={() => ask("help")}
+          style={{ borderRadius: 20, borderWidth: 2, fontWeight: 600 }}>
+          {HEADER.NEED_HELP}
+        </button>
       </div>
 
       {/* ── Metrics + the docked widget, side by side ────────────────────────────────────
@@ -687,7 +805,9 @@ export default function GrowthDashboard() {
         gridTemplateColumns: "minmax(0, 1.55fr) minmax(320px, 1fr)", alignItems: "start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 13, minWidth: 0 }}>
           <div className="card">
-            <div className="card-head"><h3>{S.YOUR_METRICS}</h3></div>
+            <div className="card-head">
+              <h3>{S.YOUR_METRICS} ({dateRange(ym.start_date, ym.end_date)})</h3>
+            </div>
             <div style={{ padding: "13px 15px", display: "flex", flexDirection: "column",
               gap: 13 }}>
               <MyOrdersBanner ym={ym} />
@@ -700,6 +820,15 @@ export default function GrowthDashboard() {
               </div>
             </div>
           </div>
+
+          {/* ── the left column's dead space, now earning its keep ─────────────
+              The grid is alignItems:start, so this column used to just END below the metrics
+              card, leaving ~600px empty beside a right column that was ~200px OVER its budget.
+              Moving the at-risk panel here and adding the monitoring dock fixes both at once:
+              the right column comes under budget for the first time, and monitoring stops
+              being a separate tab that reads as a demo of itself. */}
+          <MonitorDock partnerId={partnerId} hub={hub} />
+          <AtRiskPanel hub={hub} onAsk={ask} onData={setRiskData} />
         </div>
 
         {/* The sticky column needs a bounded height and its own scroll. Without them, once the
@@ -709,13 +838,16 @@ export default function GrowthDashboard() {
         <div style={{ position: "sticky", top: 8, display: "flex", flexDirection: "column",
           gap: 13, maxHeight: "calc(100vh - 96px)", overflowY: "auto", paddingRight: 2 }}
           className="custom-scrollbar">
-          <SupportWidget hub={hub} partnerId={partnerId} askRef={askRef} />
-          <AtRiskPanel hub={hub} onAsk={ask} onData={setRiskData} />
-          <div className="df-note">
-            The widget answers from the <b style={{ color: "var(--text-mute)" }}>same payload</b>
-            {" "}this page is drawing — one <span className="mono">load_status</span> named query,
-            no SQL, and the decision runs through the trust gate. Nothing here moves money.
-          </div>
+          <SupportWidget hub={hub} partnerId={partnerId} askRef={askRef}
+            showEngine={showEngine} />
+          <MyCases partnerId={partnerId} />
+          {showEngine && (
+            <div className="df-note">
+              The widget answers from the <b style={{ color: "var(--text-mute)" }}>same payload</b>
+              {" "}this page is drawing — one <span className="mono">load_status</span> named
+              query, no SQL, and the decision runs through the trust gate. Nothing moves money.
+            </div>
+          )}
         </div>
       </div>
 
@@ -733,7 +865,7 @@ export default function GrowthDashboard() {
           intact. ── */}
       <div className="card">
         <div className="card-head">
-          <h3>{S.YOUR_ORDER_SUMMARY}</h3>
+          <h3>{S.YOUR_ORDER_SUMMARY} ({dateRange(os.start_date, os.end_date)})</h3>
           <span className="mono" style={{ fontSize: 9.5, color: "var(--text-faint)" }}>
             {S.ORDER_SUMMARY_SUBTITLE}
           </span>
@@ -765,10 +897,22 @@ export default function GrowthDashboard() {
             )}
             <Waterfall os={os} />
             <div className="df-note" style={{ padding: "9px 0 0" }}>
-              {S.GRAPH_DATE} {os.start_date} – {os.end_date}
+              {S.GRAPH_DATE} {dateRange(os.start_date, os.end_date)}
             </div>
           </div>
-          <RightPanel rp={rp} totalMissed={totalMissed} onAsk={ask} />
+          <div style={{ width: "35%", minWidth: 0, display: "flex", flexDirection: "column",
+            gap: 12 }}>
+            <RightPanel rp={rp} totalMissed={totalMissed} onAsk={ask} inner />
+            {/* Upstream's footer CTA, on its own light-blue ground. Kept because it is the one
+                forward-looking sentence on an otherwise diagnostic panel. */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "13px 15px",
+              borderRadius: 8, background: "rgba(77,142,255,0.10)",
+              border: "1px solid var(--signal-line)" }}>
+              <Rocket size={15} style={{ color: "var(--signal)", flex: "none" }} />
+              <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-mute)",
+                lineHeight: 1.45 }}>{HEADER.ACHIEVE}</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>

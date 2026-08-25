@@ -68,6 +68,45 @@ def _evt(node, label, status, detail="", data=None, seq=None):
             "data": data or {}, "seq": seq}
 
 
+def _log_detection(captain_id: str, summary: dict, banded: list, *,
+                   nudge: str | None, blocked: str = "") -> dict:
+    """Record the DETECTION, whether or not a nudge was composed.
+
+    WHY THIS IS SEPARATE FROM THE NUDGE. The append used to sit after `_compose_nudge`, so every
+    path that returned early — nothing banded, a data-plane refusal, a provider failure — wrote
+    NOTHING. That is why a scan of 26 real at-risk shipments left no trace in the ledger at all:
+    there are zero records with `channel: "proactive"` in the entire log, because the compose step
+    has never once completed on this deployment.
+
+    The detection is the part that cost nothing and is always true. A model being unreachable is
+    a reason to have no nudge TEXT; it is not a reason to forget that 26 shipments were banded.
+    """
+    return concern_log.append({
+        "id": "CNC-" + uuid.uuid4().hex[:8].upper(), "captain_id": captain_id,
+        "channel": "proactive",
+        "intent": f"{len(banded)} shipment(s) banded at {summary.get('hub') or captain_id}",
+        "disposition": "proactive_nudge" if nudge else "risk_detected",
+        "action_taken": "nudge_sent" if nudge else "none",
+        "amount_inr": summary.get("total_amount_at_risk_inr"),
+        "outcome": "proactive_nudge" if nudge else "risk_detected",
+        "reply": nudge or "",
+        **({"blocked": blocked} if blocked else {}),
+        "evidence_trail": [
+            {"label": "Cohort", "value": f"{summary.get('total_shipments')} shipment(s)",
+             "source": "risk.derive"},
+            {"label": "Amount on record",
+             "value": f"₹{summary.get('total_amount_at_risk_inr', 0):,.0f}",
+             "source": "risk.derive"},
+            {"label": "Reversal signal",
+             "value": (f"{summary.get('reversal_signal', {}).get('n', 0)}"
+                       f"/{summary.get('reversal_signal', {}).get('of', 0)} on record"),
+             "source": "policy_exec reversal_signal columns"},
+            {"label": "Clock", "value": summary.get("clock_rule", ""), "source": "risk.derive"},
+        ],
+        "awbs": [s.get("awb") for s in banded if s.get("awb")],
+    })
+
+
 def scan_captain(captain_id: str, *, as_of=None, clock_mode: str | None = None) -> Iterator[dict]:
     """Run the monitor over one captain's at-risk cohort.
 
@@ -148,10 +187,14 @@ def scan_captain(captain_id: str, *, as_of=None, clock_mode: str | None = None) 
     # work was done shredded the case.
     leaks = dataplane.violations(prompt, set())
     if leaks:
+        det = _log_detection(captain_id, summary, banded, nudge=None,
+                             blocked=f"dataplane: {len(leaks)} unsupplied identifier(s)")
         yield _evt("compose", "Compose cohort nudge", "blocked",
                    detail=(f"Refused — {len(leaks)} unsupplied identifier(s) in the prompt. "
-                           f"No nudge was composed and nothing was sent to a model."),
-                   data={"kinds": sorted({l["kind"] for l in leaks}), "count": len(leaks)},
+                           f"No nudge was composed and nothing was sent to a model. The "
+                           f"detection is still on the record."),
+                   data={"kinds": sorted({l["kind"] for l in leaks}), "count": len(leaks),
+                         "concern_id": det.get("id")},
                    seq=compose_seq)
         yield _evt("honesty", "What this is and is not", "done",
                    detail=(risk.get("provenance", {}) or {}).get("cohort", ""),
@@ -161,8 +204,15 @@ def scan_captain(captain_id: str, *, as_of=None, clock_mode: str | None = None) 
     try:
         nudge, meta = _compose_nudge(prompt, turn=turn)
     except Exception as e:  # noqa: BLE001 — a compose failure must not truncate the stream
+        # The DETECTION still happened and is still true. Without this, a dead or budget-exhausted
+        # key means a scan of 26 banded shipments leaves no record at all — which is exactly the
+        # state this deployment has been in.
+        det = _log_detection(captain_id, summary, banded, nudge=None,
+                             blocked=f"{type(e).__name__}: {str(e)[:120]}")
         yield _evt("compose", "Compose cohort nudge", "blocked",
-                   detail=f"{type(e).__name__}: {str(e)[:200]}", data={}, seq=compose_seq)
+                   detail=(f"{type(e).__name__}: {str(e)[:170]} — the detection is on the "
+                           f"record without a nudge."),
+                   data={"concern_id": det.get("id")}, seq=compose_seq)
         yield _evt("cost", "Scan cost", "done",
                    detail=f"${turn.summary()['cost_usd']:.4f}", data=turn.summary())
         yield _evt("honesty", "What this is and is not", "done",
@@ -182,27 +232,7 @@ def scan_captain(captain_id: str, *, as_of=None, clock_mode: str | None = None) 
     # The concern log is LOCAL and durable, so the AWB list is allowed here — it is the trace,
     # not an outbound payload. outcome="proactive_nudge", never "escalated", so it stays out of
     # the L3 inbox while still showing in Ledger/Audit/Insights.
-    concern = concern_log.append({
-        "id": "CNC-" + uuid.uuid4().hex[:8].upper(), "captain_id": captain_id,
-        "channel": "proactive",
-        "intent": f"{len(banded)} shipment(s) banded at {summary.get('hub') or captain_id}",
-        "disposition": "proactive_nudge", "action_taken": "nudge_sent",
-        "amount_inr": summary.get("total_amount_at_risk_inr"),
-        "outcome": "proactive_nudge", "reply": nudge,
-        "evidence_trail": [
-            {"label": "Cohort", "value": f"{summary.get('total_shipments')} shipment(s)",
-             "source": "risk.derive"},
-            {"label": "Amount on record",
-             "value": f"₹{summary.get('total_amount_at_risk_inr', 0):,.0f}",
-             "source": "risk.derive"},
-            {"label": "Reversal signal",
-             "value": (f"{summary.get('reversal_signal', {}).get('n', 0)}"
-                       f"/{summary.get('reversal_signal', {}).get('of', 0)} on record"),
-             "source": "policy_exec reversal_signal columns"},
-            {"label": "Clock", "value": summary.get("clock_rule", ""), "source": "risk.derive"},
-        ],
-        "awbs": [s.get("awb") for s in banded if s.get("awb")],
-    })
+    concern = _log_detection(captain_id, summary, banded, nudge=nudge)
 
     yield _evt("nudge", "Proactive nudge (shadow-first)", "done", detail=nudge,
                data={"nudge": nudge, "model": meta["model"], "shadow": True,

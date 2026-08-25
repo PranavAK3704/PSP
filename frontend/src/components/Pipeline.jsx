@@ -41,7 +41,19 @@ export function ConfidenceDial({ value = 0, threshold = 0.8 }) {
   );
 }
 
-function CheckRows({ checks }) {
+/* ── The three shared trace renderers ────────────────────────────────────────────────────────
+   EXPORTED, because the same four fields off one record have to look the same on three screens.
+
+   There is exactly ONE record — the concern and its persisted trace — and the captain's widget,
+   the L3 desk and the concern log each need the same four things off it: the checks that ran, the
+   gate's confidence against its threshold, the escalation team, and the reference id. Until now
+   three separate hand-rolled renderers drew them, and one of those (SupportCommand's, reading
+   `c.name || c.label || c.check`) printed the literal string "check: ✗" for every real check
+   object — because a check carries `description`/`result`, not `name`.
+
+   Three renderers of one record is what "three apps sharing a sidebar" looks like from outside.
+   Exporting these and consuming them through TraceView deletes that bug rather than fixing it. ── */
+export function CheckRows({ checks }) {
   return (checks || []).map((c, i) => (
     <div key={i} className={`check-row ${c.passed ? "pass" : "fail"}`}>
       <span className="ci">{c.passed ? <CheckCircle2 size={13} /> : <XCircle size={13} />}</span>
@@ -50,13 +62,15 @@ function CheckRows({ checks }) {
   ));
 }
 
-function Evidence({ trail }) {
+export function Evidence({ trail }) {
   return (trail || []).map((e, i) => (
     <motion.div key={i} className="evidence-card"
       initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.08 }}>
       <div className="el">{e.label}</div>
       <div className="ev">{e.value}</div>
-      <div className="er">◦ {e.ref} · via {e.source}</div>
+      {/* `ref` is optional — most evidence rows carry only a source. Unguarded this rendered
+          "◦ undefined · via valmo.db" on every row that had no ref, which is most of them. */}
+      <div className="er">{e.ref ? `◦ ${e.ref} · via ${e.source}` : `via ${e.source}`}</div>
     </motion.div>
   ));
 }

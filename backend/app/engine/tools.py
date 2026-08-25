@@ -501,16 +501,35 @@ def _apply_policy(args: dict, captain_id: str, context: dict, channel: str,
         # only went to L2. Relay an escalation-truthful line instead.
         relay_reason = (f"I couldn't confirm a fix from the records, so I've routed this to {team} "
                         f"for review — you'll be updated with the outcome.")
-        events.append(_evt("escalate", "Escalate — worked case",
-                           detail=f"Routed to {team}",
-                           data={"team": team, "worked_case": {
-                               "evidence_trail": decision.get("evidence_trail", []),
-                               "checks_run": decision.get("checks_run", []), "reason": decision.get("reason")}}))
         outcome = "escalated"
+
+    # ── THE ID IS MINTED HERE, before the events are built ───────────────────────────
+    # It used to be minted below, when the concern dict was assembled — which meant the
+    # `escalate` event carried a team but NO reference, and the id first appeared one event
+    # later on `reply`. So a UI rendering the escalation row had nothing to show, and anyone
+    # narrating "your reference is CNC-…" had to stitch two events together.
+    #
+    # `_escalate_case` already does it this way (`reference_id` on its own escalate event), so
+    # this is a PARITY fix rather than a new idea — the two escalation paths now behave the same.
+    concern_id = "CNC-" + uuid.uuid4().hex[:8].upper()
+
+    if action == "escalate":
+        events.append(_evt("escalate", "Escalate — worked case",
+                           detail=f"Routed to {team} · {concern_id}",
+                           data={"team": team, "reference_id": concern_id,
+                                 # `reply` on the event AND on the concern below. The L3 console
+                                 # renders "What the partner was told" from the concern's `reply`,
+                                 # and that block was dead for every escalation ever logged
+                                 # because nothing on this path ever set it.
+                                 "reply": relay_reason,
+                                 "worked_case": {
+                                     "evidence_trail": decision.get("evidence_trail", []),
+                                     "checks_run": decision.get("checks_run", []),
+                                     "reason": decision.get("reason")}}))
 
     evidence = list(decision.get("evidence_trail", [])) + _attachment_evidence(attachments)
     concern = {
-        "id": "CNC-" + uuid.uuid4().hex[:8].upper(), "captain_id": captain_id, "channel": channel,
+        "id": concern_id, "captain_id": captain_id, "channel": channel,
         "intent": disposition, "entities": entities, "disposition": disposition,
         "policy_id": (decision.get("policy") or {}).get("id"),
         "policy_version": (decision.get("policy") or {}).get("version"),
@@ -525,6 +544,12 @@ def _apply_policy(args: dict, captain_id: str, context: dict, channel: str,
     if action == "escalate":
         concern["escalation_team"] = (decision.get("policy") or {}).get("escalation", {}).get(
             "team", "Losses & Debits (L2)")
+        # What the captain was actually told, on the record. `l3.inbox()` reads `reply` to render
+        # "What the partner was told" — and measured across every escalation ever logged, it was
+        # set on ZERO of them, so that panel has never once rendered. It is the escalation-truthful
+        # relay line, not the decision's internal reason (which on this path would say a debit was
+        # reversed when nothing was written).
+        concern["reply"] = relay_reason
     stored = concern_log.append(concern)
 
     result = {"action": action, "outcome": outcome, "amount_inr": decision.get("amount_inr"),

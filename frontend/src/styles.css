@@ -658,3 +658,61 @@ pre.json .s { color: var(--good); }
 .rc-in { flex: 1; min-width: 160px; background: var(--surface-2); border: 1px solid var(--line);
   border-radius: 7px; padding: 7px 10px; color: var(--text); font-size: 12px;
   font-family: inherit; }
+
+/* ══ SUPPORT WIDGET — MOTION ══════════════════════════════════════════════════════════════════
+   The audience for this widget is a captain who may not be confident with apps, and for that
+   reader interaction is not decoration — it is the difference between waiting and leaving. So the
+   motion here is all doing one of three jobs: showing that work is happening, pacing text so it
+   can be read as it arrives, or acknowledging a tap.
+
+   Nothing here is purely ornamental, and everything respects prefers-reduced-motion at the
+   bottom. Colours come from tokens, so the same rules render correctly in PSP's dark console and
+   in the Captain Panel's light support drawer (which re-points those tokens — see
+   captain/captain-panel.css). */
+
+/* the header glyph: breathing when idle, driving when working */
+.sw-spark { display: inline-grid; place-items: center; color: var(--accent); }
+.sw-spark svg { animation: swBreathe 3.4s ease-in-out infinite; }
+.sw-spark.working svg { animation: swSpin 1.1s linear infinite; }
+@keyframes swBreathe { 0%,100% { opacity: .62; transform: scale(1); }
+                       50%     { opacity: 1;   transform: scale(1.14); } }
+@keyframes swSpin    { to { transform: rotate(360deg); } }
+
+/* bubbles and chips arriving */
+.sw-in { animation: swIn .34s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes swIn { from { opacity: 0; transform: translateY(7px) scale(.985); }
+                  to   { opacity: 1; transform: none; } }
+
+/* a tap should feel like it landed */
+.sw-tap { transition: transform .1s ease, box-shadow .18s ease; }
+.sw-tap:active:not(:disabled) { transform: scale(.96); }
+
+/* ── the progress list: what the engine is doing, one line per real event ── */
+.sw-steps { display: flex; flex-direction: column; gap: 3px; }
+.sw-step { display: flex; align-items: center; gap: 7px; font-size: 11.5px; line-height: 1.5;
+  animation: swIn .3s cubic-bezier(.2,.8,.2,1) both; }
+.sw-step-done { color: var(--text-faint); }
+.sw-step-live { color: var(--accent); font-weight: 600; }
+.sw-tick { color: var(--good); font-size: 11px; width: 14px; text-align: center; flex: none; }
+
+/* three dots that walk — the smallest possible "still working" */
+.sw-dots { display: inline-flex; gap: 3px; width: 14px; flex: none; align-items: center; }
+.sw-dots i { width: 3.5px; height: 3.5px; border-radius: 50%; background: currentColor;
+  animation: swDot 1.05s ease-in-out infinite; }
+.sw-dots i:nth-child(2) { animation-delay: .16s; }
+.sw-dots i:nth-child(3) { animation-delay: .32s; }
+@keyframes swDot { 0%,60%,100% { opacity: .28; transform: translateY(0); }
+                   30%         { opacity: 1;   transform: translateY(-2.5px); } }
+
+/* the typing caret, so a half-written answer reads as in-progress rather than truncated */
+.sw-caret { display: inline-block; width: 2px; height: 1em; margin-left: 1.5px;
+  background: var(--accent); vertical-align: -0.14em; animation: swBlink .85s step-end infinite; }
+@keyframes swBlink { 50% { opacity: 0; } }
+
+/* Someone who has asked their OS for less motion has asked for it here too. The typing effect
+   also self-disables in JS — CSS alone cannot stop a setInterval. */
+@media (prefers-reduced-motion: reduce) {
+  .sw-spark svg, .sw-in, .sw-step, .sw-dots i, .sw-caret { animation: none !important; }
+  .sw-tap:active:not(:disabled) { transform: none; }
+  .sw-caret { opacity: 1; }
+}

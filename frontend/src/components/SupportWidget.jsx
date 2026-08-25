@@ -76,6 +76,94 @@ function MyCases({ partnerId }) {
 }
 
 
+/* ── What the engine is doing, in words a captain reads ──────────────────────────────────────
+
+   A spinner says "wait". For someone who is not confident with apps, "wait" with no explanation
+   is where they close the tab — so this says WHAT is happening instead, in Hinglish, and it is
+   driven by the engine's own events rather than a timer. Every line appears because that node
+   actually fired.
+
+   That distinction matters beyond honesty: a fake progress animation runs at a fixed pace and
+   desynchronises from reality, so a slow turn sits on "almost done" for ten seconds. This one
+   cannot, because it IS the trace.
+
+   The text is first-person and concrete — "aapka record nikaal raha hoon" (I'm pulling up your
+   record) rather than "retrieving records". Somebody watching should feel that someone is working
+   on their problem, which is the entire reason to show this instead of a spinner. */
+const STEP_WORDS = {
+  capture:   "Aapki baat samajh raha hoon…",
+  extract:   "AWB / amount nikaal raha hoon…",
+  firstpass: "Dekh raha hoon kis type ka issue hai…",
+  knowledge: "SOP aur rules padh raha hoon…",
+  query:     "Aapka record nikaal raha hoon…",
+  ground:    "Aapke data se milaan kar raha hoon…",
+  policy:    "Rule ke hisaab se check kar raha hoon…",
+  gate:      "Confirm kar raha hoon ki jawab sahi hai…",
+  verify:    "Dobara jaanch kar raha hoon…",
+  act:       "Aage ka kadam le raha hoon…",
+  escalate:  "Team ko bhej raha hoon…",
+  explain:   "Jawab likh raha hoon…",
+  cost:      "Bas ho gaya…",
+  // The other three the CHAT path can emit. `error` is the one that matters: without a phrase the
+  // list simply stops on its last step and the captain watches three dots forever on a turn that
+  // has already failed. The remaining unmapped nodes — clear, compose, honesty, nudge, source,
+  // stream — are monitor-only and never reach this widget, so they are deliberately absent rather
+  // than missed. (Checked by listing every `_evt("…")` in engine/ and monitor/ against this map.)
+  guard:     "Ek cheez aur confirm kar raha hoon…",
+  learn:     "Yaad rakh raha hoon aage ke liye…",
+  error:     "Kuch dikkat aayi — dobara dekh raha hoon…",
+};
+
+function ProgressSteps({ events }) {
+  // De-duplicated: a node can fire twice on a multi-intent turn, and repeating the same sentence
+  // reads as a stutter rather than as progress.
+  const steps = [];
+  for (const ev of events) {
+    const w = STEP_WORDS[ev.node];
+    if (w && steps[steps.length - 1] !== w) steps.push(w);
+  }
+  if (!steps.length) return <div className="sw-step sw-step-live"><span className="sw-dots"><i/><i/><i/></span>Shuru kar raha hoon…</div>;
+  // Only the last three. The point is momentum, not a log — the full trace is TraceView's job.
+  return (
+    <div className="sw-steps">
+      {steps.slice(-3).map((w, i, a) => (
+        <div key={`${w}-${i}`}
+          className={`sw-step ${i === a.length - 1 ? "sw-step-live" : "sw-step-done"}`}>
+          {i === a.length - 1
+            ? <span className="sw-dots"><i/><i/><i/></span>
+            : <span className="sw-tick">✓</span>}
+          {w}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* Reveals an answer at reading pace. For a low-confidence reader a paragraph that ARRIVES is a
+   wall; the same paragraph that BUILDS is followable, and the movement holds attention while it
+   does. ~2 chars per 28ms puts a 200-character reply on screen in about 3 seconds.
+
+   Two guards: it skips entirely under `prefers-reduced-motion`, and it only animates the NEWEST
+   message — re-typing the whole history on every render would be both absurd and unreadable. */
+function Typed({ text, animate }) {
+  const [n, setN] = useState(animate ? 0 : text.length);
+  useEffect(() => {
+    if (!animate || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
+      setN(text.length);
+      return;
+    }
+    setN(0);
+    let i = 0;
+    const t = setInterval(() => {
+      i += 2;
+      setN(i);
+      if (i >= text.length) clearInterval(t);
+    }, 28);
+    return () => clearInterval(t);
+  }, [text, animate]);
+  return <>{text.slice(0, n)}{n < text.length && <span className="sw-caret" />}</>;
+}
+
 function SupportWidget({ hub, partnerId, askRef, showEngine }) {
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState("");
@@ -172,7 +260,12 @@ function SupportWidget({ hub, partnerId, askRef, showEngine }) {
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
       <div className="card-head">
-        <h3><Sparkles size={14} />Partner Support</h3>
+        <h3>
+          {/* Breathes when idle so the widget looks alive rather than switched off; spins up
+              while a turn is in flight. A dead-still panel reads as "this doesn't work". */}
+          <span className={`sw-spark ${busy ? "working" : ""}`}><Sparkles size={14} /></span>
+          Partner Support
+        </h3>
         <span className="mono" style={{ fontSize: 9.5, color: "var(--text-faint)" }}>
           {partnerId ? `hub ${hub}` : "no partner mapped"}
         </span>
@@ -184,20 +277,23 @@ function SupportWidget({ hub, partnerId, askRef, showEngine }) {
           <div className="df-note" style={{ border: "none", padding: 0 }}>
             The dashboard shows the numbers. Ask what they mean.
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-              {["why is my load low", "why did my capacity get cut", "how do I get more orders"].map((q) => (
-                <button key={q} className="chip" onClick={() => send(q)} disabled={busy || !partnerId}>{q}</button>
+              {["why is my load low", "why did my capacity get cut", "how do I get more orders"].map((q, i) => (
+                <button key={q} className="chip sw-in sw-tap" style={{ animationDelay: `${i * 70}ms` }}
+                  onClick={() => send(q)} disabled={busy || !partnerId}>{q}</button>
               ))}
             </div>
           </div>
         )}
         {msgs.map((m, i) => (
-          <div key={i} style={{ alignSelf: m.who === "captain" ? "flex-end" : "flex-start",
+          <div key={i} className="sw-in" style={{ alignSelf: m.who === "captain" ? "flex-end" : "flex-start",
             maxWidth: "88%", padding: "8px 11px", borderRadius: 10, fontSize: 12.5, lineHeight: 1.55,
             background: m.who === "captain" ? "var(--surface-3)"
               : m.failed ? "var(--warn-soft)" : "var(--surface-2)",
             border: `1px solid ${m.failed ? "rgba(255,185,95,.35)" : "var(--line-soft)"}`,
             color: "var(--text)" }}>
-            {m.text}
+            {m.who === "psp" && !m.failed
+              ? <Typed text={m.text} animate={i === msgs.length - 1} />
+              : m.text}
             {/* THE LINE A REAL CAPTAIN GETS. It survives with the engine trace hidden, because
                 it is the only part of the escalation that concerns them: it went somewhere, here
                 is the reference, here is roughly when to expect an answer. */}
@@ -218,7 +314,7 @@ function SupportWidget({ hub, partnerId, askRef, showEngine }) {
         {showEngine && events.length > 0 && (
           <TraceView events={events} scope="widget" maxHeight={340} />
         )}
-        {busy && <div className="mono" style={{ fontSize: 10, color: "var(--text-faint)" }}>thinking…</div>}
+        {busy && <ProgressSteps events={events} />}
         <div ref={endRef} />
       </div>
 

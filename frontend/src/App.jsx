@@ -55,14 +55,14 @@ const VIEWS = {
   bench:   { label: "Advocate Test Bench",  icon: "forum",           comp: CaptainPanel,
              title: "Advocate Test Bench",
              sub: "Drive the engine as any captain. Writes are logged source=operator, not partner." },
-  // The access ask, as a table. Declarative — the backend never calls anything to build it.
-  connectors: { label: "Connectors",      icon: "power",           comp: Connectors,
-             title: "Connector Registry",
-             sub: "Which real endpoints exist, what PSP does with each today, and what going live costs." },
-  // Is the gate's confidence a probability, or a label? Measured, and the answer is "a label".
-  calibration: { label: "Calibration",     icon: "speed",           comp: Calibration,
-             title: "Calibration",
-             sub: "Whether the trust gate's confidence means what its notation implies." },
+  // One row per captain-QUESTION, not per endpoint. The 46 paths sit behind a disclosure.
+  connectors: { label: "Data Access",     icon: "power",           comp: Connectors,
+             title: "What can this system see?",
+             sub: "Which captain questions the engine can answer today, and what the rest would take." },
+  // Purpose first, because "I don't know what calibration is for" was the finding.
+  calibration: { label: "Trust Numbers",   icon: "speed",           comp: Calibration,
+             title: "Do our two trust numbers mean anything?",
+             sub: "The gate's confidence, and whether the audit judge agrees with a human." },
 };
 
 /* One group per PERSONA. `.nav-sep` has existed in styles.css since the first build and was

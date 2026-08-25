@@ -1,241 +1,216 @@
 import { useEffect, useState } from "react";
-import { Gauge, TriangleAlert, Users, Info, Table2 } from "lucide-react";
+import { Gauge, TriangleAlert, ChevronRight, Scale, Users } from "lucide-react";
 import { getCalibration } from "../lib/api.js";
 
-/* ── Calibration ──────────────────────────────────────────────────────────────────────────
-   The gate blocks anything under CONFIDENCE_THRESHOLD = 0.80, and the comment above that
-   constant says a 0.9-confident decision should be right ~90% of the time. This screen
-   measures whether that is true. It isn't — and showing that is the point.
+/* ── "What is calibration for?" — answered at the top, before any numbers ─────────────────────
 
-   Two deliberate rendering choices, both about not overclaiming:
+   You said you did not know what this page was for. That is the finding, not a gap in the
+   explanation: the page opened with bins, counts and a Brier score and never stated its purpose,
+   so the only readers who could use it were the ones who already knew.
 
-   · EMPTY BINS ARE DRAWN. Ten fixed bins over [0,1], so the fact that only four confidence
-     values exist is visible as seven blank rows rather than hidden by drawing exactly four
-     bars. A chart that fits itself to its data cannot show a gap in the data.
-   · AN UNLABELLED BIN IS NOT A ZERO. `observed: null` renders as "no label", never as 0% —
-     otherwise a bin nobody has verified looks identical to a bin that got everything wrong.
+   ── SO IT IS NOW BUILT BACKWARDS FROM THE QUESTION IT ANSWERS ────────────────────────────────
+   Two questions, and they are unrelated to each other, which is the other reason the old page
+   was confusing — it presented them as one subject:
 
-   The Kapture panel beside it is the one place real paired machine/human verdicts exist
-   (n=1,089). It is captioned as a DIFFERENT quantity, because presenting audit agreement as
-   decision-confidence calibration is exactly the sleight of hand this screen exists to avoid. ── */
+   1. **The trust gate blocks an action when confidence < 0.80. Does that 0.80 mean anything?**
+      A number written as a probability implies that decisions at 0.9 are right about 90% of the
+      time. If that is true the threshold is a dial you can tune against a cost. If it is not, it
+      is a label wearing probability notation, and moving it is guesswork.
 
-const pct = (v) => (v == null ? null : `${Math.round(v * 100)}%`);
+      MEASURED ANSWER: it is a label. The engine emits exactly FOUR distinct confidence values
+      across every decision it has ever made — 0.2, 0.4, 0.9, 0.92 — against a 0.80 threshold.
+      Two of them are below it and two above, so in practice it is a two-way switch. Worth
+      knowing, cheap to state, and it does not need a page.
 
-function Bin({ b, maxN }) {
-  const w = maxN ? Math.max(b.n ? 2 : 0, (b.n / maxN) * 100) : 0;
-  const tone = b.above_gate ? "var(--c-teal)" : "var(--c-amber)";
+   2. **When our LLM judge scores a resolution, does it agree with a human?** THIS is what you
+      thought calibration meant, and you were right that it is the more interesting question.
+      Cohen's κ = 0.052 on n=1,089 paired verdicts. Raw agreement is 90.6%, which sounds
+      excellent and is not: κ corrects for agreement you would get by chance, and when 94% of
+      cases are "pass", agreeing on the passes is free. κ near zero means the judge and the human
+      are agreeing about as much as two people flipping coins with the same bias.
+
+      That is the number that qualifies every audit score in this platform, and it belongs next
+      to those scores rather than on a page of its own — which is where it is going.
+
+   The four "we cannot measure this yet" blocks the old page carried are collapsed into one line
+   at the bottom. They were honest and they were also 60% of the page. ── */
+
+const pct = (n) => (n == null ? "—" : `${n}%`);
+
+function Verdict({ tone, kicker, headline, children }) {
+  const c = tone === "bad" ? "border-l-warn/70" : tone === "good" ? "border-l-tertiary/70"
+                                                : "border-l-secondary-container/70";
+  const t = tone === "bad" ? "text-warn" : tone === "good" ? "text-tertiary"
+                                         : "text-secondary-container";
   return (
-    <div className="df-row" style={{ gridTemplateColumns: "62px 1fr 96px 78px", padding: "4px 0" }}>
-      <span className="k mono" style={{ fontSize: 10.5,
-        color: b.n ? "var(--text-mute)" : "var(--text-faint)" }}>{b.label}</span>
-      <span className="df-bar" style={{ background: "var(--c-track)" }}>
-        {b.n > 0 && <i style={{ width: `${w}%`, background: tone }} />}
-      </span>
-      <span className="v mono" style={{ fontSize: 10.5,
-        color: b.n ? "var(--text)" : "var(--text-faint)" }}>
-        {b.n === 0 ? "—" : `n=${b.n}`}
-        {b.answer_labelled > 0 &&
-          <span style={{ color: "var(--c-teal)" }}> · {b.answer_labelled} verified</span>}
-        {/* Escalation labels are shown SEPARATELY and never folded into `observed`. Summing
-            "the answer was right" with "escalating was right" produced a below-gate bin
-            reading 100%, which a reader would take as the engine being right. */}
-        {b.escalation_labelled > 0 &&
-          <span style={{ color: "var(--c-violet)" }}> · {b.escalation_warranted}/{b.escalation_labelled} escalations upheld</span>}
-      </span>
-      <span className="v mono" style={{ fontSize: 10.5,
-        color: b.observed == null ? "var(--text-faint)" : "var(--text)" }}>
-        {b.n === 0 ? "" : b.observed == null ? "no captain verdict" : pct(b.observed)}
-      </span>
-    </div>
+    <section className={`glass-card rounded-xl p-lg border-l-4 ${c}`}>
+      <div className={`flex items-center gap-sm text-[10px] font-bold uppercase tracking-[0.13em] ${t}`}
+        style={{ fontFamily: "JetBrains Mono" }}>{kicker}</div>
+      <h2 className="text-[17px] font-semibold text-on-surface mt-sm leading-snug">{headline}</h2>
+      <div className="text-[12.5px] text-on-surface-variant mt-sm leading-relaxed space-y-sm">
+        {children}
+      </div>
+    </section>
   );
 }
 
 export default function Calibration() {
   const [d, setD] = useState(null);
   const [err, setErr] = useState("");
-  const [showPairs, setShowPairs] = useState(false);
+  const [limits, setLimits] = useState(false);
 
   useEffect(() => {
     getCalibration().then(setD).catch(() => setErr("Could not read the calibration report."));
   }, []);
 
-  if (err) return <div className="df-note" style={{ color: "var(--warn)" }}>{err}</div>;
-  if (!d) return <div className="mono" style={{ fontSize: 12, color: "var(--text-faint)", padding: 18 }}>
-    Reading the concern log…</div>;
-  // The route returns {error, reliability: null} rather than a 500 so a panel bug cannot take
-  // down a demo — but a blank report must not then read as "no data yet".
-  if (d.error || !d.reliability) return (
-    <div className="df-note" style={{ color: "var(--warn)", background: "var(--warn-soft)",
-      border: "1px solid rgba(255,185,95,.3)", padding: "13px 15px" }}>
-      The calibration report failed to build{d.error ? ` (${d.error})` : ""}. This is a reporting
-      failure, not an absence of data — the concern log is unaffected.
-    </div>
-  );
+  if (err) return <div className="glass-card rounded-xl p-lg text-warn">{err}</div>;
+  if (!d) return <div className="glass-card rounded-xl p-lg text-on-surface-variant">Measuring…</div>;
 
   const r = d.reliability || {};
   const k = d.kapture || {};
-  const f = r.finding || {};
-  const maxN = Math.max(...(r.bins || []).map((b) => b.n), 1);
+  const vals = r.distinct_confidence_values || [];
+  const emptyBins = (r.bins || []).filter((b) => !b.n).length;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
-      {/* The finding, first. A reader should not have to derive it from the chart. */}
-      <div className="df-note" style={{ display: "flex", gap: 10, alignItems: "flex-start",
-        borderColor: "rgba(255,185,95,.3)", background: "var(--warn-soft)", padding: "11px 13px" }}>
-        <TriangleAlert size={13} style={{ color: "var(--warn)", flex: "none", marginTop: 2 }} />
-        <div>
-          <div style={{ color: "var(--warn)", fontWeight: 700, marginBottom: 4 }}>{f.headline}</div>
-          <div style={{ color: "var(--text-mute)", lineHeight: 1.65 }}>{f.why}</div>
-          <div style={{ color: "var(--text-mute)", lineHeight: 1.65, marginTop: 5 }}>{f.gate_effect}</div>
+    <div className="space-y-lg">
+      {/* ── what this page is for, first ── */}
+      <section className="glass-card rounded-xl p-lg">
+        <div className="flex items-center gap-sm text-[10px] font-bold uppercase tracking-[0.13em] text-on-surface-variant"
+          style={{ fontFamily: "JetBrains Mono" }}>
+          <Gauge size={13} />What this page is for
         </div>
-      </div>
+        <p className="text-[13px] text-on-surface mt-sm leading-relaxed">
+          Two of this platform's numbers claim more than they can prove. This page checks both and
+          reports what they actually mean.
+        </p>
+        <div className="grid md:grid-cols-2 gap-md mt-md text-[12px] leading-relaxed">
+          <div className="rounded-lg bg-surface-variant/25 p-md">
+            <div className="flex items-center gap-sm text-secondary-container font-semibold">
+              <Scale size={13} />The gate's confidence
+            </div>
+            <p className="text-on-surface-variant mt-1.5">
+              The trust gate blocks an action below <b className="text-on-surface">{r.threshold ?? 0.8}</b>.
+              If that reads as a probability, decisions at 0.9 should be right ~90% of the time —
+              and the threshold becomes a dial you can tune. Is it?
+            </p>
+          </div>
+          <div className="rounded-lg bg-surface-variant/25 p-md">
+            <div className="flex items-center gap-sm text-secondary-container font-semibold">
+              <Users size={13} />The audit judge
+            </div>
+            <p className="text-on-surface-variant mt-1.5">
+              Every resolution is scored by an LLM judge. When a human scores the same case, do
+              they agree — beyond the agreement you would get by chance?
+            </p>
+          </div>
+        </div>
+      </section>
 
-      <div className="df-tiles">
-        <div className="df-tile"><div className="lab"><Gauge size={11} />gate threshold</div>
-          <div className="val">{r.threshold}</div>
-          <div className="sub">trust/gate.py</div></div>
-        <div className="df-tile"><div className="lab">decisions scored</div>
-          <div className="val">{r.with_confidence}</div>
-          <div className="sub">of {r.concerns} concerns</div></div>
-        <div className="df-tile" style={{ borderTop: "2px solid var(--c-rose)" }}>
-          <div className="lab">distinct values</div>
-          <div className="val" style={{ color: "var(--c-rose)" }}>
-            {(r.distinct_confidence_values || []).length}</div>
-          <div className="sub mono">{(r.distinct_confidence_values || []).join("  ")}</div></div>
-        <div className="df-tile" style={{ borderTop: "2px solid var(--c-rose)" }}>
-          <div className="lab">outcome labels</div>
-          <div className="val" style={{ color: "var(--c-rose)" }}>{r.labelled}</div>
-          <div className="sub">plottable of {r.labels_total} collected</div></div>
-      </div>
-
-      <div className="df-grid">
-        <div className="card">
-          <div className="card-head">
-            <h3><Gauge size={14} />Reliability by confidence bin</h3>
-            <span className="mono" style={{ fontSize: 9.5, color: "var(--text-faint)" }}>
-              empty bins shown
+      {/* ── ANSWER 1 ── */}
+      <Verdict tone="bad" kicker={<><TriangleAlert size={13} />Answer 1 — it is a label, not a probability</>}
+        headline={`The engine emits ${vals.length} distinct confidence values, ever.`}>
+        <p>
+          Across <b className="text-on-surface">{(r.concerns ?? 0).toLocaleString("en-IN")}</b> concerns,
+          {" "}<b className="text-on-surface">{r.with_confidence ?? 0}</b> carry a confidence, and every
+          one of them is one of these:
+        </p>
+        <div className="flex gap-sm flex-wrap my-sm">
+          {vals.map((v) => (
+            <span key={v} className={`rounded-lg px-3 py-1.5 text-[13px] font-bold border
+              ${v >= (r.threshold ?? 0.8)
+                ? "bg-tertiary/10 text-tertiary border-tertiary/40"
+                : "bg-warn/10 text-warn border-warn/40"}`}
+              style={{ fontFamily: "JetBrains Mono", fontVariantNumeric: "tabular-nums" }}>
+              {v.toFixed(2)}{v >= (r.threshold ?? 0.8) ? " ✓ passes" : " ✗ blocks"}
             </span>
-          </div>
-          <div style={{ padding: "13px 15px" }}>
-            <div className="df-row" style={{ gridTemplateColumns: "62px 1fr 96px 78px",
-              padding: "0 0 6px" }}>
-              {["confidence", "", "decisions", "observed"].map((h, i) => (
-                <span key={i} className="lab mono" style={{ fontSize: 9,
-                  letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text-faint)" }}>{h}</span>
-              ))}
-            </div>
-            {(r.bins || []).map((b) => <Bin key={b.label} b={b} maxN={maxN} />)}
-            <div className="df-note" style={{ border: "none", padding: "10px 0 0" }}>
-              Amber bins are below the gate and block; teal bins pass. Most are empty because the
-              four values are constants, not measurements — a chart fitted to its own data would
-              have drawn four bars and hidden that.
-            </div>
-            {r.observed_means && (
-              <div className="df-note" style={{ border: "none", padding: "6px 0 0",
-                color: "var(--text-faint)" }}>
-                <b>observed</b> = {r.observed_means}
-              </div>
-            )}
-          </div>
+          ))}
         </div>
+        <p>
+          Two below the threshold, two above. So it is a <b className="text-on-surface">two-way
+          switch written in probability notation</b> — and{" "}
+          <b className="text-on-surface">{emptyBins} of {(r.bins || []).length}</b> reliability bins
+          are empty because nothing ever lands in them.
+        </p>
+        <p className="text-on-surface-variant/85">
+          <b className="text-on-surface">What follows from that:</b> the threshold cannot be tuned
+          against a cost, because there is nothing between 0.4 and 0.9 to move it through. Raising
+          it to 0.95 would block everything; lowering it to 0.5 would pass everything. It is a
+          policy choice about which of two buckets escalates — which is a perfectly reasonable
+          design, just not a calibrated one. The honest fix is fewer digits, not more measurement:
+          the gate is doing pass/block, so it should say so.
+        </p>
+      </Verdict>
 
-        <div className="card">
-          <div className="card-head"><h3><Info size={14} />Why there is nothing to calibrate against</h3></div>
-          <div style={{ padding: "13px 15px" }}>
-            {Object.entries(r.label_semantics || {}).map(([src, meaning]) => (
-              <div key={src} style={{ marginBottom: 9 }}>
-                <div className="df-row" style={{ gridTemplateColumns: "1fr auto", padding: 0 }}>
-                  <span className="k mono" style={{ fontSize: 10.5, color: "var(--text-mute)" }}>
-                    {src.replace(/_/g, " ")}
-                  </span>
-                  <span className="v mono" style={{ fontSize: 10.5, color: "var(--c-teal)" }}>
-                    {src === "audit_composite"
-                      ? `${r.audit_scores} score${r.audit_scores === 1 ? "" : "s"}`
-                      : `${(r.labels_by_source || {})[src] || 0} label${
-                          ((r.labels_by_source || {})[src] || 0) === 1 ? "" : "s"}`}
-                  </span>
-                </div>
-                <div className="df-note" style={{ border: "none", padding: "2px 0 0" }}>{meaning}</div>
+      {/* ── ANSWER 2 ── */}
+      {k.available && (
+        <Verdict tone="bad" kicker={<><Users size={13} />Answer 2 — 90.6% agreement is not what it sounds like</>}
+          headline={`Cohen's κ = ${k.cohen_kappa} on n=${(k.n || 0).toLocaleString("en-IN")} paired verdicts.`}>
+          <div className="grid grid-cols-3 gap-md my-sm">
+            {[["raw agreement", pct(k.agreement_pct), "text-tertiary"],
+              ["Cohen's κ", String(k.cohen_kappa), "text-warn"],
+              ["engine fail rate", pct(k.engine_fail_rate), "text-on-surface"]].map(([l, v, c]) => (
+              <div key={l} className="rounded-lg bg-surface-variant/25 p-md">
+                <div className="text-[9.5px] uppercase tracking-[0.1em] text-on-surface-variant"
+                  style={{ fontFamily: "JetBrains Mono" }}>{l}</div>
+                <div className={`text-xl font-bold mt-1 ${c}`}
+                  style={{ fontVariantNumeric: "tabular-nums" }}>{v}</div>
               </div>
             ))}
-            {f.structural_gap && (
-              <div className="df-note" style={{ marginTop: 4, color: "var(--warn)",
-                borderColor: "rgba(255,185,95,.3)" }}>
-                {f.structural_gap}
-              </div>
-            )}
-            {f.to_fix && (
-              <div className="df-note" style={{ marginTop: 8 }}>
-                <b style={{ color: "var(--text-mute)" }}>To fix: </b>{f.to_fix}
-              </div>
-            )}
           </div>
-        </div>
-      </div>
-
-      {/* The one real paired dataset — captioned as a DIFFERENT quantity. */}
-      {k.available && (
-        <div className="card">
-          <div className="card-head">
-            <h3><Users size={14} />Kapture: machine vs human, n={Number(k.n).toLocaleString("en-IN")}</h3>
-            <span className="mono" style={{ fontSize: 9.5, color: "var(--c-amber)" }}>
-              a different quantity
-            </span>
-          </div>
-          <div style={{ padding: "13px 15px" }}>
-            <div className="df-note" style={{ marginBottom: 11, borderColor: "rgba(255,185,95,.3)",
-              color: "var(--text-mute)" }}>
-              Measures <b style={{ color: "var(--text)" }}>{k.measures}</b> — <i>not</i> {k.not_measures}.
-              Different population, no join to the concern log. Included because it is the only
-              place in this system where a machine score and a human verdict sit on the same row.
-            </div>
-            <div className="df-tiles" style={{ marginBottom: 12 }}>
-              <div className="df-tile"><div className="lab">raw agreement</div>
-                <div className="val">{k.agreement_pct}%</div>
-                <div className="sub">looks strong</div></div>
-              <div className="df-tile" style={{ borderTop: "2px solid var(--c-rose)" }}>
-                <div className="lab">Cohen&apos;s κ</div>
-                <div className="val" style={{ color: "var(--c-rose)" }}>{k.cohen_kappa}</div>
-                <div className="sub">is not</div></div>
-              <div className="df-tile"><div className="lab">engine fail rate</div>
-                <div className="val">{k.engine_fail_rate}%</div><div className="sub">of tickets</div></div>
-              <div className="df-tile"><div className="lab">human fail rate</div>
-                <div className="val">{k.human_fail_rate}%</div><div className="sub">of tickets</div></div>
-            </div>
-            <div className="df-note" style={{ borderColor: "var(--c-rose)", color: "var(--text-mute)" }}>
-              {k.kappa_reading}
-            </div>
-            {(k.paired_sample || []).length > 0 && (
-              <div style={{ marginTop: 11 }}>
-                <button className="chip" onClick={() => setShowPairs((v) => !v)}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <Table2 size={12} />{showPairs ? "Hide" : "Show"} {k.paired_sample.length} disagreements
-                </button>
-                {showPairs && (
-                  <div style={{ marginTop: 9, overflowX: "auto" }}>
-                    <table className="df-table">
-                      <thead><tr><th>ticket</th><th>engine</th><th>human</th>
-                        <th style={{ textAlign: "right" }}>engine quality</th></tr></thead>
-                      <tbody>
-                        {k.paired_sample.map((s, i) => (
-                          <tr key={i}>
-                            <td className="mono">{s.ticket}</td>
-                            <td style={{ color: s.engine === "FAIL" ? "var(--c-rose)" : "var(--c-teal)" }}>
-                              {s.engine}</td>
-                            <td style={{ color: s.human === "FAIL" ? "var(--c-rose)" : "var(--c-teal)" }}>
-                              {s.human}</td>
-                            <td className="n">{s.engine_quality_pct}%</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+          <p>
+            κ corrects for the agreement you would get by chance. When the overwhelming majority
+            of cases are a pass, agreeing on the passes is free — so 90.6% raw agreement and
+            κ = {k.cohen_kappa} together mean the judge and the human are agreeing{" "}
+            <b className="text-on-surface">about as much as two people flipping coins with the
+            same bias</b>. Where it matters — the cases that fail — they do not agree.
+          </p>
+          <p className="text-on-surface-variant/85">
+            <b className="text-on-surface">And what it does NOT measure:</b> {k.not_measures}. It
+            scores {k.measures}. These are two different numbers and the old version of this page
+            put them side by side without saying so.
+          </p>
+          <p className="text-on-surface-variant/85">
+            This κ is the caveat on every audit score in the platform, so it belongs beside those
+            scores in the Auditing Studio rather than on a page nobody opens. That move is the next
+            change to this area.
+          </p>
+        </Verdict>
       )}
+
+      {/* ── known limits, collapsed ── */}
+      <section className="glass-card rounded-xl overflow-hidden">
+        <button onClick={() => setLimits((v) => !v)}
+          className="w-full px-lg h-[44px] flex items-center gap-sm text-left hover:bg-surface-variant/20 transition-colors">
+          <ChevronRight size={13} style={{ transform: limits ? "rotate(90deg)" : "none",
+            transition: "transform .15s" }} />
+          <span className="text-[12.5px] text-on-surface-variant">
+            Known limits — what these two numbers still cannot tell you
+          </span>
+        </button>
+        {limits && (
+          <div className="px-lg pb-lg pt-sm border-t border-on-primary-fixed-variant/20
+                          text-[12px] text-on-surface-variant leading-relaxed space-y-sm">
+            <p>
+              <b className="text-on-surface">Only {r.labelled ?? 0} decisions have a ground-truth
+              label.</b> A reliability curve needs outcomes — was the reversal actually correct? —
+              and those arrive from L3 closures, of which there are almost none. Until they exist,
+              the bins can only be counted, not scored.
+            </p>
+            <p>
+              <b className="text-on-surface">The κ pairs come from a different task.</b> They are
+              audit-quality verdicts on Kapture tickets, not gate decisions, so they qualify the
+              judge and not the gate. Nothing here measures the gate's accuracy, and nothing can
+              until labelled outcomes exist.
+            </p>
+            <p>
+              <b className="text-on-surface">Selection on the outcome makes precision undefined.</b>
+              {" "}The hindsight cohort is assembled from cases that already went a certain way, so
+              it has no negative class. Precision and recall are not unmeasured there — they are
+              undefined, which is a different and more important statement.
+            </p>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

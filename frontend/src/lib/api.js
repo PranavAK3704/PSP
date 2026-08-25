@@ -208,6 +208,9 @@ export const getCalibration = () => apiGet("/api/calibration");
 
 // Connector registry — declarative; the backend never calls anything to build it.
 export const getConnectors = () => apiGet("/api/connectors");
+/* Real ticket volumes from the Kapture export — supporting evidence on the Connectors page.
+   A failure here must not blank that page, so the caller catches it separately. */
+export const getTickets = () => apiGet("/api/tickets/summary");
 
 export const getAudit = () => apiGet("/api/audit");
 export const getKt = () => apiGet("/api/kt");

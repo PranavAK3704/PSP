@@ -116,6 +116,26 @@ _TAXONOMY = {
     "dual_scan_mismatch":          ("dual_scan_mismatch",         "Losses & Debits (L2)",           "raise_for_reversal", 5000),
     "debit_revoked":               ("debit_revoked",              "Losses & Debits (L2)",           "inform",        None),
     "shipment_shortage":           ("shipment_shortage",          "Losses & Debits (L2)",           "escalate",      None),
+    # ── THE SHORTAGE SUB-STATES ────────────────────────────────────────────────────────────────
+    # `shipment_shortage` is 258,656 rows escalated as one bucket. `losses.reason` — 100% filled,
+    # on the row already, and exposed by NO live endpoint — says which shortage each one is, and
+    # most of them do not need a human. See loss_db._SHORTAGE_SUBSTATE for the counts.
+    #
+    # `inform` on five of these because the captain's next action is the answer: send the evidence,
+    # or know why theirs failed, or know that the delay is ours. Escalating any of those makes
+    # someone wait a day to be told something already written down.
+    "shortage_evidence_missing":   ("shortage_evidence_missing",  "Losses & Debits (L2)",           "inform",        None),
+    "shortage_evidence_invalid":   ("shortage_evidence_invalid",  "Losses & Debits (L2)",           "inform",        None),
+    # Both parties' evidence agrees the shortage was not the captain's — the strongest reversal
+    # signal in the dataset. Thresholded like the other money actions, so a large amount still
+     # goes to a human, and the trust gate and adversarial verifier still apply on top.
+    "shortage_evidence_upheld":    ("shortage_evidence_upheld",   "Losses & Debits (L2)",           "raise_for_reversal", 5000),
+    "shortage_our_delay":          ("shortage_our_delay",         "Losses & Debits (L2)",           "inform",        None),
+    "shortage_our_error":          ("shortage_our_error",         "Losses & Debits (L2)",           "inform",        None),
+    # "Still being assessed" is a TRUE answer and a different one from "escalated". A captain told
+    # the truth about a pending case does not need a human to hear it.
+    "shortage_pending":            ("shortage_pending",           "Losses & Debits (L2)",           "inform",        None),
+    "shortage_marked_late":        ("shortage_marked_late",       "Losses & Debits (L2)",           "escalate",      None),
     "bag_shortage":                ("bag_shortage",               "Losses & Debits (L2)",           "escalate",      None),
     "not_found":                   ("not_found",                  "Losses & Debits (L2)",           "escalate",      None),
     "wrong_rvp_pickup":            ("wrong_rvp_pickup",           "RVP / Returns (L2)",             "escalate",      None),

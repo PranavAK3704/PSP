@@ -818,6 +818,16 @@ GRAPHS: dict[str, tuple[FollowUp, ...]] = {
     # which on the cheapest possible turn — "you are not being charged" — would be the worst place
     # to lose them.
     "qc_no_debit": _QC,
+    # The shortage sub-states share the shortage graph: a captain told "evidence not received"
+    # asks the same next questions as one told "shortage" — what do I send, by when, what counts.
+    # Without these entries each new disposition would offer no chips at all.
+    "shortage_evidence_missing": _SHORTAGE,
+    "shortage_evidence_invalid": _SHORTAGE,
+    "shortage_evidence_upheld": _SHORTAGE,
+    "shortage_our_delay": _SHORTAGE,
+    "shortage_our_error": _SHORTAGE,
+    "shortage_pending": _SHORTAGE,
+    "shortage_marked_late": _SHORTAGE,
 }
 
 #: The queue each graphed disposition belongs to, for the RULE 2 foreign-word test. Keys are
@@ -831,6 +841,13 @@ SCOPE_DOMAIN: dict[str, str] = {
     "intransit_loss": "losses",
     "secondary_qc_fail": "losses",
     "qc_no_debit": "losses",
+    "shortage_evidence_missing": "losses",
+    "shortage_evidence_invalid": "losses",
+    "shortage_evidence_upheld": "losses",
+    "shortage_our_delay": "losses",
+    "shortage_our_error": "losses",
+    "shortage_pending": "losses",
+    "shortage_marked_late": "losses",
 }
 
 _ALL_NODES = GLOSSARY + UNIVERSAL + _LOAD + _HARDSTOP + _SHORTAGE + _INTRANSIT + _QC

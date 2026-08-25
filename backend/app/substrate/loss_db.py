@@ -158,6 +158,56 @@ def _normalize_attribution(rows: list[dict]) -> dict:
     }
 
 
+#: `losses.reason` → a refined reason_l1, for the sub-states that are DECIDABLE.
+#:
+#: `reason_l1` collapses 258,656 rows into the single value `shipment_shortage`, which policies.py
+#: escalates unconditionally. `reason` is 100% filled and already on the row — it says which
+#: shortage this is, and four of the sub-states do not need a human at all:
+#:
+#:     shortage - evidence not received        84,557   tell them WHAT to send, and by when
+#:     shortage - evidence invalid             75,463   tell them WHY theirs failed
+#:     shortage - evidence valid from both     23,839   both sides agree — this should reverse
+#:     shortage_validation_delay               45,670   OUR delay, not their fault
+#:     shortage_validation incorrect agent      7,654   OUR agent got it wrong
+#:     shortage pending for attribution       123,477   genuinely not adjudicated yet
+#:
+#: The last one matters as much as the others: "still being assessed" is a true answer and a
+#: different one from "escalated to L2", and a captain told the truth about a pending case does
+#: not need to be handed to a human to hear it.
+#:
+#: The project owner's own data-discovery table records that the live LMS endpoint
+#: (/v1/shipments/loss-details) does NOT expose this verdict. So this is not work that a future
+#: integration makes redundant — reading the local column is the only way to get it, now or later.
+_SHORTAGE_SUBSTATE = {
+    "shortage - evidence not received":        "shortage_evidence_missing",
+    "shortage - evidence invalid":             "shortage_evidence_invalid",
+    "shortage - evidence valid from both party": "shortage_evidence_upheld",
+    "shortage_validation_delay":               "shortage_our_delay",
+    "shortage_validation incorrect agent":     "shortage_our_error",
+    "shortage pending for attribution":        "shortage_pending",
+    "post_24hrs shortage marked":              "shortage_marked_late",
+}
+
+
+def _refine_shortage(row: dict) -> dict:
+    """Replace a blanket shortage reason_l1 with its decidable sub-state, where one exists.
+
+    Deliberately narrow: it fires ONLY when reason_l1 is already one of the shortage buckets, so
+    it can never relabel a hardstop or an RVP pickup. An unrecognised `reason` leaves the row
+    exactly as it was — the map is an allow-list, not a parser.
+    """
+    l1 = (row.get("reason_l1") or "").strip().lower()
+    if l1 not in ("shipment_shortage", "bag_shortage"):
+        return row
+    refined = _SHORTAGE_SUBSTATE.get((row.get("reason") or "").strip().lower())
+    if not refined:
+        return row
+    row["_shortage_substate"] = refined
+    row["_shortage_reason_raw"] = (row.get("reason") or "").strip()
+    row["reason_l1"] = refined
+    return row
+
+
 def get_loss_by_awb(awb: str) -> dict | None:
     """Consolidated loss row for an AWB, in priority order: `losses` (full export, has
     facility_inscan/reason_l1) → `loss_attrib` → the `attribution` ledger (debit/reversal state).
@@ -167,10 +217,12 @@ def get_loss_by_awb(awb: str) -> dict | None:
     awb = awb.strip().upper()
     rows = _rows("losses", awb)
     if rows:
-        out = _consolidate(rows, "facility_inscan"); out["_src"] = "losses"; return out
+        out = _consolidate(rows, "facility_inscan"); out["_src"] = "losses"
+        return _refine_shortage(out)
     rows = _rows("loss_attrib", awb)
     if rows:
-        out = _consolidate(rows, "lm_facility_inscan"); out["_src"] = "loss_attrib"; return out
+        out = _consolidate(rows, "lm_facility_inscan"); out["_src"] = "loss_attrib"
+        return _refine_shortage(out)
     rows = _rows("attribution", awb)
     if rows:
         return _normalize_attribution(rows)

@@ -65,12 +65,21 @@ const DOMAINS = [
     answerable: false,
     have: "No adapter — but the owner is now known. `vetan` (\"Partner Payout compute and scheduler\") serves it, and it already composes the answer sentence itself: “Payment credited on {date} to {account}”, “Your payment has failed due to {reason}”, “Payment initiated on {date} — it will be credited in 2-3 days”.",
     takes: "Read access to vetan. The one endpoint that matters most is POST /api/v2/payments/details — credited-on timestamp, masked account, UTR and failure reason. GET /api/v2/earnings/current-cycle-details is the only endpoint anywhere that answers “payment kab aayega” rather than “what happened”." },
-  { key: "capacity", label: "Capacity & pendency",
-    question: "“Capacity cut kyun laga” · “COD pendency clear karo”",
+  { key: "capacity", label: "Capacity cuts",
+    question: "“Capacity cut kyun laga” — why was my volume capped",
     queues: ["Orders & Planning (capacity)"],
     answerable: false,
     have: "No adapter. But ValmoLogisticsService's order-summary already returns a COMPOSED answer — banner_type “red_capacity_cut” with the sentence naming the cause and the date it lifts.",
-    takes: "GET /api/v1/captain/hub-capacity/{hubId} plus the two cod-pendency reads. Both already serve the captain's own panel, so this is read access to what they can see themselves — nothing to build on their side." },
+    takes: "GET /api/v1/captain/hub-capacity/{hubId} — already serving the captain's own panel, so this is read access to what they can see themselves. Note: the WRITE counterpart often quoted alongside it, /v1/captain/dc-capacity/update, does not exist in the service; the real write is PUT on the same hub-capacity path." },
+  // Split out of "capacity & pendency". Lumping them together made pendency look further away
+  // than it is: it has a DIRECT endpoint match, already catalogued in PSP's own registry, and the
+  // data-discovery table for gold.dc_cod_pendency_v1 marks it the one unambiguous ✅ of its set.
+  { key: "pendency", label: "COD pendency",
+    question: "“COD pendency clear karo” — cash I have collected and not deposited",
+    queues: ["Losses & Debits · Cash/COD · Service area · Misroute"],
+    answerable: false,
+    have: "No adapter — but the closest thing to a solved gap in the estate. LMS exposes the aging buckets directly and PSP already catalogues the route.",
+    takes: "LMS /v1/cod-pendency/get-cod-pendency-buckets. One adapter against an endpoint that already matches the warehouse table one-for-one. Cash HANDOVER is the opposite case: five Google Sheets plus a Razorpay leg, and no system to integrate with at all." },
 ];
 
 function Tile({ icon: Icon, n, label, sub, tone }) {

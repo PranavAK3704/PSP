@@ -3,7 +3,6 @@ import CaptainPanel from "./pages/CaptainPanel.jsx";
 import GrowthDashboard from "./pages/GrowthDashboard.jsx";
 import Connectors from "./pages/Connectors.jsx";
 import Calibration from "./pages/Calibration.jsx";
-import Monitor from "./pages/Monitor.jsx";
 import L3Workspace from "./pages/L3Workspace.jsx";
 import SupportCommand from "./pages/SupportCommand.jsx";
 import Shader from "./components/Shader.jsx";
@@ -13,22 +12,41 @@ import { AudienceProvider } from "./lib/audienceMode.js";
 import { getHealth, listUsers, createUser } from "./lib/api.js";
 import { AuthProvider, useAuth } from "./lib/auth.jsx";
 
-/* ── Views: every nav item maps to a standalone component. `title`/`sub` drive the
-   slim topbar. Grouped into the two sidebar sections below. ── */
+/* ── Views, ORGANISED BY WHO IS LOOKING ───────────────────────────────────────────────────────
+
+   This was seven flat feature tabs, which is a map of what got built rather than of who uses it.
+   The platform has exactly three kinds of user and each sees a different projection of ONE
+   record (the concern and its trace):
+
+     a CAPTAIN   sees a widget on the panel they already open every morning
+     an L3 MEMBER sees the cases routed to them
+     the SUPPORT TEAM sees everything, and tests the engine on the bench
+
+   Grouped that way, the sidebar states the claim. Flat, it hid it.
+
+   ── TWO RENAMES, and why they matter more than they look ─────────────────────────────────
+   `growth` -> `captain`: the partner's own screen IS the Captain Panel, and it is now the
+   destination the app OPENS ON. It was one row below an internal console also called "Captain
+   Advocate", so on load you saw the old bench and the entire captain surface was invisible.
+   Old `captain` -> `bench`: it is the Advocate TEST BENCH — a colleague driving the engine as
+   a captain — and calling it "Captain Advocate" made two adjacent rows both start with
+   "Captain" and share a hue, which is how one got mistaken for the other.
+
+   `monitor` is GONE as a destination. Proactive monitoring is docked on the Captain Panel,
+   where the nudge actually lands. A tab of its own made it read as a demo of itself. ── */
 const VIEWS = {
-  captain: { label: "Captain Advocate",     icon: "forum",           comp: CaptainPanel,
-             title: "Captain Advocate",     sub: "Live partner-support advocacy — resolve concerns in-conversation." },
-  monitor: { label: "Proactive Monitoring", icon: "radar",           comp: Monitor,
-             title: "Proactive Monitoring", sub: "Always-on, shadow-first risk detection on the event stream." },
+  // The partner's OWN screen, with support docked beside it. Same payload, two presentations —
+  // which is only a demonstrable claim if both are on the projector at the same time.
+  captain: { label: "Captain Panel",        icon: "bar_chart",       comp: GrowthDashboard,
+             title: "Captain Panel · Growth Dashboard",
+             sub: "What the captain sees — support widget and risk monitoring docked beside it." },
   l3:      { label: "L3 Console",           icon: "inbox",           comp: L3Workspace,
              title: "L3 Console",           sub: "Escalated cases worked by the L3 desk." },
   support: { label: "Support Command",      icon: "space_dashboard", comp: SupportCommand,
              title: "Support Command",      sub: "Command deck, authoring, auditing, governance & the concern log." },
-  // The partner's OWN screen, with support docked beside it. Same payload, two presentations —
-  // which is only a demonstrable claim if both are on the projector at the same time.
-  growth:  { label: "Captain Panel",         icon: "bar_chart",       comp: GrowthDashboard,
-             title: "Captain Panel · Growth Dashboard",
-             sub: "What the captain sees — with the support widget docked beside it." },
+  bench:   { label: "Advocate Test Bench",  icon: "forum",           comp: CaptainPanel,
+             title: "Advocate Test Bench",
+             sub: "Drive the engine as any captain. Writes are logged source=operator, not partner." },
   // The access ask, as a table. Declarative — the backend never calls anything to build it.
   connectors: { label: "Connectors",      icon: "power",           comp: Connectors,
              title: "Connector Registry",
@@ -38,7 +56,17 @@ const VIEWS = {
              title: "Calibration",
              sub: "Whether the trust gate's confidence means what its notation implies." },
 };
-const NAV = ["captain", "growth", "monitor", "l3", "support", "connectors", "calibration"];
+
+/* One group per PERSONA. `.nav-sep` has existed in styles.css since the first build and was
+   never used — this is what it was for. */
+const NAV_GROUPS = [
+  { label: "captain",      rows: ["captain"] },
+  { label: "l3 desk",      rows: ["l3"] },
+  // `connectors` and `calibration` sit here because a support-team person is who reads them,
+  // and they fold INTO Support Command as sub-tabs in the next pass — at which point this
+  // group is two rows.
+  { label: "support team", rows: ["support", "bench", "connectors", "calibration"] },
+];
 
 // Nav context — some pages (e.g. Monitor) call useNav() to jump views. Exposes setView.
 const NavCtx = createContext(() => {});
@@ -333,7 +361,12 @@ function Shell() {
               <span className="tag">command center</span>
             </div>
 
-            {NAV.map((k) => <NavItem key={k} k={k} />)}
+            {NAV_GROUPS.map((g) => (
+              <div key={g.label}>
+                <div className="nav-sep">{g.label}</div>
+                {g.rows.map((k) => <NavItem key={k} k={k} />)}
+              </div>
+            ))}
 
             {/* ── FOOT: signed-in user · role · logout · (approver) team · health ── */}
             <div className="sidebar-foot">

@@ -698,9 +698,15 @@ def l3_resolve(body: L3ResolveIn):
 
 
 @app.get("/api/captain/{captain_id}/cases", dependencies=[_authed])
-def captain_cases(captain_id: str):
-    """Captain-facing 'My Cases': escalated cases + live status + resolution (polled by the widget)."""
-    return {"cases": l3.cases(captain_id)}
+def captain_cases(captain_id: str, limit: int = 6, include_test: bool = False):
+    """Captain-facing 'My Cases': escalated cases + live status + resolution (polled by the widget).
+
+    Defaults are the CAPTAIN's defaults — harness rows excluded and the list capped — because
+    this route's primary caller is a ~90px strip on their own panel. `include_test=1` is for the
+    internal bench, which wants to see what it just wrote.
+    """
+    return {"cases": l3.cases(captain_id, limit=max(1, min(limit, 50)),
+                              include_test=include_test)}
 
 
 # ── Data Foundation — CORPUS-LEVEL aggregates over both databases ────────────────────────────

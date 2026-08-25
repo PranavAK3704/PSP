@@ -125,10 +125,27 @@ def resolve(concern_id: str, note: str = "", resolver: str = "L3") -> dict:
     return {"ok": True, "followup": followup, "resolved_concern_id": concern_id}
 
 
-def cases(captain_id: str) -> list[dict]:
-    """Captain-facing 'My Cases': every escalated case this captain has, with live status
-    (open / resolved) and the resolution note once L3 resolves it. Powers the widget +
-    polling on the Captain Panel. Newest first."""
+def cases(captain_id: str, *, limit: int = 6, include_test: bool = False) -> list[dict]:
+    """Captain-facing 'My Cases': the escalated cases this captain has, newest first, with live
+    status (open / resolved) and the resolution note once L3 resolves it.
+
+    ── TWO FILTERS THAT ARE NOT COSMETIC ────────────────────────────────────────────────────
+    Measured on the real ledger: this returned **98 open cases** for captain 20020388788. A
+    captain with 98 unresolved escalations is not a product, it is a bug rendering — and they
+    were not their cases. They are harness rows (`check_op` and `check_followups_e2e` both drive
+    that id) and rows from before provenance existed, sitting on a real partner id.
+
+      · `source == "harness"` is EXCLUDED. A test run is not something a captain escalated, and
+        showing it on their screen is the same category of error as counting it on the deck.
+        `unclassified` is KEPT — it may genuinely be theirs, and silently hiding a real case
+        from the person waiting on it is the worse failure of the two.
+      · `limit` caps the list. This is a ~90px strip beside a chat widget, not a queue view;
+        the L3 desk is where a backlog belongs. Newest first, so a case raised during a
+        conversation is the top row.
+
+    `include_test=True` restores the unfiltered list for the internal bench, which legitimately
+    wants to see what it just wrote.
+    """
     all_concerns = concern_log.all_concerns()
     resolutions = {c["resolves_concern_id"]: c for c in all_concerns
                    if c.get("resolves_concern_id")}
@@ -137,6 +154,8 @@ def cases(captain_id: str) -> list[dict]:
         if c.get("outcome") != "escalated":
             continue
         if c.get("captain_id") != captain_id:
+            continue
+        if not include_test and c.get("source") == "harness":
             continue
         team = _team_of(c)
         res = resolutions.get(c.get("id"))
@@ -149,7 +168,12 @@ def cases(captain_id: str) -> list[dict]:
             "status": "resolved" if res else "open",
             "resolution_note": (res or {}).get("resolution_note"),
             "resolved_at": (res or {}).get("logged_at"),
+            # So the strip can label a row a captain did not raise. Rendered as a chip on the
+            # bench and suppressed on the captain's own view.
+            "source": c.get("source", "unclassified"),
         })
+        if len(out) >= limit:
+            break                     # all_concerns() is newest-first, so this keeps the newest
     return out
 
 

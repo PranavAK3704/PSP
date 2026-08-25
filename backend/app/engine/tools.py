@@ -370,7 +370,14 @@ def dispatch(name: str, args: dict, captain_id: str, context: dict, channel: str
                              turn=turn, source=source, message=message)
 
     if name == "escalate_case":
-        return _escalate_case(args, captain_id, context, channel, attachments=attachments)
+        # `source=` is NOT optional here even though the parameter has a default. This is the
+        # no-SOP escalation path — a real captain hitting a gap in the corpus — and omitting it
+        # silently labelled those rows `unclassified`, i.e. the ledger would under-report exactly
+        # the partner traffic that most needs counting: the questions the platform cannot answer.
+        # The default exists so a harness can call the function directly; every production
+        # caller passes.
+        return _escalate_case(args, captain_id, context, channel, attachments=attachments,
+                              source=source)
 
     # An unknown tool name left NO trace event at all, so the one failure mode that means
     # "the model called something that doesn't exist" was the one invisible to a reviewer.

@@ -87,20 +87,24 @@
    figure you owe), live monitoring is green (healthy/watching), escalation is violet
    (handed to a human), and the command deck is teal. Advocacy keeps the primary blue.
    Setting only these four custom properties re-tints every accent-following rule at once. */
+/* --signal (blue) because the REAL captain panel is blue, and recognition is the entire point
+   of that screen. This used to be the internal console's hue while the panel was `growth`, and
+   the two sharing it is exactly how one got mistaken for the other. Now `captain` IS the panel
+   and the bench has its own hue below, so the collision is gone rather than "accepted". */
 .app[data-view="captain"] { --accent: var(--signal); --accent-soft: var(--signal-soft);
   --accent-line: var(--signal-line); --accent-glow: var(--signal-glow); }
-.app[data-view="monitor"] { --accent: var(--good); --accent-soft: var(--good-soft);
-  --accent-line: rgba(78,222,163,0.38); --accent-glow: rgba(78,222,163,0.42); }
 .app[data-view="l3"]      { --accent: var(--violet); --accent-soft: var(--violet-soft);
   --accent-line: rgba(177,139,255,0.38); --accent-glow: rgba(177,139,255,0.42); }
-/* --signal and not a new hue: the real captain panel IS blue, and recognition is the whole
-   point of that screen. It does mean `captain` and `growth` share a hue, which softens the
-   colour-coded-map claim above — accepted deliberately, because re-tinting would also re-tint
-   `.card-head h3` across the docked widget and clash with the blue banner. */
-.app[data-view="growth"]  { --accent: var(--signal); --accent-soft: var(--signal-soft);
-  --accent-line: var(--signal-line); --accent-glow: var(--signal-glow); }
 .app[data-view="support"] { --accent: var(--teal); --accent-soft: var(--teal-soft);
   --accent-line: rgba(53,214,214,0.38); --accent-glow: rgba(53,214,214,0.42); }
+/* The bench is amber on purpose: it is the one screen where what you are looking at is NOT a
+   real captain, and amber is the colour the rest of this UI already uses for "read this twice".
+   It also matches the TEST BENCH strip that lands on the page itself next pass. */
+.app[data-view="bench"]   { --accent: var(--warn); --accent-soft: var(--warn-soft);
+  --accent-line: rgba(255,185,95,0.38); --accent-glow: rgba(255,185,95,0.42); }
+/* `monitor` had --good here and is no longer a destination — proactive monitoring is docked on
+   the Captain Panel. The rule is removed rather than left orphaned, because a data-view value
+   that no longer exists is a rule nobody can prove is dead. */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body, #root { height: 100%; }
@@ -137,17 +141,22 @@ body {
 /* Each row carries its OWN hue via --nav (matching the accent map above), so the sidebar is a
    colour-coded map: the icon stays tinted even when inactive, which is what makes a destination
    findable without reading all five labels. */
-.nav-item[data-view="captain"] { --nav: var(--signal); }
-.nav-item[data-view="monitor"] { --nav: var(--good); }
-.nav-item[data-view="l3"]      { --nav: var(--violet); }
-.nav-item[data-view="support"] { --nav: var(--teal); }
-/* growth, connectors and calibration had NO --nav entry, and the consequence is not merely
-   cosmetic: `.nav-item.active::before` is `background: var(--nav)`, which with --nav undefined
-   is invalid-at-computed-value-time — so the active left spine and its glow silently did not
-   render for those three, and `.nav-item svg { color: var(--nav) }` fell back to inherited
-   --text-mute so the icon was never tinted. */
-.nav-item[data-view="growth"]      { --nav: var(--signal); }
+/* EVERY key in App.jsx's VIEWS needs an entry here, and this map must be edited in the SAME
+   commit as the accent map above. The consequence of a miss is NOT cosmetic:
+   `.nav-item.active::before` is `background: var(--nav)`, and an undefined --nav is
+   invalid-at-computed-value-time — so the active left spine and its glow silently do not
+   render, and `.nav-item svg { color: var(--nav) }` falls back to inherited --text-mute so the
+   icon is never tinted. That is exactly what happened to `growth`, `connectors` and
+   `calibration` before, and it is why there is now a check that walks VIEWS against both maps
+   rather than a comment asking the next person to remember. */
+.nav-item[data-view="captain"]     { --nav: var(--signal); }
+.nav-item[data-view="l3"]          { --nav: var(--violet); }
+.nav-item[data-view="support"]     { --nav: var(--teal); }
+.nav-item[data-view="bench"]       { --nav: var(--warn); }
 .nav-item[data-view="connectors"]  { --nav: var(--info); }
+/* Shares amber with the bench for now. `calibration` stops being a destination next pass — its
+   κ block moves to the Auditing Studio and its confidence finding to a line under the dial —
+   so this entry goes with it rather than earning a sixth hue. */
 .nav-item[data-view="calibration"] { --nav: var(--warn); }
 
 /* Inactive: label stays quiet, icon carries the hue at low intensity — enough to identify,
@@ -417,9 +426,12 @@ pre.json .s { color: var(--good); }
   .engine-rail-label { writing-mode: horizontal-tb; } }
 
 /* The engine at rest. A still glyph rather than a spinning orb — motion should mean work.
-   Sole consumer is Monitor.jsx's trace card, which is always visible and therefore does need an
-   idle state. The chat trace no longer renders one at all (its panel is collapsed until a turn
-   starts), so this is deliberately NOT used there. */
+   ORPHANED, and kept deliberately with that said out loud: its sole consumer was Monitor.jsx's
+   always-visible trace card, and that page is gone — proactive monitoring is docked on the
+   Captain Panel, where the dock renders NOTHING until you press scan, so it has no idle state to
+   draw. The chat trace never used this either (its panel is collapsed until a turn starts).
+   Left in place because the rule is 4 lines and the next always-on trace surface will want it;
+   deleted the moment that stops being true. */
 .core-at-rest { width: 54px; height: 54px; margin: 0 auto; border-radius: 14px;
   border: 1px solid var(--line); background: var(--surface-2); position: relative; opacity: .75; }
 .core-at-rest::after { content: ""; position: absolute; inset: 15px; border-radius: 5px;

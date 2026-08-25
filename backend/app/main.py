@@ -731,6 +731,14 @@ def l3_resolve(body: L3ResolveIn):
     return out
 
 
+@app.get("/api/captain/{captain_id}/nudges", dependencies=[_authed])
+def captain_nudges(captain_id: str, limit: int = 5):
+    """What proactive monitoring found for this captain — the output of the scan, addressed to the
+    person it concerns rather than to an internal trace view. Each carries the panel MODULE it is
+    about, so the UI can badge the screen the problem is on."""
+    return {"nudges": l3.nudges(captain_id, limit=max(1, min(limit, 20)))}
+
+
 @app.get("/api/captain/{captain_id}/cases", dependencies=[_authed])
 def captain_cases(captain_id: str, limit: int = 6, include_test: bool = False):
     """Captain-facing 'My Cases': escalated cases + live status + resolution (polled by the widget).

@@ -232,6 +232,12 @@
   --surface: #FFFFFF;
   --surface-2: #F9FAFB;
   --surface-3: #EFF6FF;          /* the captain's own chat bubble — tinted, not grey */
+  /* --surface-0 was the bug you saw: the widget's text input sets
+     `background: var(--surface-0)` inline, I never overrode that token, so the box kept PSP's
+     #060e20 while --text became #1A1A1A — black text in a near-black box. Found by listing every
+     token the widget subtree actually reads (15 of them) instead of patching the one that showed. */
+  --surface-0: #FFFFFF;
+  --ink-4: #6B7280;
   --line: #E5E7EB;
   --line-soft: #F3F4F6;
   --text: #1A1A1A;
@@ -282,3 +288,25 @@
 .cp-support-body .gate-lozenge.pass { background: var(--good-soft); color: var(--good); }
 .cp-support-body .gate-lozenge.block { background: #FEF2F2; color: #B91C1C; }
 .cp-support-body .tag { border-color: var(--line); }
+
+/* ══ PROACTIVE FINDINGS ═══════════════════════════════════════════════════════════════════════
+   A nudge is not a ticket and must not look like one. It reads as the app telling the captain
+   something, on the screen the something is about — which is why it is styled as an inset notice
+   above the module's own cards rather than as another card among them. */
+.cp-alert { margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: #E5397F; color: #fff; font-size: 10px; font-weight: 800; display: grid;
+  place-items: center; flex: none; box-shadow: 0 0 0 3px rgba(229,57,127,.22); }
+.cp-nudge { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 16px;
+  background: #FFF7ED; border: 1px solid #FED7AA; border-left: 4px solid #F97316;
+  border-radius: 10px; padding: 13px 14px; }
+.cp-nudge-icon { width: 30px; height: 30px; border-radius: 8px; background: #FFEDD5;
+  color: #C2410C; display: grid; place-items: center; flex: none; }
+.cp-nudge-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  font-size: 11px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase;
+  color: #9A3412; }
+.cp-nudge-when { font-weight: 600; letter-spacing: 0; text-transform: none; color: #B45309; }
+.cp-nudge-body { font-size: 13px; line-height: 1.6; color: #7C2D12; margin-top: 5px; }
+.cp-nudge-body em { font-style: normal; color: #A16207; }
+.cp-nudge-foot { font-size: 10.5px; color: #B45309; margin-top: 6px; }
+.cp-nudge-x { background: rgba(154,52,18,.10); color: #9A3412; }
+.cp-nudge-x:hover { background: rgba(154,52,18,.20); }

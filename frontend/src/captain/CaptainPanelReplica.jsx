@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { HelpCircle, Wallet, Truck, TrendingUp, MapPin, PackageX, Coins,
-         ReceiptText, Users, LogOut, ChevronDown, X, Info } from "lucide-react";
-import { getGrowthIndex } from "../lib/api.js";
+         ReceiptText, Users, LogOut, ChevronDown, X, Info, Radar } from "lucide-react";
+import { getGrowthIndex, getCaptainNudges } from "../lib/api.js";
 import { REAL } from "./figures.js";
 import { SupportWidget } from "../components/SupportWidget.jsx";
 import { useAudience } from "../lib/audienceMode.js";
@@ -68,6 +68,8 @@ export default function CaptainPanelReplica() {
   const [active, setActive] = useState("payments");
   const [supportOpen, setSupportOpen] = useState(false);
   const [hubOpen, setHubOpen] = useState(false);
+  const [nudges, setNudges] = useState([]);
+  const [dismissed, setDismissed] = useState({});
   const [showEngine] = useAudience();
 
   useEffect(() => {
@@ -87,6 +89,27 @@ export default function CaptainPanelReplica() {
   // this hub". GrowthDashboard has always done it this way (`index.partners[hub]`); the replica
   // invented a second, wrong lookup instead of copying the one that worked.
   const partnerId = ((index && index.partners) || {})[hub] || "";
+
+  // ── PROACTIVE MONITORING, ARRIVING WHERE THE CAPTAIN IS ────────────────────────────────────
+  // The scan already ran and already wrote its finding; nothing showed it to the captain. Polled
+  // rather than pushed, and said so on the card — there is no push channel, and claiming one
+  // would be the same overstatement as the old "Resolve & notify captain" button.
+  useEffect(() => {
+    if (!partnerId) { setNudges([]); return; }
+    let live = true;
+    const pull = () => getCaptainNudges(partnerId)
+      .then((d) => { if (live) setNudges(d.nudges || []); })
+      .catch(() => {});
+    pull();
+    const t = setInterval(pull, 20000);   // slower than the case poll: findings do not change fast
+    return () => { live = false; clearInterval(t); };
+  }, [partnerId]);
+
+  const openNudges = nudges.filter((x) => !dismissed[x.id]);
+  // Which modules have something wrong on them — this is what turns a notification into a
+  // direction. A badge on `Loss Management` says where to look; a bell says only "something".
+  const byModule = openNudges.reduce((a, x) => ({ ...a, [x.module]: (a[x.module] || 0) + 1 }), {});
+  const forActive = openNudges.filter((x) => x.module === active);
 
   const mod = MODULES.find((m) => m.key === active) || MODULES[0];
   const Comp = mod.comp;
@@ -124,7 +147,9 @@ export default function CaptainPanelReplica() {
           onClick={() => setSupportOpen((v) => !v)}>
           <HelpCircle size={19} />
           <span>Valmo Support</span>
-          {!supportOpen && <span className="cp-support-dot" />}
+          {/* The dot means "there is something to talk about", not decoration. It was always on
+              before, which is the same as never on. */}
+          {!supportOpen && openNudges.length > 0 && <span className="cp-support-dot" />}
         </button>
 
         <nav className="cp-nav">
@@ -135,7 +160,10 @@ export default function CaptainPanelReplica() {
                 onClick={() => setActive(m.key)}>
                 <Icon size={19} />
                 <span>{m.label}</span>
-                {m.isNew && <span className="cp-new">NEW</span>}
+                {byModule[m.key]
+                  ? <span className="cp-alert" title={`${byModule[m.key]} thing(s) needing attention`}>
+                      {byModule[m.key]}</span>
+                  : m.isNew && <span className="cp-new">NEW</span>}
               </button>
             );
           })}
@@ -165,6 +193,34 @@ export default function CaptainPanelReplica() {
             data and are chipped as such.
           </div>
         )}
+
+        {/* The finding, on the screen it is about, before the numbers it is about. */}
+        {forActive.map((x) => (
+          <div key={x.id} className="cp-nudge">
+            <div className="cp-nudge-icon"><Radar size={16} /></div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="cp-nudge-head">
+                Noticed without being asked
+                <span className="cp-nudge-when">
+                  {x.shipments ? `${x.shipments} shipments` : ""}
+                  {x.amount_inr ? ` · ₹${Math.round(x.amount_inr).toLocaleString("en-IN")} at risk` : ""}
+                </span>
+              </div>
+              <div className="cp-nudge-body">
+                {x.message || x.headline}
+                {x.detected_only && (
+                  <em> — flagged by the severity rules; no written summary was generated for this
+                    one, so the numbers above are the whole finding.</em>
+                )}
+              </div>
+              <div className="cp-nudge-foot">
+                nobody raised a ticket for this · checked every few minutes, not pushed
+              </div>
+            </div>
+            <button className="cp-x cp-nudge-x" aria-label="Dismiss"
+              onClick={() => setDismissed((d) => ({ ...d, [x.id]: true }))}><X size={14} /></button>
+          </div>
+        ))}
 
         <div className="cp-body">
           <Comp hub={hub} partnerId={partnerId} />

@@ -246,6 +246,68 @@ def cases(captain_id: str, *, limit: int = 6, include_test: bool = False) -> lis
     return out
 
 
+#: A proactive finding names a MODULE of the captain's own panel, not a support queue. That is
+#: the difference between "you have a problem" and "your problem is on this screen" — and it is
+#: the only way a nudge is actionable without a conversation. Keys match the module keys in
+#: frontend/src/captain/CaptainPanelReplica.jsx.
+_NUDGE_MODULE = {
+    "risk_detected":    "loss-management",
+    "proactive_nudge":  "loss-management",
+    "capacity_risk":    "dc-capacity",
+    "pendency_risk":    "cash-pendency",
+    "payment_risk":     "payments",
+}
+
+
+def nudges(captain_id: str, limit: int = 5) -> list[dict]:
+    """What the monitor noticed about this captain, newest first, addressed to them.
+
+    ── WHY THIS ENDPOINT HAS TO EXIST ────────────────────────────────────────────────────────
+    `monitor.py` scans the shipment ledger unasked, bands every row by severity, and composes a
+    nudge. Then it writes a concern row and stops. Measured: the captain has never seen one — the
+    only consumer of `channel: "proactive"` rows was an internal trace view on a page no captain
+    opens. The most defensible thing the platform does (noticing before anyone complains) was
+    invisible to the person it was for.
+
+    A nudge is NOT a support case, so it is deliberately not in `cases()`: nobody escalated it,
+    there is no SLA, and it must never appear as something the captain raised. It carries a
+    `module` so the panel can badge the screen the problem is actually on, and `detected_only`
+    when a model could not be reached — a detection with no composed text is still a real finding
+    ("26 shipments at risk, ₹11,567") and burying it because the prose step failed would be the
+    same mistake `monitor.py` used to make by not logging at all.
+    """
+    out = []
+    for c in concern_log.all_concerns():          # newest first
+        if c.get("channel") != "proactive" or c.get("captain_id") != captain_id:
+            continue
+        disp = c.get("disposition") or ""
+        text = (c.get("reply") or "").strip()
+        out.append({
+            "id": c.get("id"),
+            "module": _NUDGE_MODULE.get(disp, "loss-management"),
+            "disposition": disp,
+            "headline": c.get("intent") or "",
+            "message": text,
+            # No composed prose (no key, refused prompt) — the detection still stands.
+            "detected_only": not text,
+            "amount_inr": _amt(c.get("amount_inr")),
+            "shipments": len(c.get("awbs") or []),
+            "evidence": c.get("evidence_trail") or [],
+            "at": c.get("logged_at"),
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _amt(v):
+    """The ledger round-trips through Turso, which returns INTEGER/REAL as JSON strings."""
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
 def team_metrics() -> list[dict]:
     """Ownership view — each team's queue + breach count (they own their experience)."""
     by_team: dict[str, dict] = {}

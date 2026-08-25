@@ -115,6 +115,9 @@ export const getHealth = () => apiGet("/api/health");
 export const getCaptains = () => apiGet("/api/captains");
 export const getLedger = () => apiGet("/api/ledger");
 export const getCaptainCases = (id) => apiGet(`/api/captain/${id}/cases`);
+/* What proactive monitoring found for this captain. Separate from cases on purpose: nobody
+   escalated a nudge, it has no SLA, and it must never render as something the captain raised. */
+export const getCaptainNudges = (id) => apiGet(`/api/captain/${id}/nudges`);
 // SOP compile now streams stages (SSE) so the UI can animate the structuring/tiering.
 export const compileSopStream = (sop_text, onStage, onEnd) =>
   stream({ url: "/api/sop/compile", method: "POST", body: { sop_text } }, onStage, onEnd);

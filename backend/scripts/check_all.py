@@ -24,6 +24,11 @@ from scripts._contain import contain                 # noqa: E402
 
 HARNESSES = [
     ("check_phase1",     "data plane, spend ceiling, AWB lexer, history control"),
+    # WAS NEVER IN THIS LIST. 12 KB of assertions on the data-plane boundary — the rule that no
+    # model receives an identifier it was not already given — sitting unrun since it was written,
+    # while `check_phase1` and a comment in `engine/dataplane.py` both pointed at it as though it
+    # were covered. A harness that is not in this list does not exist.
+    ("check_dataplane",  "no model receives an identifier it was not already given"),
     ("check_writes",     "nothing claims to have written anything"),
     ("check_op",         "Orders & Planning resolves on read verdicts"),
     ("check_verifier",   "verifier independence, never overclaimed"),

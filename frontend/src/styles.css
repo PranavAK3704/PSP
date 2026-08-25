@@ -425,17 +425,6 @@ pre.json .s { color: var(--good); }
 @media (max-width: 1180px) { .engine-rail { flex-direction: row; justify-content: center; padding: 10px; }
   .engine-rail-label { writing-mode: horizontal-tb; } }
 
-/* The engine at rest. A still glyph rather than a spinning orb — motion should mean work.
-   ORPHANED, and kept deliberately with that said out loud: its sole consumer was Monitor.jsx's
-   always-visible trace card, and that page is gone — proactive monitoring is docked on the
-   Captain Panel, where the dock renders NOTHING until you press scan, so it has no idle state to
-   draw. The chat trace never used this either (its panel is collapsed until a turn starts).
-   Left in place because the rule is 4 lines and the next always-on trace surface will want it;
-   deleted the moment that stops being true. */
-.core-at-rest { width: 54px; height: 54px; margin: 0 auto; border-radius: 14px;
-  border: 1px solid var(--line); background: var(--surface-2); position: relative; opacity: .75; }
-.core-at-rest::after { content: ""; position: absolute; inset: 15px; border-radius: 5px;
-  border: 1px solid var(--text-faint); opacity: .5; }
 
 /* ── The core stage: where the revolving core lives while a turn is in flight ──
    Sized so the contra-rotating shell is actually readable (at 56px in a header it was a

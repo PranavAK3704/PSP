@@ -7,7 +7,10 @@ JSON (Postgres in production, BRD §8/§12).
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import json
+import os
 import threading
 from datetime import datetime, timezone
 
@@ -19,6 +22,64 @@ from ..trust.gate import canonical_action as _canon
 # MUTABLE ledger → durable state dir (survives redeploys); default backend/data.
 _STORE = durable_path("concern_log.json")
 _lock = threading.Lock()
+
+# ── PROVENANCE ────────────────────────────────────────────────────────────────────────────────
+# WHY: this ledger is the substrate under "992 Concerns Logged" and "₹81,840 Recovered" on the
+# deck, and under `avg_resolution_time` in /api/insights. Measured, of 1,014 rows: 702 were
+# written by one afternoon of `check_all.py`, 462 carry the captain id `VLMO-CPT-4471` which
+# matches no real partner, and 301 have `intent` equal to a disposition token rather than
+# anything a person typed. Genuinely operational: ten.
+#
+# The rows are not fake — nothing was fabricated, they are real engine output. They are just
+# not PARTNER traffic, and a ledger that cannot tell the difference cannot be aggregated
+# honestly. So every row now carries where it came from.
+#
+# `unclassified` is the default and `partner` is never inferred. That direction is the whole
+# point: a writer I forgot to label shows up as an unclassified row in the provenance strip —
+# visible and wrong-looking — instead of silently inflating the number the demo rests on.
+SOURCES = ("partner", "operator", "monitor", "l3", "harness", "unclassified")
+
+_SOURCE: contextvars.ContextVar[str] = contextvars.ContextVar("psp_concern_source", default="")
+
+
+@contextlib.contextmanager
+def writing_as(source: str):
+    """Scope every append inside the block to one provenance.
+
+    ── DO NOT USE THIS AROUND A LAZILY-CONSUMED GENERATOR. MEASURED, not assumed: ────────────
+    the chat and WhatsApp routes return `EventSourceResponse(_sse(handle_turn(...)))`, and
+    Starlette iterates a sync generator through `anyio.to_thread.run_sync`, which gives EVERY
+    `next()` a fresh copy of the caller's context. A `.set()` inside such a generator survives
+    to the first yield and no further:
+
+        V.set("X"); yield V.get()   ->  "X"
+                    yield V.get()   ->  ""      # the default is back
+
+    Every `concern_log.append` in a turn happens long after the first yield, so wrapping
+    `handle_turn` in this would have stamped `unclassified` on all real partner traffic while
+    looking exactly like a working implementation. The request path therefore threads `source`
+    explicitly as an argument — see `conversation.handle_turn`.
+
+    This remains the right tool for a writer that runs entirely inside one synchronous call
+    frame, where the alternative is threading an argument through unrelated signatures.
+    """
+    token = _SOURCE.set(source if source in SOURCES else "unclassified")
+    try:
+        yield
+    finally:
+        _SOURCE.reset(token)
+
+
+def _provenance(explicit: str | None) -> str:
+    """explicit field → ContextVar → $PSP_CONCERN_SOURCE → `unclassified`.
+
+    The env var is the harness channel: `scripts/_contain.py` sets it, so a row written from
+    deep inside a test run is labelled without every harness knowing it has to say so.
+    """
+    for candidate in (explicit, _SOURCE.get(), os.environ.get("PSP_CONCERN_SOURCE")):
+        if candidate in SOURCES:
+            return candidate
+    return "unclassified"
 
 
 def _now() -> str:
@@ -35,10 +96,15 @@ def _load() -> list[dict]:
 
 
 def append(concern: dict) -> dict:
-    """Append an immutable Concern record. Returns the stored record."""
+    """Append an immutable Concern record. Returns the stored record.
+
+    THE ONE CHOKE POINT for `source`. Every writer in the app funnels through here, so a
+    provenance vocabulary enforced at this line cannot be bypassed by adding a caller.
+    """
     with _lock:
         log = _load()
-        concern = {**concern, "logged_at": _now(), "seq": len(log) + 1}
+        concern = {**concern, "source": _provenance(concern.get("source")),
+                   "logged_at": _now(), "seq": len(log) + 1}
         log.append(concern)
         _STORE.write_text(json.dumps(log, indent=1))
         return concern

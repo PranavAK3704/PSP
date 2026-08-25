@@ -5,6 +5,11 @@ Checks, cheapest first:
   2. GET /v1/models      — auth works, and which models this key can see
   3. count_tokens        — free, proves the messages surface accepts our shape
   4. one tiny completion — proves generation + reports real token usage
+
+DELIBERATELY NOT CONTAINED (unlike every check_*.py in scripts/_contain.py's remit). This one
+makes a real, billed call, and step 4's spend belongs in the REAL `llm_spend.json` — a probe
+whose cost lands in a tmpdir and vanishes would make the running total under-report actual
+money spent. It writes no concern rows, so there is nothing here for the ledger to over-count.
 """
 from __future__ import annotations
 import os

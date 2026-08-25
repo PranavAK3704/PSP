@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts._contain import contain; contain()   # MUST precede every `app.` import — see _contain.py
 os.environ["PSP_PREROUTER"] = "on"
 os.environ.pop("PSP_PREROUTER_GREETING", None)
 os.environ.pop("PSP_PREROUTER_FOLLOWUP", None)

@@ -10,7 +10,7 @@ const VOICE_LANGS = [
 ];
 import Pipeline from "../components/Pipeline.jsx";
 import DecisionCore from "../components/DecisionCore.jsx";
-import { stream, getCaptains, sendSatisfaction, getCaptainCases } from "../lib/api.js";
+import { getCaptains, sendSatisfaction, getCaptainCases, chatStream } from "../lib/api.js";
 import { useChatStore } from "../lib/chatStore.jsx";
 
 // tiny, safe markdown → HTML for bot replies (bold, bullets, links, breaks).
@@ -138,11 +138,13 @@ export default function CaptainPanel() {
     if (convoRef.current) setVstate("thinking");
     let cid = convIdRef.current;   // ref, not the frozen `active` — so the hands-free loop reuses one conversation
     if (!cid) { cid = crypto.randomUUID(); convIdRef.current = cid; store.setConvId(captainId, cid); }
-    await stream(
-      { url: "/api/chat", method: "POST",
-        body: { captain_id: captainId, message: msg, conversation_id: cid,
-                ...(selectedOption ? { selected_option: selectedOption } : {}),
-                attachments: atts.map((a) => ({ filename: a.filename, mime: a.mime, size: a.size })) } },
+    await chatStream(
+      // `operator` — this is the internal TEST BENCH, not a captain. Every row it writes is a
+      // colleague trying the engine out, and counting those as partner traffic is what turned
+      // 10 real concerns into a "992 Concerns Logged" tile.
+      { captainId, message: msg, conversationId: cid, source: "operator",
+        selectedOption,
+        attachments: atts.map((a) => ({ filename: a.filename, mime: a.mime, size: a.size })) },
       (ev) => {
         if (ev.node === "reply") {
           const replyText = ev.data?.reply || ev.detail || "";

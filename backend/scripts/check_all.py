@@ -1,10 +1,16 @@
-"""Run every offline harness. NO LLM CALLS, NO NETWORK.
+"""Run every offline harness. NO LLM CALLS, NO NETWORK, AND NO WRITES TO THE REAL LEDGER.
 
     python scripts/check_all.py
 
 One command before a demo or a deploy. Each harness is standalone and can be run alone; this
 just runs them in dependency order and sums the verdict, because six separate commands is five
 too many to remember under pressure.
+
+The third clause in that first line is new and was earned the hard way: 702 of the concern
+log's 1,014 rows were written by this script in one afternoon, into the same file the deck's
+"Concerns Logged" tile counts. `contain()` here exports ONE tmpdir that every child inherits,
+so the batch seeds ~4 MB of copies once rather than twelve times; each harness also calls
+`contain()` itself, which is what protects a harness run on its own. See scripts/_contain.py.
 """
 from __future__ import annotations
 
@@ -13,6 +19,8 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))                 # for scripts._contain
+from scripts._contain import contain                 # noqa: E402
 
 HARNESSES = [
     ("check_phase1",     "data plane, spend ceiling, AWB lexer, history control"),
@@ -30,9 +38,16 @@ HARNESSES = [
 
 
 def main() -> int:
+    contained = contain()
+    print(f"state contained -> {contained}\n(mutable stores redirected; TURSO_* cleared; "
+          f"every row written here is stamped source=harness)")
     results = []
     for name, blurb in HARNESSES:
         print(f"\n{'#' * 78}\n#  {name}  —  {blurb}\n{'#' * 78}")
+        # NO env= — the child must INHERIT the contained os.environ (PSP_STATE_DIR,
+        # PSP_HARNESS_DIR, PSP_CONCERN_SOURCE, and the absence of TURSO_*). Passing an
+        # explicit env here would un-contain the entire batch without changing a single
+        # assertion, which is the failure mode that produced those 702 rows.
         p = subprocess.run([sys.executable, str(HERE / f"{name}.py")],
                            capture_output=True, text=True)
         sys.stdout.write(p.stdout)
@@ -50,7 +65,7 @@ def main() -> int:
     if failed:
         print(f"{len(failed)} harness(es) FAILED: {', '.join(failed)}")
         return 1
-    print(f"ALL {len(results)} HARNESSES PASS — no API calls, no network.")
+    print(f"ALL {len(results)} HARNESSES PASS — no API calls, no network, nothing written to backend/data.")
     return 0
 
 

@@ -3,7 +3,7 @@ import { BarChart3, Send, Sparkles, TriangleAlert, ExternalLink, TrendingUp,
          TrendingDown, ChevronRight, Database, ThumbsUp, PartyPopper,
          ArrowDown, Star, Scissors, FolderOpen, CheckCircle2, Clock,
          Rocket } from "lucide-react";
-import { getGrowthIndex, getGrowth, getCaptainCases, stream } from "../lib/api.js";
+import { getGrowthIndex, getGrowth, getCaptainCases, chatStream } from "../lib/api.js";
 import { n0, inr, num } from "../lib/format.js";
 import { S, RP, HEADER, LEVERS, WHY, dateRange } from "../growth/strings.js";
 import AtRiskPanel, { SeverityBanner } from "../components/AtRiskPanel.jsx";
@@ -507,9 +507,11 @@ function SupportWidget({ hub, partnerId, askRef, showEngine }) {
     // try/finally, because setBusy(false) used to live ONLY in onEnd — so any throw from
     // stream() (network drop, null body, reader reset) left the widget permanently disabled.
     try {
-      await stream(
-      { url: "/api/chat", method: "POST", signal: ctrl.signal,
-        body: { captain_id: partnerId, message: msg, conversation_id: convRef.current } },
+      await chatStream(
+      // `partner` — this widget IS the captain's surface, so its rows are the only ones in the
+      // ledger that represent a real partner asking for help.
+      { captainId: partnerId, message: msg, conversationId: convRef.current,
+        source: "partner", signal: ctrl.signal },
       (ev) => {
         if (!mine()) return;
         // Keep EVERY event. TraceView decides what to show at this width; the widget's job is

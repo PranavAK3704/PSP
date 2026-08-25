@@ -40,3 +40,8 @@ backend/data/*.json
 # Kapture browse credentials + session state (never commit)
 backend/data/kapture_creds.txt
 backend/data/kapture_session.json
+
+# One-off safety snapshot written by scripts/classify_concern_provenance.py --apply.
+# Local-only by design: the durable truth is the mirrored ledger, and a second copy that
+# drifts is worse than no copy.
+backend/data/concern_log.pre-provenance-*.json

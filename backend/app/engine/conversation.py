@@ -203,7 +203,7 @@ def _blueprint_guidance() -> str:
 
 def handle_turn(conversation_id: str, captain_id: str, message: str,
                 channel: str = "chat", attachments: list | None = None,
-                selected_option: str | None = None) -> Iterator[dict]:
+                selected_option: str | None = None, source: str = "") -> Iterator[dict]:
     """Stream the resolution trace for one turn. Every yielded event is also
     ACCUMULATED and, once the turn's concern_id is known, persisted to the Trace
     Log (data/traces.json) so the Concern Log can replay HOW the engine resolved
@@ -214,7 +214,7 @@ def handle_turn(conversation_id: str, captain_id: str, message: str,
     holder: dict = {}                # carries the terminal concern id/ids to `finally`
     try:
         yield from _run_turn(conversation_id, captain_id, message, channel, attachments, trace,
-                             holder, selected_option)
+                             holder, selected_option, source)
     finally:
         _persist_trace(conversation_id, captain_id, trace, holder)
 
@@ -247,10 +247,13 @@ def _persist_trace(conversation_id: str, captain_id: str, trace: list[dict], hol
 
 def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
               attachments: list | None, trace: list[dict], holder: dict,
-              selected_option: str | None = None) -> Iterator[dict]:
+              selected_option: str | None = None, source: str = "") -> Iterator[dict]:
     """The agentic loop. Wrapped by handle_turn so every event is accumulated for
     the Trace Log. `_y` yields AND records; `holder` carries the terminal concern
-    id out to the persist step."""
+    id out to the persist step.
+
+    `source` rides along to every `concern_log.append` this turn makes. It is a plain argument
+    and not a ContextVar for a measured reason — see `concern_log.writing_as`."""
     def _y(event: dict) -> dict:
         trace.append(event)
         return event
@@ -499,7 +502,7 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
             yield _y(_evt("explain", "Answer warmly", tier="fast", detail="Composed reply",
                        data={"reply": reply}))
             concern = terminal_concern or _log_info_concern(conversation_id, captain_id, message,
-                                                            reply, channel)
+                                                            reply, channel, source=source)
             holder["concern_id"] = concern["id"]
             if concern.get("id"):
                 holder.setdefault("concern_ids", []).append(concern["id"])
@@ -539,7 +542,8 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
             name, cargs = fc.get("name", ""), fc.get("args", {}) or {}
             try:
                 result, events, concern, action = tools.dispatch(
-                    name, cargs, captain_id, context, channel, attachments=attachments, turn=tm)
+                    name, cargs, captain_id, context, channel, attachments=attachments,
+                    turn=tm, source=source, message=message)
             except Exception as e:  # noqa: BLE001 — a tool bug must not poison the conversation
                 result, events, concern, action = {"error": f"{type(e).__name__}: {str(e)[:150]}"}, [], None, None
                 yield _y(_evt("explain", f"Tool {name} failed", status="blocked", tier="fast", detail=str(e)[:200]))
@@ -618,7 +622,8 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
 
 
 def _log_info_concern(conversation_id, captain_id, message, reply, channel,
-                      disposition: str = "conversation", action: str = "respond") -> dict:
+                      disposition: str = "conversation", action: str = "respond",
+                      source: str = "") -> dict:
     """Log a non-money (informational) turn to the Concern Log for audit.
 
     `disposition` is parameterised so a deterministically-answered turn is identifiable in the
@@ -628,7 +633,7 @@ def _log_info_concern(conversation_id, captain_id, message, reply, channel,
     from ..ledger import concern_log
     import uuid
     concern = {"id": "CNC-" + uuid.uuid4().hex[:8].upper(), "captain_id": captain_id,
-               "channel": channel, "conversation_id": conversation_id,
+               "channel": channel, "conversation_id": conversation_id, "source": source,
                "intent": message[:80], "disposition": disposition, "action_taken": action,
                "outcome": "resolved_in_conversation", "reply": reply, "evidence_trail": []}
     return concern_log.append(concern)

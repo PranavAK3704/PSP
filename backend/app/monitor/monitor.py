@@ -84,6 +84,9 @@ def _log_detection(captain_id: str, summary: dict, banded: list, *,
     return concern_log.append({
         "id": "CNC-" + uuid.uuid4().hex[:8].upper(), "captain_id": captain_id,
         "channel": "proactive",
+        # Stated, not inherited: nobody asked for this row, so it is not partner traffic and
+        # must never be counted as a captain raising a concern.
+        "source": "monitor",
         "intent": f"{len(banded)} shipment(s) banded at {summary.get('hub') or captain_id}",
         "disposition": "proactive_nudge" if nudge else "risk_detected",
         "action_taken": "nudge_sent" if nudge else "none",

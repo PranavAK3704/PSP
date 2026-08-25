@@ -311,9 +311,14 @@ def _attachment_evidence(attachments: list | None) -> list:
 
 
 def dispatch(name: str, args: dict, captain_id: str, context: dict, channel: str = "chat",
-             attachments: list | None = None, turn=None):
+             attachments: list | None = None, turn=None, source: str = "", message: str = ""):
     """`turn` is the caller's per-turn spend meter, threaded through to apply_policy because
-    the adversarial verifier it runs is an LLM call INSIDE the turn — see verifier.verify."""
+    the adversarial verifier it runs is an LLM call INSIDE the turn — see verifier.verify.
+
+    `source` is the turn's PROVENANCE, threaded the same way for a different reason: it must
+    reach `concern_log.append` and it cannot travel in a ContextVar, because the route hands
+    back a generator and Starlette gives every `next()` a fresh context copy — the measurement
+    is in `concern_log.writing_as`. Threading it is the only mechanism that survives a yield."""
     if name == "search_sops":
         # k=4 and a 320-char snippet, down from k=8 / 700. This is the largest PERMANENT
         # contributor to history growth in the platform: a search_sops result is appended to
@@ -361,7 +366,8 @@ def dispatch(name: str, args: dict, captain_id: str, context: dict, channel: str
         return {"query": qn, "answer": answer, "rows_found": len(rows)}, [ev], None, None
 
     if name == "apply_policy":
-        return _apply_policy(args, captain_id, context, channel, attachments=attachments, turn=turn)
+        return _apply_policy(args, captain_id, context, channel, attachments=attachments,
+                             turn=turn, source=source, message=message)
 
     if name == "escalate_case":
         return _escalate_case(args, captain_id, context, channel, attachments=attachments)
@@ -374,7 +380,8 @@ def dispatch(name: str, args: dict, captain_id: str, context: dict, channel: str
                   data={"tool": name})], None, None)
 
 
-def _escalate_case(args: dict, captain_id: str, context: dict, channel: str, attachments: list | None = None):
+def _escalate_case(args: dict, captain_id: str, context: dict, channel: str,
+                   attachments: list | None = None, source: str = ""):
     """Structured hand-to-human: file a fully-worked case to the accountable team inbox
     and return a reference id + ETA so the agent can reassure the captain. Never a dead-end."""
     from ..l3 import platform as l3   # reuse TEAM_SLA (single source of ETA truth)
@@ -400,6 +407,10 @@ def _escalate_case(args: dict, captain_id: str, context: dict, channel: str, att
     evidence += _attachment_evidence(attachments)
     concern = {
         "id": "CNC-" + uuid.uuid4().hex[:8].upper(), "captain_id": captain_id, "channel": channel,
+        # Empty is NOT "partner": it falls through to `concern_log._provenance`, which ends at
+        # `unclassified`. A caller that forgets to say who it is produces a visibly unlabelled
+        # row rather than a silent addition to the partner-traffic count.
+        "source": source,
         "intent": intent[:80], "entities": entities, "disposition": domain,
         "policy_id": None, "policy_version": None,
         "action_taken": "escalate", "amount_inr": args.get("amount_inr"), "confidence": None,
@@ -432,7 +443,7 @@ def _capture_gap(intent: str, reason: str, captain_id: str):
 
 
 def _apply_policy(args: dict, captain_id: str, context: dict, channel: str,
-                  attachments: list | None = None, turn=None):
+                  attachments: list | None = None, turn=None, source: str = "", message: str = ""):
     disposition = args.get("disposition", "")
     entities = {k: args.get(k) for k in ("awb", "amount_inr", "txn_id") if args.get(k) is not None}
     events = []
@@ -530,7 +541,18 @@ def _apply_policy(args: dict, captain_id: str, context: dict, channel: str,
     evidence = list(decision.get("evidence_trail", [])) + _attachment_evidence(attachments)
     concern = {
         "id": concern_id, "captain_id": captain_id, "channel": channel,
-        "intent": disposition, "entities": entities, "disposition": disposition,
+        "source": source,
+        # ── `intent` IS THE CAPTAIN'S OWN WORDS ──────────────────────────────────────────
+        # This read `"intent": disposition`, which is why 301 of 1,014 rows have an `intent`
+        # identical to their `disposition` — the ledger recorded the token the engine routed
+        # on (`hardstop_loss`) rather than anything a person typed. Every screen that shows a
+        # concern shows this field: the L3 queue, the concern log, Support Command. All three
+        # were displaying a disposition twice and calling one of them the captain's problem.
+        #
+        # `disposition` stays as the fallback for a caller that has no message to hand (the
+        # WhatsApp option-tap path resolves without free text), so nothing becomes blank.
+        "intent": (message or disposition)[:80],
+        "entities": entities, "disposition": disposition,
         "policy_id": (decision.get("policy") or {}).get("id"),
         "policy_version": (decision.get("policy") or {}).get("version"),
         "action_taken": action, "amount_inr": decision.get("amount_inr"),

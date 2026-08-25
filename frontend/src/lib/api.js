@@ -217,6 +217,42 @@ export const sendSatisfaction = (concern_id, captain_id, satisfied, note) =>
 // switches captain/hub) mid-turn had no way to stop the read loop, so the orphaned stream kept
 // pushing events into a conversation that had already been cleared — one captain's answer
 // landing in another's thread.
+/* ── The ONE way to start a chat turn ─────────────────────────────────────────────────────────
+   Both callers used to hand-build this body — CaptainPanel (the internal bench) and the docked
+   widget on the Captain Panel. Two hand-built bodies is how a required field goes missing on
+   one screen and nobody notices, and `source` is exactly such a field: the server cannot tell
+   the bench from the widget (same endpoint, same auth), so the client is the only thing that
+   knows, and a row it fails to label lands in the ledger the deck aggregates.
+
+   `source` is therefore REQUIRED and its absence THROWS rather than defaulting. A default of
+   `"partner"` would silently count operator test traffic as captain traffic — the precise
+   inaccuracy this whole pass exists to remove — and a default of `"unclassified"` would hide a
+   real wiring mistake behind a plausible-looking bucket. A throw shows up the first time the
+   screen is used, which for the widget is the app's default surface.
+
+   Allowed values are the two client-visible ones. `monitor`, `l3` and `harness` are asserted
+   server-side by the code that owns those writes; a browser cannot claim them. ── */
+const CHAT_SOURCES = ["partner", "operator"];
+
+export function chatStream({ captainId, message, conversationId, source, selectedOption,
+                             attachments, signal }, onTrace, onEnd) {
+  if (!CHAT_SOURCES.includes(source)) {
+    throw new Error(
+      `chatStream: source must be one of ${CHAT_SOURCES.join(" | ")}, got ${JSON.stringify(source)}. ` +
+      `Every concern row carries its provenance; see backend/app/ledger/concern_log.py.`);
+  }
+  return stream({
+    url: "/api/chat", method: "POST", signal,
+    body: {
+      captain_id: captainId, message, conversation_id: conversationId, source,
+      // Omitted rather than sent as null: the backend treats an absent `selected_option` as
+      // "the captain typed", and an explicit null would be a third state to handle.
+      ...(selectedOption ? { selected_option: selectedOption } : {}),
+      ...(attachments && attachments.length ? { attachments } : {}),
+    },
+  }, onTrace, onEnd);
+}
+
 export async function stream({ url, method = "GET", body, signal }, onTrace, onEnd) {
   const res = await fetch(url, {
     method,

@@ -108,6 +108,14 @@ class ChatIn(BaseModel):
     #: choice, so it skips matching entirely — see engine/algo/followups.py. Optional and
     #: ignored by every other path, so an older client that never sends it is unaffected.
     selected_option: str | None = None
+    #: WHICH OF OUR OWN SCREENS is asking — `partner` (the captain's docked widget) or
+    #: `operator` (the internal test bench). Both post here with the same auth, so the server
+    #: cannot tell them apart; the client has to say. Anything unrecognised, including absent,
+    #: becomes `unclassified` at `concern_log.append` — deliberately NOT `partner`, so a caller
+    #: that forgets shows up as an unlabelled row instead of inflating the partner count.
+    #: Not a security boundary (an authenticated operator could send either); it distinguishes
+    #: our surfaces from each other so the deck can be aggregated honestly.
+    source: str | None = None
 
 
 class CompileIn(BaseModel):
@@ -437,7 +445,8 @@ def chat(body: ChatIn):
     return EventSourceResponse(_sse(
         conversation.handle_turn(conv_id, body.captain_id, body.message, body.channel,
                                  attachments=body.attachments,
-                                 selected_option=body.selected_option)))
+                                 selected_option=body.selected_option,
+                                 source=body.source or "")))
 
 
 @app.get("/api/monitor/{captain_id}", dependencies=[_authed])
@@ -654,7 +663,10 @@ def whatsapp_webhook(body: WhatsAppIn):
     # handle_turn ends a turn with a `reply` node carrying the captain-facing message
     # (same shape as the SSE 'reply' event): ev['data']['reply'], with ev['detail'] as
     # the plain-text fallback. Capture that so we forward the engine's ACTUAL reply.
-    for ev in conversation.handle_turn(conv_id, parsed["captain_id"], parsed["text"], channel="whatsapp"):
+    # `partner` is asserted SERVER-SIDE here, unlike /api/chat: a WhatsApp webhook is inbound
+    # from a real captain's handset by construction, so there is no client claim to trust.
+    for ev in conversation.handle_turn(conv_id, parsed["captain_id"], parsed["text"],
+                                       channel="whatsapp", source="partner"):
         if ev["node"] == "reply":
             terminal = ev
             reply = ev["data"].get("reply") or ev.get("detail")

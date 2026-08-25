@@ -112,6 +112,9 @@ def resolve(concern_id: str, note: str = "", resolver: str = "L3") -> dict:
         followup = concern_log.append({
             "id": "CNC-" + uuid.uuid4().hex[:8].upper(),
             "captain_id": orig.get("captain_id"), "channel": "l3",
+            # An L3 resolution SHADOWS an original concern (see `resolves_concern_id`); it is
+            # an operator action, not an inbound one.
+            "source": "l3",
             "intent": f"Resolved: {orig.get('intent', '')}"[:80],
             "disposition": orig.get("disposition"), "action_taken": "resolved_by_l3",
             "amount_inr": orig.get("amount_inr"), "outcome": "l3_resolved",

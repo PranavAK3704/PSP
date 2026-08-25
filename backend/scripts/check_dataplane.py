@@ -25,6 +25,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from scripts._contain import contain; contain()   # MUST precede every `app.` import — see _contain.py
 
 os.environ.setdefault("PSP_DATA_PROVIDER", "localdb")   # the provider with the most to leak
 

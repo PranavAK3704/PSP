@@ -211,3 +211,74 @@
   .cp-foot .cp-nav-item span { display: none; }
   .cp-nav-item, .cp-support { justify-content: center; }
 }
+
+/* ══ THE WIDGET, WEARING THE PANEL'S CLOTHES ══════════════════════════════════════════════════
+
+   The support widget is a PSP component: it uses PSP's classes (.card, .card-head, .chip, .mono)
+   and PSP is a DARK console. Dropped into the white support panel it rendered as a dark slab with
+   grey-on-grey text — legible in PSP, anemic here, and it made the one thing this screen exists to
+   show look like an afterthought bolted onto someone else's app.
+
+   Fixed by re-pointing the TOKENS inside this panel rather than by rewriting the component.
+   PSP's widget draws everything from custom properties, so redefining them on `.cp-support-body`
+   re-themes the whole subtree with no changes to SupportWidget, TraceView or Pipeline — and it
+   keeps working if any of those three change. Rewriting the component would have forked it from
+   the version the bench and the console use.
+
+   The values are the replica's own palette, so the widget now reads as part of the Captain Panel:
+   white cards, #1A1A1A text, the Meesho-blue accent, and the same 12px radius as the modules. ── */
+.cp-support-body {
+  --bg: #F4F6FA;
+  --surface: #FFFFFF;
+  --surface-2: #F9FAFB;
+  --surface-3: #EFF6FF;          /* the captain's own chat bubble — tinted, not grey */
+  --line: #E5E7EB;
+  --line-soft: #F3F4F6;
+  --text: #1A1A1A;
+  --text-mute: #4B5563;
+  --text-faint: #6B7280;         /* was near-invisible on white */
+  --accent: #2563EB;
+  --accent-soft: #EFF6FF;
+  --accent-line: rgba(37,99,235,.35);
+  --accent-glow: rgba(37,99,235,.28);
+  --signal: #2563EB;
+  --signal-soft: #EFF6FF;
+  --good: #067647;
+  --good-soft: #E7F6EE;
+  --warn: #9A5B00;
+  --warn-soft: #FFF4E5;
+  --violet: #6D28D9;
+  --violet-soft: #F5F3FF;
+  --info: #1D4ED8;
+  --info-soft: #EFF6FF;
+  --teal: #0F766E;
+  --teal-soft: #ECFDF5;
+  color: var(--text);
+}
+/* The card chrome PSP draws with a dark shadow needs the light-surface equivalent, and the
+   widget must fill the panel rather than sit in it as a floating slab. */
+.cp-support-body .card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(16,24,40,.07), 0 1px 2px rgba(16,24,40,.04);
+}
+.cp-support-body .card-head {
+  background: var(--surface-2); border-bottom: 1px solid var(--line);
+  border-radius: 12px 12px 0 0;
+}
+.cp-support-body .card-head h3 { color: var(--text); }
+/* Suggestion chips: outlined and blue, matching the panel's View Details button, instead of the
+   dark filled pills that read as disabled on white. */
+.cp-support-body .chip {
+  background: #fff; border: 1px solid #BFDBFE; color: #1D4ED8; font-weight: 600;
+}
+.cp-support-body .chip:hover:not(:disabled) { background: #EFF6FF; border-color: #2563EB; }
+.cp-support-body .chip:disabled { color: #9CA3AF; border-color: var(--line); background: #F9FAFB; }
+.cp-support-body input, .cp-support-body textarea {
+  background: #fff; border: 1px solid #D1D5DB; color: var(--text);
+}
+.cp-support-body input::placeholder { color: #9CA3AF; }
+.cp-support-body .check-row.pass .ci { color: var(--good); }
+.cp-support-body .check-row.fail .ci { color: #B91C1C; }
+.cp-support-body .gate-lozenge.pass { background: var(--good-soft); color: var(--good); }
+.cp-support-body .gate-lozenge.block { background: #FEF2F2; color: #B91C1C; }
+.cp-support-body .tag { border-color: var(--line); }

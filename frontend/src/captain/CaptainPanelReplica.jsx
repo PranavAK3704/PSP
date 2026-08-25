@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { HelpCircle, Wallet, Truck, TrendingUp, MapPin, PackageX, Coins,
          ReceiptText, Users, LogOut, ChevronDown, X, Info } from "lucide-react";
-import { getGrowthIndex, getGrowth } from "../lib/api.js";
+import { getGrowthIndex } from "../lib/api.js";
 import { REAL } from "./figures.js";
 import { SupportWidget } from "../components/SupportWidget.jsx";
 import { useAudience } from "../lib/audienceMode.js";
@@ -62,9 +62,9 @@ const MODULES = [
 ];
 
 export default function CaptainPanelReplica() {
+  const [index, setIndex] = useState(null);
   const [hubs, setHubs] = useState([]);
   const [hub, setHub] = useState("");
-  const [partnerId, setPartnerId] = useState("");
   const [active, setActive] = useState("payments");
   const [supportOpen, setSupportOpen] = useState(false);
   const [hubOpen, setHubOpen] = useState(false);
@@ -72,6 +72,7 @@ export default function CaptainPanelReplica() {
 
   useEffect(() => {
     getGrowthIndex().then((r) => {
+      setIndex(r);
       const list = r.hubs || [];
       setHubs(list);
       // LZ5 first — it is the hub with an allocation miss AND real at-risk rows, so it is the
@@ -80,18 +81,12 @@ export default function CaptainPanelReplica() {
     }).catch(() => {});
   }, []);
 
-  // The panel's partner id — the widget posts as this captain, so it has to be the real one.
-  // Through `getGrowth`, NOT a hand-rolled fetch: api.js already owns the auth header and the
-  // 401 -> back-to-login behaviour, and a second place that builds its own request is exactly how
-  // the chat body ended up hand-assembled in two files with a required field missing from one.
-  useEffect(() => {
-    if (!hub) return;
-    let live = true;
-    getGrowth(hub)
-      .then((d) => { if (live) setPartnerId(d?.provenance?.partner_id || d?.partner_id || ""); })
-      .catch(() => {});
-    return () => { live = false; };   // a fast hub switch must not land the old hub's partner
-  }, [hub]);
+  // The partner id lives on the INDEX as `partners[hub]` — one call, already made above. I had
+  // it fetching the per-hub payload and reading `provenance.partner_id`, which does not exist
+  // there, so `partnerId` was always "" and the widget rendered disabled: "no partner mapped to
+  // this hub". GrowthDashboard has always done it this way (`index.partners[hub]`); the replica
+  // invented a second, wrong lookup instead of copying the one that worked.
+  const partnerId = ((index && index.partners) || {})[hub] || "";
 
   const mod = MODULES.find((m) => m.key === active) || MODULES[0];
   const Comp = mod.comp;

@@ -44,10 +44,10 @@ const VIEWS = {
   captain: { label: "Captain Panel",        icon: "bar_chart",       comp: CaptainPanelReplica,
              title: "Captain Panel",
              sub: "The partner's own app, reproduced — with Valmo Support answering in place." },
-  // Kept as its own row: it is the module running on real data, and the demo spends time on it.
-  growth:  { label: "Growth Dashboard",     icon: "trending_up",     comp: GrowthDashboard,
-             title: "Growth Dashboard",
-             sub: "The one captain module on real data — widget and risk monitoring beside it." },
+  // NO separate Growth Dashboard row. It is a MODULE of the Captain Panel — the sidebar there
+  // has it third, between DC Capacity and Service Area — so a top-level row for it said the app
+  // has two captain destinations when it has one. It was demo convenience and it cost more in
+  // confusion than it bought.
   l3:      { label: "L3 Console",           icon: "inbox",           comp: L3Workspace,
              title: "L3 Console",           sub: "Escalated cases worked by the L3 desk." },
   support: { label: "Support Command",      icon: "space_dashboard", comp: SupportCommand,
@@ -68,7 +68,7 @@ const VIEWS = {
 /* One group per PERSONA. `.nav-sep` has existed in styles.css since the first build and was
    never used — this is what it was for. */
 const NAV_GROUPS = [
-  { label: "captain",      rows: ["captain", "growth"] },
+  { label: "captain",      rows: ["captain"] },
   { label: "l3 desk",      rows: ["l3"] },
   // `connectors` and `calibration` sit here because a support-team person is who reads them,
   // and they fold INTO Support Command as sub-tabs in the next pass — at which point this

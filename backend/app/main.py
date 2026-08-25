@@ -184,8 +184,11 @@ class SatisfactionIn(BaseModel):
 
 class L3ResolveIn(BaseModel):
     concern_id: str
-    resolution_note: str = ""
+    resolution_note: str = ""          # PARTNER-FACING. Validated in l3.validate_reply.
     resolver: str = "L3"
+    internal_note: str = ""            # never reaches the captain
+    outcome: str = "resolved"          # resolved | need_input | rejected
+    attachments: list[dict] | None = None   # [{filename, mime, size}] — metadata only
 
 
 class AuditRubricIn(BaseModel):
@@ -715,8 +718,17 @@ def l3_inbox():
 @app.post("/api/l3/resolve", dependencies=[_authed])
 def l3_resolve(body: L3ResolveIn):
     """L3 resolves an escalated case → drops it from the active queue and creates a
-    captain-facing follow-up (closes the loop across states)."""
-    return l3.resolve(body.concern_id, body.resolution_note, body.resolver)
+    captain-facing follow-up (closes the loop across states).
+
+    A 400 on a rejected message rather than a 200 with an `error` key: the composer needs to keep
+    what was typed and say why, and a silent 200 is how "done" became every resolution in the log.
+    """
+    out = l3.resolve(body.concern_id, body.resolution_note, body.resolver,
+                     internal_note=body.internal_note, outcome=body.outcome,
+                     attachments=body.attachments)
+    if out.get("error"):
+        raise HTTPException(status_code=400, detail=out["error"])
+    return out
 
 
 @app.get("/api/captain/{captain_id}/cases", dependencies=[_authed])

@@ -67,10 +67,23 @@ def _team_of(concern: dict) -> str:
     return (p or {}).get("escalation", {}).get("team", "Functional team (L2/L3)")
 
 
-def inbox() -> list[dict]:
+def inbox(include_test: bool = False) -> list[dict]:
     """Escalated Concerns as L3 work items with SLA + breach status. Cases that have been
-    resolved-back (a follow-up concern links to them) drop out of the active queue."""
+    resolved-back (a follow-up concern links to them) drop out of the active queue.
+
+    Harness rows are EXCLUDED by default. A test run is not somebody's escalation, and a desk
+    whose queue is padded with them is a desk nobody trusts — the same reasoning as the captain's
+    case strip, which was showing 98 cases for one captain.
+
+    `unclassified` is KEPT, and that is a deliberate compromise worth naming: it is the bulk of
+    the backlog (rows written before provenance existed), so the queue still looks long. Hiding
+    them would be inventing an empty desk, and a real one may be in there. What fixes the number
+    is live traffic, not a filter.
+    """
     all_concerns = concern_log.all_concerns()
+    if not include_test:
+        all_concerns = [c for c in all_concerns
+                        if c.get("source") not in concern_log.NON_INBOUND_SOURCES]
     resolved_ids = {c["resolves_concern_id"] for c in all_concerns if c.get("resolves_concern_id")}
     items = []
     for c in all_concerns:
@@ -97,10 +110,54 @@ def inbox() -> list[dict]:
     return items
 
 
-def resolve(concern_id: str, note: str = "", resolver: str = "L3") -> dict:
+#: What an L3 member can conclude. `resolved` closes the case; `need_input` sends it back to the
+#: captain WITHOUT closing it (they were missing a photo, an AWB, a date); `rejected` closes it
+#: with a reason the captain can read. The middle one is the reason this is not a boolean: a case
+#: that cannot be resolved yet is not the same as one that has been refused, and collapsing them
+#: is how a captain ends up waiting on a case nobody is working.
+OUTCOMES = ("resolved", "need_input", "rejected")
+
+#: Refused as a partner-facing message. Every one of the four real resolutions in the ledger
+#: is the literal string "done" — which is what a `window.prompt` box gets you, and it is not
+#: something you can send a person who has been waiting a day for their money.
+_NON_ANSWERS = {"done", "ok", "okay", "fixed", "resolved", "closed", "na", "n/a", "-", "yes",
+                "no", "completed", "complete", "sorted", "handled", "actioned", "yep", "k"}
+MIN_REPLY_CHARS = 25
+
+
+def validate_reply(text: str) -> str:
+    """"" if the message is fit to send, else why not. Enforced server-side, not just in the UI —
+    the UI is one client and the ledger is forever."""
+    t = (text or "").strip()
+    if not t:
+        return "A message for the captain is required."
+    if t.lower().rstrip(".!") in _NON_ANSWERS:
+        return (f"{t!r} is not an answer. Say what was found and what happens next — this is "
+                f"what the captain reads.")
+    if len(t) < MIN_REPLY_CHARS:
+        return f"Too short ({len(t)} chars). At least {MIN_REPLY_CHARS} — say what you did."
+    return ""
+
+
+def resolve(concern_id: str, note: str = "", resolver: str = "L3", *,
+            internal_note: str = "", outcome: str = "resolved",
+            attachments: list | None = None) -> dict:
     """L3 resolves an escalated case → append a linked follow-up concern (the log is
     append-only) that (a) drops the case from the active inbox and (b) becomes the
-    captain-facing follow-up. Idempotent: a second call for an already-resolved case no-ops."""
+    captain-facing follow-up. Idempotent: a second call for an already-resolved case no-ops.
+
+    ── FOUR THINGS A RESOLUTION NEEDS THAT ONE STRING CANNOT CARRY ───────────────────────────
+    `note` is the PARTNER-FACING message and is validated. `internal_note` never reaches the
+    captain — it is what one L3 member tells the next one, and without somewhere to put it the
+    partner-facing message becomes the dumping ground for both. `attachments` records the
+    evidence relied on (metadata only: filename, mime, size — the file itself is never stored
+    here, matching the captain-upload path). `outcome` distinguishes closing a case from sending
+    it back for more information.
+
+    `need_input` deliberately does NOT set `resolves_concern_id`, so the case STAYS in the active
+    inbox. It has been answered, not closed — and a queue that loses a case the moment somebody
+    types into it is how things go quiet.
+    """
     import uuid
     with _resolve_lock:   # check-then-append must be atomic, else two clicks double-resolve one case
         all_concerns = concern_log.all_concerns()
@@ -109,6 +166,11 @@ def resolve(concern_id: str, note: str = "", resolver: str = "L3") -> dict:
             return {"error": "concern not found"}
         if any(c.get("resolves_concern_id") == concern_id for c in all_concerns):
             return {"ok": True, "already_resolved": True, "resolved_concern_id": concern_id}
+        problem = validate_reply(note)
+        if problem:
+            return {"error": problem}
+        if outcome not in OUTCOMES:
+            return {"error": f"outcome must be one of {', '.join(OUTCOMES)}"}
         followup = concern_log.append({
             "id": "CNC-" + uuid.uuid4().hex[:8].upper(),
             "captain_id": orig.get("captain_id"), "channel": "l3",
@@ -118,8 +180,15 @@ def resolve(concern_id: str, note: str = "", resolver: str = "L3") -> dict:
             "intent": f"Resolved: {orig.get('intent', '')}"[:80],
             "disposition": orig.get("disposition"), "action_taken": "resolved_by_l3",
             "amount_inr": orig.get("amount_inr"), "outcome": "l3_resolved",
-            "resolves_concern_id": concern_id, "resolution_note": note, "resolver": resolver,
-            "reply": note or "Your escalated case has been resolved by the team.",
+            # `need_input` does NOT link the original, so the case stays open in the queue.
+            **({"resolves_concern_id": concern_id} if outcome != "need_input" else {}),
+            "resolution_note": note, "resolver": resolver,
+            "l3_outcome": outcome,
+            # Never sent to the captain, never rendered on their panel. Kept on the record so the
+            # next person to touch this case can see what the last one found.
+            "internal_note": internal_note,
+            "reply": note,
+            "attachments": attachments or [],
             "evidence_trail": orig.get("evidence_trail", []),
         })
     return {"ok": True, "followup": followup, "resolved_concern_id": concern_id}

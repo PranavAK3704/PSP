@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { getL3, resolveL3, submitNuance } from "../lib/api.js";
+import { getL3, resolveL3, submitNuance, getConcernTrace } from "../lib/api.js";
+import ResolutionComposer from "../components/ResolutionComposer.jsx";
+import RuleComposer from "../components/RuleComposer.jsx";
+import TraceView from "../components/TraceView.jsx";
 
 const sevBg = (s) => (s === "high" ? "bg-error/10 text-error border border-error/30" : s === "medium" ? "bg-warn/10 text-warn border border-warn/30" : "bg-tertiary/10 text-tertiary border border-tertiary/30");
 const shortTeam = (t) => (t || "").replace(/\s*\(.*\)/, "");
@@ -29,6 +32,12 @@ export default function L3Workspace() {
   const [selId, setSelId] = useState(null);
   const [actioned, setActioned] = useState({});
   const [busyId, setBusyId] = useState(null);
+  const [sendErr, setSendErr] = useState("");
+  const [ruleOpen, setRuleOpen] = useState(false);
+  // The engine's own trace for the selected case — "why this reached you", which appeared
+  // NOWHERE on this page before. An L3 member was being handed a concern with no record of what
+  // the engine already checked, so the first thing they did was re-check it.
+  const [trace, setTrace] = useState({ id: null, events: [] });
 
   function load(keepSel) {
     return getL3().then((d) => {
@@ -39,24 +48,50 @@ export default function L3Workspace() {
   }
   useEffect(() => { load(false); }, []);
 
-  async function resolveCase(concernId) {
-    const note = window.prompt("Resolution note to send the captain:", "") ;
-    if (note === null) return;                       // cancelled
-    setBusyId(concernId);
-    await resolveL3(concernId, note).catch(() => {});
-    setActioned((a) => ({ ...a, [concernId]: "Resolved & captain notified" }));
-    setBusyId(null);
-    await load(false);                                // resolved case drops out of the active queue
+  // Refresh every 6s so a case escalated during a demo ARRIVES rather than requiring a reload.
+  useEffect(() => {
+    const t = setInterval(() => load(true), 6000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Fetch the trace when the selection changes. Cheap, cached by the browser, and it is the one
+  // thing that makes this desk different from a ticket queue.
+  useEffect(() => {
+    if (!selId) { setTrace({ id: null, events: [] }); return; }
+    let live = true;
+    setTrace({ id: selId, events: [] });
+    getConcernTrace(selId)
+      .then((d) => { if (live) setTrace({ id: selId, events: d.events || d.trace || [] }); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [selId]);
+
+  // The composer supplies all four fields; this just posts them and reports what the server said.
+  // The old version was `window.prompt` + `.catch(() => {})` — so a rejected resolution looked
+  // exactly like a successful one, and the L3 member walked away believing the captain had been
+  // answered. The error now comes back into the composer with the text still in it.
+  async function resolveCase(concernId, { reply, internal, outcome, attachments }) {
+    setBusyId(concernId); setSendErr("");
+    try {
+      const r = await resolveL3(concernId, reply, { internal_note: internal, outcome, attachments });
+      if (r?.error) { setSendErr(r.error); return; }
+      setActioned((a) => ({ ...a, [concernId]:
+        outcome === "need_input" ? "Sent — case still open"
+        : outcome === "rejected" ? "Closed as not upheld"
+        : "Resolved — on the captain's panel within ~6s" }));
+      await load(outcome === "need_input");
+    } catch (e) {
+      setSendErr(String(e?.message || e) || "Could not send. Nothing was recorded.");
+    } finally {
+      setBusyId(null);
+    }
   }
 
   // Capture a correction from a live case: a plain-language rule the engine will follow next
   // time (no code). Goes to the KT approval queue tagged to this case's domain.
-  async function captureCorrection(c) {
-    const text = window.prompt("This should've been resolved — add a rule for next time:", "");
-    if (!text) return;
-    const required = window.prompt("Required from the captain for this (comma-separated, optional):", "") || "";
+  async function captureCorrection(c, { text, required }) {
     await submitNuance({ text, domain: c.disposition || "other", contributor: "L3-ops",
-      required_inputs: required.split(",").map((s) => s.trim()).filter(Boolean),
+      required_inputs: required,
       from_concern_id: c.concern_id }).catch(() => {});
     setActioned((a) => ({ ...a, [c.concern_id + "-corr"]: 1 }));
     alert("Rule queued for approval → once approved, the engine follows it automatically.");
@@ -156,6 +191,18 @@ export default function L3Workspace() {
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto custom-scrollbar p-lg space-y-lg">
+              {/* WHY THIS REACHED YOU. This answer appeared nowhere on the page: an L3 member was
+                  handed a concern with no record of what the engine had already checked, so the
+                  first thing they did was re-check it. Same component the widget and the ledger
+                  use, at full width — one record, three readers. */}
+              {trace.id === sel.concern_id && trace.events.length > 0 && (
+                <div>
+                  <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-secondary-container border-l-2 border-secondary-container pl-md mb-md" style={{ fontFamily: "JetBrains Mono" }}>Why this reached you</h3>
+                  <div className="glass-card p-md rounded-lg">
+                    <TraceView events={trace.events} scope="l3" />
+                  </div>
+                </div>
+              )}
               <div>
                 <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-secondary-container border-l-2 border-secondary-container pl-md mb-md" style={{ fontFamily: "JetBrains Mono" }}>Worked Case → {sel.team}</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
@@ -207,23 +254,31 @@ export default function L3Workspace() {
               )}
             </div>
 
-            {/* Footer actions */}
-            <div className="p-lg bg-surface-container-high/60 border-t border-on-primary-fixed-variant/20 flex gap-md">
+            {/* ── RESOLUTION. Was two `window.prompt` calls; is now the composer, in the pane,
+                   with the case still on screen while you write. That is the actual fix — a
+                   one-line dialog with the evidence hidden behind it is why every real
+                   resolution in the ledger says "done". ── */}
+            <div className="p-lg bg-surface-container-high/60 border-t border-on-primary-fixed-variant/20">
               {actioned[sel.concern_id] ? (
-                <div className="flex-1 bg-tertiary/10 text-tertiary py-md rounded-lg font-bold flex items-center justify-center gap-sm">
+                <div className="bg-tertiary/10 text-tertiary py-md rounded-lg font-bold flex items-center justify-center gap-sm">
                   <span className="material-symbols-outlined" style={{ fontSize: 18 }}>check_circle</span> {actioned[sel.concern_id]}
                 </div>
+              ) : ruleOpen ? (
+                <RuleComposer item={sel}
+                  onCancel={() => setRuleOpen(false)}
+                  onSubmit={async (payload) => {
+                    await captureCorrection(sel, payload);
+                    setRuleOpen(false);
+                  }} />
               ) : (
                 <>
-                  <button onClick={() => resolveCase(sel.concern_id)} disabled={busyId === sel.concern_id}
-                    className="flex-1 bg-tertiary text-on-tertiary py-md rounded-lg font-bold flex items-center justify-center gap-sm hover:brightness-110 transition-all active:scale-[0.98] disabled:opacity-50">
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>check_circle</span>
-                    {busyId === sel.concern_id ? "Resolving…" : "Resolve & notify captain"}
-                  </button>
-                  <button onClick={() => captureCorrection(sel)}
-                    className="flex-none px-lg border border-secondary-container text-secondary-container py-md rounded-lg font-bold flex items-center justify-center gap-sm hover:bg-secondary-container/10 transition-all active:scale-[0.98]"
+                  <ResolutionComposer item={sel} busy={busyId === sel.concern_id} error={sendErr}
+                    onSend={(payload) => resolveCase(sel.concern_id, payload)} />
+                  <button onClick={() => setRuleOpen(true)}
+                    className="w-full mt-md border border-secondary-container/50 text-secondary-container py-sm rounded-lg text-xs font-bold flex items-center justify-center gap-sm hover:bg-secondary-container/10 transition-all"
                     title="Add a plain-language rule the engine will follow next time (no code)">
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>auto_fix_high</span> Capture rule
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>auto_fix_high</span>
+                    This should have been resolved automatically — capture a rule
                   </button>
                 </>
               )}

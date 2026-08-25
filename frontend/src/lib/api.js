@@ -180,7 +180,15 @@ export function uploadFramework(file) {
 
 
 export const getL3 = () => apiGet("/api/l3/inbox");
-export const resolveL3 = (concern_id, resolution_note) => apiPost("/api/l3/resolve", { concern_id, resolution_note });
+/* A resolution is four things, not one string — see components/ResolutionComposer.jsx and
+   backend/app/l3/platform.py. `resolution_note` is PARTNER-FACING and is validated server-side;
+   `internal_note` never reaches the captain; `outcome` of "need_input" answers them and leaves
+   the case OPEN. The extras are optional so any older caller keeps working. */
+export const resolveL3 = (concern_id, resolution_note, extra = {}) =>
+  apiPost("/api/l3/resolve", { concern_id, resolution_note,
+    internal_note: extra.internal_note || "",
+    outcome: extra.outcome || "resolved",
+    ...(extra.attachments && extra.attachments.length ? { attachments: extra.attachments } : {}) });
 export const getInsights = () => apiGet("/api/insights");
 // Data Foundation — corpus-level aggregates over BOTH databases. Aggregates only: no partner
 // id, AWB or per-captain breakdown, which is what makes it safe to display.

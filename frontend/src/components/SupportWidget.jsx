@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { MessageSquare, Send, Paperclip, Radar, CheckCircle2, Clock } from "lucide-react";
+// FolderOpen and Sparkles were the crash: both are used in JSX below and neither came across
+// when these two components were extracted out of GrowthDashboard, because the icons were on
+// that file's own import line. React renders `undefined` as an element type and throws, so the
+// whole Captain Panel fell into the error boundary — "This panel hit a snag" — rather than
+// failing at build time. `vite build` cannot catch this: an undefined identifier in JSX is
+// perfectly valid JavaScript until it is evaluated.
+import { FolderOpen, Sparkles, MessageSquare, Send, Paperclip, Radar,
+         CheckCircle2, Clock } from "lucide-react";
 import { chatStream, getCaptainCases } from "../lib/api.js";
 import TraceView from "./TraceView.jsx";
 

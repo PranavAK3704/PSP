@@ -3,7 +3,16 @@ import { getMe, getToken, clearToken, login as apiLogin, logout as apiLogout } f
 
 // Client-side session state. The SERVER is the source of truth for every gated
 // action — this context only drives UX (which screen, which buttons to show).
-const AuthCtx = createContext(null);
+/* Exported ONLY so a test harness can supply an authed value directly.
+
+   `AuthProvider` resolves the session in a `useEffect`, and effects do not run under
+   `renderToString` — so a server-rendered AuthProvider is permanently in its pre-auth branch and
+   NEVER renders its children. A smoke test that wraps pages in it therefore renders the login
+   screen every time and reports a clean pass while checking nothing, which is exactly what
+   scripts/smoke-render.mjs did until this was exported.
+
+   Application code should keep using `useAuth()`. */
+export const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
 
 export function AuthProvider({ children }) {

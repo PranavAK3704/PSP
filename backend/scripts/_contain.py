@@ -23,19 +23,25 @@ empty tmpdir would not contain the harnesses, it would blind them — `check_cal
 read an absent kapture file and report a κ over n=0, which passes.
 
 So the rule is by SIZE, not by a hand-kept list of names:
-  · files < 5 MB  → COPIED. A write lands on the copy and is discarded with the tmpdir.
-  · files ≥ 5 MB and directories → SYMLINKED. Those are `valmo.db` (539 MB), `tickets.db`
-    (40 MB), `kapture_audits.json` (9 MB) and the fixture dirs — none of which are routed
-    through PSP_STATE_DIR at all (`state_paths.py` says so explicitly: static corpus stays
-    baked with the code), so their presence here is belt-and-braces, and a symlink is free.
-  · `*.txt` → SYMLINKED regardless of size. Those are `llm_key.txt`, `turso_url.txt`,
-    `turso_token.txt` — credentials, read only by `scripts/load_env.sh` and read from
-    `backend/data` directly rather than through the state dir, so a copy buys nothing and
-    duplicates a secret (mode 0600) into a tmpdir that nothing cleans up.
+  · every `*.json` → COPIED, at any size. A write lands on the copy and dies with the tmpdir.
+  · directories, `*.db` and `*.txt` → SYMLINKED. Those are `valmo.db` (539 MB), `tickets.db`
+    (40 MB), the fixture dirs, and the credential files — none of which are routed through
+    PSP_STATE_DIR at all (`state_paths.py` says so explicitly: static corpus and `*.db` stay
+    baked with the code), so their presence here is belt-and-braces and a symlink is free. A
+    copy of a credential would also duplicate a 0600 secret into a tmpdir nothing cleans up.
 
-Size, not a name list, because a name list is exactly the thing that goes stale: add one more
-`durable_path("something.json")` next month and a list quietly stops containing it, while the
-size rule keeps working with no edit.
+── THIS RULE WAS FIRST WRITTEN BY SIZE, AND THAT WAS BACKWARDS ──────────────────────────────
+The first version copied files under 5 MB and symlinked everything above it, on the reasoning
+that big files are the static ones. Every store this module exists to protect is APPEND-ONLY
+and therefore GROWS: `traces.json` is already 2.5 MB and `kapture_audits.json` is 9.4 MB. The
+first mutable store to cross the threshold would have been silently symlinked, converting
+`contain()` from a redirect into a PASSTHROUGH — harness writes landing in the real
+`backend/data` while `check_all.py` went on printing "nothing written to backend/data". The
+byte-identical verification would have kept passing right up to the day it stopped.
+
+So the rule is by KIND, not size: the state dir serves JSON, so all JSON is copied. Copying
+~14 MB once per batch is a rounding error next to a containment guarantee that expires on a
+file-size threshold nobody is watching.
 
 Copied, NOT emptied: containment is about writes not landing, not about hiding reads. A
 harness that reads real history (`check_calibration` pairs machine vs human verdicts off the
@@ -51,11 +57,12 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
 _REAL = Path(__file__).resolve().parents[1] / "data"
-_BIG = 5 * 1024 * 1024
+_PREFIX = "psp-harness-"
 
 
 def contain(label: str = "harness") -> str:
@@ -65,23 +72,36 @@ def contain(label: str = "harness") -> str:
     shares ONE dir: seeding costs ~4 MB of copies once instead of eleven times, and a harness
     that reads what an earlier one wrote still behaves as it does in a single process.
     """
+    # Reuse ONLY a directory this module made. The first version accepted anything that passed
+    # `is_dir()`, which meant a single stale or inherited `PSP_HARNESS_DIR` — including one
+    # pointing at `backend/data` itself — silently turned containment into a no-op, AND skipped
+    # seeding, so the harnesses would have read an unseeded dir and quietly tested nothing.
+    # Both halves of that are checked here: the name must carry our prefix, and the marker file
+    # must be present, which only the seeding branch below writes.
     existing = os.environ.get("PSP_HARNESS_DIR")
-    if existing and Path(existing).is_dir():
-        os.environ["PSP_STATE_DIR"] = existing
-        _blind_the_mirror(label)
-        return existing
+    if existing:
+        p = Path(existing)
+        if (p.is_dir() and p.name.startswith(_PREFIX)
+                and (p / ".psp-harness").exists()):
+            os.environ["PSP_STATE_DIR"] = existing
+            _blind_the_mirror(label)
+            return existing
+        # Do not raise and do not obey it — mint a fresh contained dir and say why.
+        print(f"[contain] ignoring PSP_HARNESS_DIR={existing!r}: not a dir this module seeded",
+              file=sys.stderr)
 
     d = tempfile.mkdtemp(prefix="psp-harness-")
     if _REAL.is_dir():
         for entry in _REAL.iterdir():
             dst = Path(d) / entry.name
             try:
-                if entry.is_dir() or entry.suffix == ".txt" or entry.stat().st_size >= _BIG:
-                    dst.symlink_to(entry)          # read-only by construction; free
-                else:
+                if entry.suffix == ".json":
                     shutil.copy2(entry, dst)       # writes land here and are discarded
+                else:
+                    dst.symlink_to(entry)          # dirs, *.db, *.txt — never written here
             except OSError:
                 pass                                # a seed we cannot place is not fatal
+    (Path(d) / ".psp-harness").write_text("seeded by scripts/_contain.py\n")
     os.environ["PSP_HARNESS_DIR"] = d
     os.environ["PSP_STATE_DIR"] = d
     _blind_the_mirror(label)
@@ -91,6 +111,13 @@ def contain(label: str = "harness") -> str:
 def _blind_the_mirror(label: str) -> None:
     for k in ("TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"):
         os.environ.pop(k, None)
-    # Belongs here rather than in each harness: every row a harness writes is a harness row,
-    # and `concern_log.append` reads this env var as its last resort before `unclassified`.
+    # Belongs here rather than in each harness: every row a harness writes is a harness row.
+    #
+    # FORCE, not a fallback. As a last-resort default this leaked: `_provenance` resolved
+    # explicit-argument first, and `/api/whatsapp/webhook` asserts `source="partner"`
+    # server-side — so `check_followups_e2e.py`, which drives exactly that route, stamped its
+    # rows `partner`. That is the one label that must only ever come from a real handset, and a
+    # test run was producing it. Inside a contained run the truth is unconditional: whatever the
+    # code under test believes it is, it is a harness.
     os.environ["PSP_CONCERN_SOURCE"] = label
+    os.environ["PSP_CONCERN_SOURCE_FORCE"] = "1"

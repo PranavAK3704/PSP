@@ -25,26 +25,51 @@ Each maps to exactly one writer, so it is a fact about the row and not a guess a
 
   1. `channel == "proactive"`                    -> monitor   (only monitor.py writes that)
   2. `channel == "l3"` or `resolves_concern_id`  -> l3        (only l3/platform.py writes those)
+     NOTE, because ordering has a consequence: 4 of the 5 rows these two rules claim carry
+     `VLMO-CPT-4471`, i.e. rule 3 would have called them `harness`. They keep the operational
+     label, because the WRITER is the stronger fact — monitor.py and l3/platform.py really did
+     write them — and 5 rows either way changes no aggregate. It is stated so nobody reads
+     "monitor: 1" as evidence the monitor has run in production. It has not.
   3. `captain_id` absent from valmo.db           -> harness   (it is not a partner. 588 rows
      carry `VLMO-CPT-4471` / `-3310` / `-2290` / `CAP-DEMO` / `LZ5-CPT` / `CAP1` / `CAP-TEST`,
      which are seed ids from the old monitor and the harnesses; no such partner exists.)
 
-── AND WHY EVERYTHING ELSE IS `unclassified`, INCLUDING 419 ROWS ON A REAL CAPTAIN ID ────────
-The remaining rows sit on partner ids that DO resolve. They are some mixture of harness runs
-(`check_op` and `check_followups_e2e` both drive `20020388788`), my own testing through the
-bench, and a small number of real turns. After the fact those three are indistinguishable,
-and the timing evidence — which is strong — is still evidence rather than identity:
+     Rules 1 and 2 each map to exactly ONE writer, so they are facts about the row. Rule 3 is
+     weaker and worth naming as such: it says the captain id is absent from the partner-keyed
+     table, which is true of harness ids but would ALSO be true of real traffic served by a
+     different data provider. Under the shipped default (`PSP_DATA_PROVIDER=localdb`, backed by
+     valmo.db) it is sound. It is applied LAST, so a monitor or l3 row can never be relabelled
+     by it — the ordering is load-bearing, not incidental.
 
-  · 25 sessions of exactly 7 rows inside 0.2 seconds, each beginning with the intent "hello"
+── AND WHY EVERYTHING ELSE IS `unclassified`, INCLUDING 419 ROWS ON A REAL CAPTAIN ID ────────
+The remaining rows sit on partner ids that DO resolve. They are a mixture of harness runs, my
+own testing through the bench, and some number of real turns. The timing evidence is strong:
+
+  · 52 sessions of exactly 7 rows, every one beginning with the intent "hello" (28 of them
+    inside 0.2s, the rest up to 0.29s)
   · sessions of 14 / 16 / 21 / 28 / 42 rows, all inside 95 seconds
   · against one session of 3 rows over 18 seconds whose intent is real Hindi free text
 
-Nobody logs 42 concerns in 94 seconds, so most of that bucket is machine-paced. The rule could
+Nobody logs 42 concerns in 94 seconds, so most of this bucket is machine-paced. The rule could
 be "rows/second above a threshold -> harness" and would be right most of the time. It is not
 used, because a plausible-looking inference presented as a label is the exact defect this pass
 exists to remove — and the direction matters: the numbers on the deck are counts of PARTNER
-traffic, so the honest failure is to under-claim. `unclassified` under-claims. It is reported,
-with the burst evidence beside it, and it stays a question rather than becoming an answer.
+traffic, so the honest failure is to under-claim. `unclassified` under-claims.
+
+── AN EARLIER VERSION OF THIS DOCSTRING WAS WRONG ABOUT ITS OWN EVIDENCE ────────────────────
+It said "`check_op` and `check_followups_e2e` both drive `20020388788` ... after the fact those
+three are indistinguishable", and it counted 25 seven-row sessions. Checked: there are 52 such
+sessions, and `check_followups_e2e` never touches that id at all (it drives `VLMO-CPT-4471` and
+`VLMO-CPT-3310`, which rule 3 already catches). The harness responsible for the bulk of this
+bucket is `check_phase1.py`, which hardcodes BOTH the captain id and the message — so a
+meaningful share of these rows IS identifiable by exact string match, to the same standard of
+certainty rule 3 claims for itself.
+
+That is left as a known gap rather than quietly patched into a fourth rule, and it is the honest
+version of the argument: the reason these rows stay `unclassified` is not that identifying them
+is impossible, it is that the identification would be a string-match against harness source
+code that changes, and the bucket is reported rather than counted either way. If it ever needs
+to be counted, the fourth rule is available and should be written deliberately.
 
 The consequence is worth stating plainly: **after this runs, `partner` is zero.** The field did
 not exist when those rows were written, so the ledger genuinely cannot say which were partners.
@@ -148,12 +173,54 @@ def mirror_check() -> str:
     return "no mirror configured anywhere — local file is the truth"
 
 
+def _report_divergence(durable: list[dict]) -> None:
+    """Say so when the local cache and the durable truth disagree. Never reconcile them.
+
+    `_DurablePath.write_text` publishes the whole file, so two writers — a deployed instance and
+    a local run — each overwrite the other's appends. For an APPEND-ONLY ledger that is a
+    lost-update bug, and it predates this script: measured on 2026-08-25, the mirrored
+    `traces.json` still held 8 concern ids (2026-07-20 .. 08-04, real Hindi conversations) with
+    no matching ledger row, and none of them appear in the 837-id local trace store. Those are
+    rows a deployed instance appended to the mirror which some later local write erased.
+
+    This function only REPORTS. Merging two divergent append-only logs by id is a real operation
+    with real decisions in it (ordering, `seq` renumbering, duplicate ids) and it does not belong
+    as a side effect of a labelling script.
+    """
+    local_path = Path(state_path("concern_log.json"))
+    if not local_path.exists():
+        return
+    try:
+        local = json.loads(local_path.read_text())
+    except Exception:  # noqa: BLE001
+        return
+    d_ids = {c.get("id") for c in durable}
+    l_ids = {c.get("id") for c in local}
+    only_durable, only_local = d_ids - l_ids, l_ids - d_ids
+    if not (only_durable or only_local):
+        return
+    print(f"!! LOCAL CACHE AND DURABLE TRUTH DISAGREE\n"
+          f"   durable rows: {len(durable)}   local rows: {len(local)}\n"
+          f"   only in the durable mirror: {len(only_durable)}   only local: {len(only_local)}\n"
+          f"   This script stamps the DURABLE set. Rows that exist only locally are NOT\n"
+          f"   included and are NOT deleted — reconcile deliberately, not as a side effect.\n")
+
+
 def main() -> int:
     apply = "--apply" in sys.argv
     real = real_partner_ids()
-    store = Path(state_path("concern_log.json"))
-    log = json.loads(store.read_text()) if store.exists() else []
-    print(f"ledger: {store}\nrows:   {len(log)}\n")
+
+    # ── READ THROUGH `_STORE`, NOT THE LOCAL FILE ────────────────────────────────────────────
+    # The first version read `Path(state_path("concern_log.json"))` — the raw local file — and
+    # wrote through `concern_log._STORE`, the durable path. With TURSO_* loaded (which --apply
+    # REQUIRES) the mirror is the truth and the local file is only a cache, so that combination
+    # published a stale local snapshot AS the durable ledger: any row present only in the mirror
+    # was destroyed, the pre-stamp snapshot was taken from the same stale read so it could not
+    # restore them, and the script printed "APPLIED — n/n rows carry a source, confirmed by an
+    # uncached durable re-read" and exited 0. Read and write must be the same store.
+    log = json.loads(concern_log._STORE.read_text()) if concern_log._STORE.exists() else []
+    print(f"ledger: durable store via {state_path('concern_log.json')}\nrows:   {len(log)}\n")
+    _report_divergence(log)
 
     already = [r for r in log if r.get("source") in concern_log.SOURCES]
     print(f"already stamped: {len(already)} (left untouched — a stamped row is the writer's own "

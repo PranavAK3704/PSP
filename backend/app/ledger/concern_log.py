@@ -7,8 +7,6 @@ JSON (Postgres in production, BRD §8/§12).
 """
 from __future__ import annotations
 
-import contextlib
-import contextvars
 import json
 import os
 import threading
@@ -25,10 +23,16 @@ _lock = threading.Lock()
 
 # ── PROVENANCE ────────────────────────────────────────────────────────────────────────────────
 # WHY: this ledger is the substrate under "992 Concerns Logged" and "₹81,840 Recovered" on the
-# deck, and under `avg_resolution_time` in /api/insights. Measured, of 1,014 rows: 702 were
-# written by one afternoon of `check_all.py`, 462 carry the captain id `VLMO-CPT-4471` which
-# matches no real partner, and 301 have `intent` equal to a disposition token rather than
-# anything a person typed. Genuinely operational: ten.
+# deck, and under `avg_resolution_time` in /api/insights. Measured over 1,014 rows: 702 were
+# written on one afternoon (2026-08-24), 462 carry the captain id `VLMO-CPT-4471` which matches
+# no real partner in valmo.db, and 301 have `intent` equal to a disposition token rather than
+# anything a person typed.
+#
+# An earlier version of this comment ended "Genuinely operational: ten." That number does not
+# reproduce and is removed rather than corrected, because it also contradicted the
+# classification shipped alongside it: `partner` is ZERO. Nothing in this ledger can be SHOWN
+# to be partner traffic — the field did not exist when these rows were written. A count of
+# real traffic is a thing to earn by running live turns, not to assert in a comment.
 #
 # The rows are not fake — nothing was fabricated, they are real engine output. They are just
 # not PARTNER traffic, and a ledger that cannot tell the difference cannot be aggregated
@@ -39,44 +43,40 @@ _lock = threading.Lock()
 # visible and wrong-looking — instead of silently inflating the number the demo rests on.
 SOURCES = ("partner", "operator", "monitor", "l3", "harness", "unclassified")
 
-_SOURCE: contextvars.ContextVar[str] = contextvars.ContextVar("psp_concern_source", default="")
+def _provenance(explicit: str | None) -> str:
+    """FORCED env → explicit argument → $PSP_CONCERN_SOURCE → `unclassified`.
 
+    ── WHY `FORCE` OUTRANKS AN EXPLICIT CLAIM ────────────────────────────────────────────────
+    `scripts/_contain.py` sets both `PSP_CONCERN_SOURCE=harness` and `..._FORCE=1` for the life
+    of a test run. Without the force leg this leaked in the one direction that matters:
+    `/api/whatsapp/webhook` asserts `source="partner"` server-side (an inbound webhook IS a real
+    handset — normally the soundest assertion in the system), and `check_followups_e2e.py` drives
+    exactly that route. Explicit-wins therefore stamped harness rows `partner` — the single label
+    that must never be produced by anything but a captain. Inside a contained run the truth is
+    unconditional, so it is asserted unconditionally.
 
-@contextlib.contextmanager
-def writing_as(source: str):
-    """Scope every append inside the block to one provenance.
-
-    ── DO NOT USE THIS AROUND A LAZILY-CONSUMED GENERATOR. MEASURED, not assumed: ────────────
-    the chat and WhatsApp routes return `EventSourceResponse(_sse(handle_turn(...)))`, and
-    Starlette iterates a sync generator through `anyio.to_thread.run_sync`, which gives EVERY
-    `next()` a fresh copy of the caller's context. A `.set()` inside such a generator survives
-    to the first yield and no further:
+    ── AND WHY THERE IS NO ContextVar HERE ANY MORE ──────────────────────────────────────────
+    The original design had a `writing_as()` context manager between the explicit argument and
+    the env var. It is gone, for two reasons that compound. First, it CANNOT work for the
+    request path — MEASURED, not assumed: the chat and WhatsApp routes return
+    `EventSourceResponse(_sse(handle_turn(...)))`, and Starlette iterates a sync generator
+    through `anyio.to_thread.run_sync`, which hands every `next()` a fresh copy of the caller's
+    context, so a `.set()` inside such a generator survives to the first yield and no further:
 
         V.set("X"); yield V.get()   ->  "X"
                     yield V.get()   ->  ""      # the default is back
 
-    Every `concern_log.append` in a turn happens long after the first yield, so wrapping
-    `handle_turn` in this would have stamped `unclassified` on all real partner traffic while
-    looking exactly like a working implementation. The request path therefore threads `source`
-    explicitly as an argument — see `conversation.handle_turn`.
-
-    This remains the right tool for a writer that runs entirely inside one synchronous call
-    frame, where the alternative is threading an argument through unrelated signatures.
+    Every append in a turn happens long after the first yield, so it would have stamped
+    `unclassified` on all real partner traffic while looking like a working implementation.
+    Second, having established that, nothing else called it — it had zero call sites, so the
+    middle leg of this resolution was dead code that read as a live mechanism. The request path
+    threads `source` as an argument, which is the only thing that survives a yield.
     """
-    token = _SOURCE.set(source if source in SOURCES else "unclassified")
-    try:
-        yield
-    finally:
-        _SOURCE.reset(token)
-
-
-def _provenance(explicit: str | None) -> str:
-    """explicit field → ContextVar → $PSP_CONCERN_SOURCE → `unclassified`.
-
-    The env var is the harness channel: `scripts/_contain.py` sets it, so a row written from
-    deep inside a test run is labelled without every harness knowing it has to say so.
-    """
-    for candidate in (explicit, _SOURCE.get(), os.environ.get("PSP_CONCERN_SOURCE")):
+    if os.environ.get("PSP_CONCERN_SOURCE_FORCE") == "1":
+        forced = os.environ.get("PSP_CONCERN_SOURCE")
+        if forced in SOURCES:
+            return forced
+    for candidate in (explicit, os.environ.get("PSP_CONCERN_SOURCE")):
         if candidate in SOURCES:
             return candidate
     return "unclassified"
@@ -114,8 +114,27 @@ def all_concerns() -> list[dict]:
     return list(reversed(_load()))   # newest first
 
 
-def stats() -> dict:
+#: Rows that are not a captain raising a concern. `harness` is a test run; `monitor` is the
+#: platform noticing something nobody asked about (a real event, but not inbound traffic).
+#: `unclassified` is deliberately NOT here — it predates the field and may well be real, and
+#: excluding it would under-report rather than over-report. See ledger/concern_log's provenance
+#: block and scripts/classify_concern_provenance.py.
+NON_INBOUND_SOURCES = ("harness", "monitor")
+
+
+def stats(include_test: bool = False) -> dict:
+    """Deck-facing counts. EXCLUDES non-inbound rows unless asked not to.
+
+    This function already justified excluding L3 follow-ups because "they are NOT captain
+    concerns" — and once `source` existed it could see two more classes in exactly that
+    category and was still counting them. Measured at the time of the fix: of 1,014 rows, 588
+    were stamped `harness`, so "Concerns Logged" was 58% test traffic and every rupee under
+    "Recovered for Partners" came from a harness row. The filter is the same principle the
+    docstring already claimed, applied to the classes it can now identify.
+    """
     log = _load()
+    if not include_test:
+        log = [c for c in log if c.get("source") not in NON_INBOUND_SOURCES]
     # Synthetic L3 follow-ups (they carry resolves_concern_id and action_taken=resolved_by_l3)
     # are NOT captain concerns — they shadow an original. Exclude them so total /
     # by_disposition don't double-count every resolved case (finding #31).
@@ -137,6 +156,9 @@ def stats() -> dict:
         "escalated": len(escalated),
         "money_recovered_for_partners_inr": money,
         "by_disposition": by_disp,
+        # So a caller can SAY what it excluded rather than presenting a filtered number as the
+        # whole truth. The append-only view shows everything; the aggregate shows this.
+        "excluded_sources": [] if include_test else list(NON_INBOUND_SOURCES),
     }
 
 

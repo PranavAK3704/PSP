@@ -507,6 +507,14 @@ function SupportWidget({ hub, partnerId, askRef, showEngine }) {
     // try/finally, because setBusy(false) used to live ONLY in onEnd — so any throw from
     // stream() (network drop, null body, reader reset) left the widget permanently disabled.
     try {
+      // Accumulated across the turn, because the ESCALATION and the REPLY can describe different
+      // intents: conversation.py sets `terminal_action`/`terminal_concern` from the LAST tool it
+      // dispatched, so on a two-intent turn where the escalation came first, the reply event says
+      // `respond` and carries the other intent's id. Reading the line off `reply` alone therefore
+      // gave a captain who WAS escalated no reference, no team and no ETA — the one thing the
+      // engine-hidden view is supposed to guarantee. The escalate event is the authority on its
+      // own escalation, so it is captured here and wins below.
+      let escalated = null;
       await chatStream(
       // `partner` — this widget IS the captain's surface, so its rows are the only ones in the
       // ledger that represent a real partner asking for help.
@@ -518,11 +526,16 @@ function SupportWidget({ hub, partnerId, askRef, showEngine }) {
         // not to pre-digest the trace, and the old version's 8-line filter is exactly how the
         // checks and the gate verdict went missing.
         setEvents((e) => [...e, ev]);
+        if (ev.node === "escalate" && ev.data?.reference_id) {
+          escalated = { ref: ev.data.reference_id, team: ev.data.team || "" };
+        }
         if (ev.node === "reply" && ev.data?.reply) {
           setMsgs((m) => [...m, { who: "psp", text: ev.data.reply,
                                   failed: !!ev.data.engine_error,
-                                  ref: ev.data.concern_id || "",
-                                  action: ev.data.decision_action || "" }]);
+                                  ref: escalated?.ref || ev.data.concern_id || "",
+                                  team: escalated?.team || "",
+                                  action: escalated ? "escalate"
+                                                    : (ev.data.decision_action || "") }]);
         }
       },
       () => { if (mine()) setBusy(false); });
@@ -570,7 +583,7 @@ function SupportWidget({ hub, partnerId, askRef, showEngine }) {
             {m.action === "escalate" && m.ref && (
               <div className="mono" style={{ fontSize: 10, color: "var(--text-faint)",
                 marginTop: 6, paddingTop: 5, borderTop: "1px solid var(--line-soft)" }}>
-                ref {m.ref} · expect an update within ~24h
+                {m.team ? `${m.team} · ` : ""}ref {m.ref} · expect an update within ~24h
               </div>
             )}
           </div>

@@ -33,7 +33,15 @@ export function AudienceProvider({ children }) {
   const [on, setOn] = useState(() => {
     try {
       const q = new URLSearchParams(window.location.search).get("demo");
-      if (q != null) return q !== "0" && q !== "false";
+      // An ALLOW-list, not a deny-list. `q !== "0" && q !== "false"` meant `?demo=off`,
+      // `?demo=no` and `?demo=FALSE` all turned the engine view ON — and because the effect
+      // below persists whatever it resolves to, one such URL latched the trace on for every
+      // later visit with no query string at all. Someone typing `?demo=off` to hide the trace
+      // would have shown it, then kept showing it.
+      if (q != null) {
+        const v = q.toLowerCase();
+        return v === "" || v === "1" || v === "true" || v === "yes" || v === "on";
+      }
       return localStorage.getItem(KEY) === "1";
     } catch {
       return false;

@@ -1086,8 +1086,21 @@ function TraceData({ data }) {
 
   if (data.entities && Object.keys(data.entities).length)
     push("entities", Object.entries(data.entities).map(([k, v]) => `${k}=${v}`).join(", "));
+  // A check object carries `description` and `result` — never `name`/`label`/`check` — so this
+  // read `c.name || c.label || c.check || "check"` and printed the literal string "check: ✗" for
+  // every real check, on every row of the ledger, saying nothing about what was checked.
+  //
+  // d8eaaf2's commit message claimed the shared TraceView "deletes this bug rather than fixing
+  // it". That was not true: TraceView was only ever mounted in the widget, so this line went on
+  // rendering and the `log` scope in its SCOPES map was unreachable config. It is fixed AT the
+  // renderer here — a chip row inside a ledger cell is genuinely a different shape from
+  // TraceView's block layout, so this is the honest fix rather than forcing the component in.
   if (Array.isArray(data.checks_run) && data.checks_run.length)
-    push("checks", data.checks_run.map((c) => `${c.name || c.label || c.check || "check"}: ${c.passed === false || c.pass === false ? "✗" : "✓"}`).join("  "));
+    push("checks", data.checks_run.map((c) => {
+      const label = c.description || c.name || c.label || c.check || "check";
+      const failed = c.passed === false || c.pass === false;
+      return `${String(label).slice(0, 44)}: ${failed ? "✗" : "✓"}`;
+    }).join("  ·  "));
   if (Array.isArray(data.evidence_trail) && data.evidence_trail.length)
     push("evidence", data.evidence_trail.map((e) => `${e.label || e.source}${e.value ? `=${e.value}` : ""}`).join(" · "));
   if (data.decision_action) push("action", data.decision_action);

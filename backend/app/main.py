@@ -434,6 +434,23 @@ def captain(captain_id: str):
     return ctx.get_context(captain_id) or {"error": "unknown captain"}
 
 
+#: The only provenances a BROWSER may claim. `monitor`, `l3` and `harness` are asserted by the
+#: code that owns those writes — monitor.py, l3/platform.py, scripts/_contain.py — and a request
+#: body must not be able to mint them.
+#:
+#: This existed only in the browser (`CHAT_SOURCES` in api.js), while api.js's own comment
+#: promised "a browser cannot claim them". `concern_log._provenance` accepts any member of the
+#: full six-value SOURCES tuple, so the promise was false: a client could stamp a chat row
+#: `harness` and remove it from the deck, or `monitor` and make an answered question look like
+#: something the platform noticed on its own. Enforced here, where it is true.
+_CLIENT_SOURCES = ("partner", "operator")
+
+
+def _client_source(claimed: str | None) -> str:
+    """A claim we accept, or "" — which resolves to `unclassified`, never to `partner`."""
+    return claimed if claimed in _CLIENT_SOURCES else ""
+
+
 @app.post("/api/chat", dependencies=[_authed])
 def chat(body: ChatIn):
     """Reactive resolution — stateful, multi-turn. Streams the trace as SSE.
@@ -446,7 +463,7 @@ def chat(body: ChatIn):
         conversation.handle_turn(conv_id, body.captain_id, body.message, body.channel,
                                  attachments=body.attachments,
                                  selected_option=body.selected_option,
-                                 source=body.source or "")))
+                                 source=_client_source(body.source))))
 
 
 @app.get("/api/monitor/{captain_id}", dependencies=[_authed])
@@ -614,7 +631,12 @@ def concern_trace(concern_id: str):
 
 
 # CSV column order for the flat ledger export.
-_EXPORT_COLUMNS = ["id", "seq", "logged_at", "captain_id", "conversation_id",
+# `source` sits right after the id on purpose: it is the first thing a reader of this file needs
+# in order to know whether the row counts. It was missing, and `csv.DictWriter(...,
+# extrasaction="ignore")` drops an unlisted key without complaint — so the CSV and the JSON
+# export of the SAME ledger disagreed on schema, and the flat one (the artefact anyone actually
+# opens in a spreadsheet to do their own totals) carried no provenance at all.
+_EXPORT_COLUMNS = ["id", "source", "seq", "logged_at", "captain_id", "conversation_id",
                    "disposition", "action_taken", "outcome", "intent", "amount_inr",
                    "escalation_team", "reply"]
 

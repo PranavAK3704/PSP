@@ -138,6 +138,13 @@ export default function CaptainPanel() {
     if (convoRef.current) setVstate("thinking");
     let cid = convIdRef.current;   // ref, not the frozen `active` — so the hands-free loop reuses one conversation
     if (!cid) { cid = crypto.randomUUID(); convIdRef.current = cid; store.setConvId(captainId, cid); }
+    // try/finally, because the ONLY setBusy(false) on this path lives in the onEnd callback —
+    // so anything that throws before onEnd runs pins the composer disabled with no way back
+    // except a reload. Three things can throw here: chatStream's own synchronous source check,
+    // a rejected POST (stream() does not guard the fetch), and a reader reset mid-stream. The
+    // sibling caller in GrowthDashboard already had this guard, with a comment saying why; this
+    // one did not, and adding a throwing wrapper to an unguarded call site made it reachable.
+    try {
     await chatStream(
       // `operator` — this is the internal TEST BENCH, not a captain. Every row it writes is a
       // colleague trying the engine out, and counting those as partner traffic is what turned
@@ -162,6 +169,14 @@ export default function CaptainPanel() {
       },
       () => { setBusy(false); getCaptainCases(captainId).then((d) => setCases(d.cases || [])).catch(() => {}); }
     );
+    } catch (err) {
+      // Surface it in the thread rather than only the console: a silent failure on the bench
+      // looks identical to the engine having nothing to say.
+      setMessages((m) => [...m, { who: "bot", isError: true,
+        text: `The turn could not start: ${err?.message || err}` }]);
+    } finally {
+      setBusy(false); setPhase("");
+    }
   }
 
   async function pickFiles(e) {

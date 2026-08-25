@@ -252,8 +252,10 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
     the Trace Log. `_y` yields AND records; `holder` carries the terminal concern
     id out to the persist step.
 
-    `source` rides along to every `concern_log.append` this turn makes. It is a plain argument
-    and not a ContextVar for a measured reason — see `concern_log.writing_as`."""
+    `source` rides along to every `concern_log.append` this turn makes — including the
+    deterministic pre-router exit, which is the easiest one to miss because it returns before the
+    agentic loop starts. It is a plain argument and not a ContextVar for a measured reason: see
+    `concern_log._provenance`, which records why a ContextVar cannot survive an SSE generator."""
     def _y(event: dict) -> dict:
         trace.append(event)
         return event
@@ -394,10 +396,15 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
         # IN ORDER — the numbering the captain sees is positional, so this list is the contract
         # that makes their "2" mean the second thing they were shown.
         sess.last_options = [o["id"] for o in (pr_verdict.options or []) if o.get("id")]
+        # `source=` is REQUIRED here and its absence was a real bug: this is the DETERMINISTIC
+        # exit, which answers greetings and follow-up chips without a model — i.e. the cheapest
+        # and most common real partner turn — and it was logging every one of them
+        # `unclassified`. Three independent reviewers found it, and it falsified the claim that
+        # six writers carry six labels while every other path was correct.
         concern = _log_info_concern(conversation_id, captain_id, message,
                                     pr_verdict.reply, channel,
                                     disposition=f"router:{pr_verdict.tier}",
-                                    action=pr_verdict.action)
+                                    action=pr_verdict.action, source=source)
         holder["concern_id"] = concern["id"]
         if concern.get("id"):
             holder.setdefault("concern_ids", []).append(concern["id"])

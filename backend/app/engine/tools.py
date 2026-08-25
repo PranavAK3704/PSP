@@ -318,7 +318,7 @@ def dispatch(name: str, args: dict, captain_id: str, context: dict, channel: str
     `source` is the turn's PROVENANCE, threaded the same way for a different reason: it must
     reach `concern_log.append` and it cannot travel in a ContextVar, because the route hands
     back a generator and Starlette gives every `next()` a fresh context copy — the measurement
-    is in `concern_log.writing_as`. Threading it is the only mechanism that survives a yield."""
+    is in `concern_log._provenance`. Threading it is the only mechanism that survives a yield."""
     if name == "search_sops":
         # k=4 and a 320-char snippet, down from k=8 / 700. This is the largest PERMANENT
         # contributor to history growth in the platform: a search_sops result is appended to

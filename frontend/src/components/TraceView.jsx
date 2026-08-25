@@ -43,16 +43,40 @@ const SCOPES = {
   log: { dial: 0, collapseReasons: true, collapseEvidence: true, font: 11 },
 };
 
-/** Pull the four fields out of an event list. Tolerant of a partial or in-flight trace. */
+/** Pull the four fields out of an event list. Tolerant of a partial or in-flight trace.
+ *
+ *  ── ONE INTENT, NOT A MIXTURE ────────────────────────────────────────────────────────────
+ *  This originally resolved every node independently with `reverse().find(...)`, which is wrong
+ *  on a MULTI-INTENT turn. The engine dispatches `apply_policy` once per intent ("mera payment
+ *  nahi aaya aur ek AWB pe galat debit hai" is two), so a single turn can carry two `policy`
+ *  nodes, two `gate`s and one `escalate`. Independent lookups then took the checks and the gate
+ *  verdict from one intent and the "Handed over" row from the other — rendering a panel that
+ *  said GATE PASSED while simultaneously showing a handover to an L2 team. Every field was real;
+ *  the combination never happened.
+ *
+ *  So the trace is SLICED at the last `policy` event and only that slice is read. The last
+ *  decision is the right one to show because it is the one the reply event's own
+ *  `decision_action` / `concern_id` describe, so the panel and the chat bubble agree.
+ *  `intentCount` is returned so a caller can say a second decision exists rather than hide it.
+ *
+ *  Events before the slice that have no per-intent meaning — `query`, `cost`, `reply` — are
+ *  still read from the whole list: cost is per TURN, and there is only ever one reply.
+ */
 export function readTrace(events = []) {
-  const byNode = (n) => [...events].reverse().find((e) => e.node === n);
-  const policy = byNode("policy");
-  const gate = byNode("gate");
-  const escalate = byNode("escalate");
-  const reply = byNode("reply");
-  const act = byNode("act");
-  const cost = byNode("cost");
-  const query = byNode("query");
+  const byNodeIn = (list, n) => [...list].reverse().find((e) => e.node === n);
+  const policyIdxs = events.reduce((acc, e, i) => (e.node === "policy" ? [...acc, i] : acc), []);
+  const sliceFrom = policyIdxs.length ? policyIdxs[policyIdxs.length - 1] : 0;
+  const slice = events.slice(sliceFrom);
+
+  const policy = byNodeIn(slice, "policy");
+  const gate = byNodeIn(slice, "gate");
+  const escalate = byNodeIn(slice, "escalate");
+  const act = byNodeIn(slice, "act");
+  // Turn-scoped, so read from everything: one reply, one cost roll-up, and the named query can
+  // legitimately have run before the last decision.
+  const reply = byNodeIn(events, "reply");
+  const cost = byNodeIn(events, "cost");
+  const query = byNodeIn(events, "query");
   const pd = policy?.data || {};
   const gd = gate?.data || {};
   const ed = escalate?.data || {};
@@ -77,6 +101,8 @@ export function readTrace(events = []) {
     queryName: query?.data?.query || "",
     // A turn that never reached the engine — no key, unknown captain — has nothing to show.
     engineError: !!reply?.data?.engine_error,
+    // How many decisions this turn made. >1 means the panel is showing the LAST one.
+    intentCount: policyIdxs.length,
   };
 }
 
@@ -123,6 +149,16 @@ export default function TraceView({ events = [], scope = "widget", maxHeight }) 
     <div style={{ maxHeight, overflowY: maxHeight ? "auto" : undefined,
       fontSize: s.font, borderTop: "1px solid var(--line-soft)", paddingTop: 8 }}
       className={maxHeight ? "custom-scrollbar" : undefined}>
+
+      {/* A multi-intent turn made more than one decision and this panel shows the last.
+          Said out loud rather than silently dropped — a reader who counts one gate verdict
+          against two answers in the bubble should not have to guess which one they are seeing. */}
+      {t.intentCount > 1 && (
+        <div className="mono" style={{ fontSize: s.font - 2, color: "var(--warn)",
+          marginBottom: 6 }}>
+          {t.intentCount} decisions this turn — showing the last
+        </div>
+      )}
 
       {/* ── the checks ─────────────────────────────────────────────────────────
           Failing checks FIRST and always expanded — that is the answer to "why".

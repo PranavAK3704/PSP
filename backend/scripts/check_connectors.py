@@ -73,8 +73,18 @@ def main() -> int:
     growth = [g for g in r["groups"] if g["group"] == "GROWTH_DASHBOARD_API_ROUTES"]
     check("the growth group is present with both endpoints",
           bool(growth) and growth[0]["count"] == 2)
-    check("its paths are hub-templated, matching the panel verbatim",
-          all(":hubID" in rt["path"] for rt in growth[0]["routes"]) if growth else False,
+    # Was: assert every path contains ":hubID", "matching the panel verbatim". That assertion
+    # locked the registry to the panel's CLIENT-SIDE route table, which is exactly what turned out
+    # to be wrong — the client omits the `/api` prefix because its HTTP layer prepends a base, and
+    # the controllers template `{hubId}`. Asserting fidelity to the client table would have kept
+    # the registry permanently wrong and called it verified. It now asserts fidelity to the
+    # SERVICE, which is what an access request has to be correct against.
+    check("growth paths carry the /api prefix the controllers declare",
+          all(rt["path"].startswith("/api/v1/captain/growth-dashboard/")
+              for rt in growth[0]["routes"]) if growth else False,
+          growth[0]["routes"][0]["path"] if growth else "")
+    check("and they are hub-templated as the controller declares it",
+          all("{hubId}" in rt["path"] for rt in growth[0]["routes"]) if growth else False,
           growth[0]["routes"][0]["path"] if growth else "")
     # The claim from item 1, on the record here too.
     kafka = [o for o in r["other_services"] if "Kafka" in o["path"]]

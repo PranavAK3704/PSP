@@ -24,28 +24,66 @@ from __future__ import annotations
 # ── the four route groups, verbatim ──────────────────────────────────────────────────────────
 # Timeouts included because they are a real constraint the panel already lives with: a 1000ms
 # budget on the growth endpoints means an adapter cannot afford a retry ladder there.
-CAPTAIN_PAYOUTS_AUTO_API_ROUTES = [
-    ("PAYMENTS_SUMMARY", "/v1/entity/payments/pending", 1600),
-    ("PAYMENT_RECORDS", "/v1/entity/earnings/all", 1600),
-    ("PAYMENT_RECORDS_TABLE_SUMMARY", "/v1/entity/earnings/aggregated-data", 1600),
-    ("PAYMENT_DETAILS", "/v1/entity/payments/details", 1600),
-    ("DOWNLOAD_FILE", "/v1/invoice-document/signed-url", 10000),
-    ("DOCUMENTS_SUMMARY", "/v1/invoice-document/summary", 1600),
-    ("LOSS_RECORDS", "/v1/shipments/loss-details", 1600),
-    ("LOSS_DETAILS_FILTERS", "/v1/shipments/fetch-loss-details-filters", 1600),
-    ("LOSSES_SUMMARY", "/v1/shipments/fetch-loss-aggregated-details", 1600),
+#
+# ══ CORRECTED AGAINST THE SERVICE SOURCE, 2026-08-25 ═════════════════════════════════════════
+# This file was assembled from the captain panel's client-side route table. Six service repos
+# were then read directly, and the client table was wrong in three ways that would each have
+# broken a real integration:
+#
+#  1. **EVERY captain path was missing the `/api` prefix.** The controllers declare
+#     `@RequestMapping("/api/v1/captain")`; the panel's own constants omit it because its HTTP
+#     client prepends a base. Reading this file as an access request would have produced a list
+#     of 404s — including for the two GROWTH endpoints this registry claims are CONNECTED.
+#  2. **Service ownership was guessed and mostly wrong.** "payouts-auto" is not a service that
+#     exists. The payments owner is `vetan` ("Partner Payout compute and scheduler"), the captain
+#     panel's own payment/loss screens are `ValCrew-Captain-Service`, and the growth dashboard and
+#     hub capacity are `ValmoLogisticsService`.
+#  3. **Methods were absent, and they are not guessable.** The same hub-capacity path serves GET,
+#     PUT and POST with different semantics. Guessing yields 405.
+#
+# One catalogued endpoint DOES NOT EXIST and has been removed: `/v1/captain/dc-capacity/update`
+# appears nowhere in ValmoLogisticsService — no such string in the source, the endpoint constants,
+# or the OpenAPI spec. It was in the client table and nothing serves it.
+#
+# Paths below are now (method, path, timeout_ms) and are verbatim from the controllers.
+# ── vetan — the payments service. THIS IS THE ANSWER TO PSP's LARGEST GAP. ──────────────────
+# Every route verified against the controllers in vetan-develop. The two most valuable are not
+# the summaries: `/api/v2/payments/details` returns the credited-on timestamp, the masked
+# beneficiary account, the UTR and the FAILURE REASON, and `/api/v2/earnings/current-cycle-details`
+# returns `payment_processing_date` — the only endpoint anywhere that answers "payment kab
+# aayega" rather than "what happened".
+#
+# vetan also already COMPOSES the captain-facing sentence (PartnerAppHelper
+# .buildPaymentStatusDescription): "Payment credited on %s to %s", "Your payment has failed due
+# to %s reason" + "This payment is added to your next cycle", "Payment initiated on %s" + "It
+# will be credited to your account in 2-3 days". PSP's Payments module invents all of this; it
+# does not need to.
+VETAN_PAYMENT_ROUTES = [
+    ("PAYMENT_DETAILS", "POST /api/v2/payments/details", 1600),
+    ("PAYMENT_HISTORY", "POST /api/v2/payments/all", 1600),
+    ("CURRENT_CYCLE", "GET /api/v2/earnings/current-cycle-details", 1600),
+    ("ENTITY_PENDING", "GET /api/v1/entity/payments/pending", 1600),
+    ("ENTITY_PAYMENT_DETAILS", "GET /api/v1/entity/payments/details", 1600),
+    ("ENTITY_EARNINGS_ALL", "POST /api/v1/entity/earnings/all", 1600),
+    ("ENTITY_AGGREGATED", "POST /api/v1/entity/earnings/aggregated-data", 1600),
+    ("LINE_ITEMS", "POST /api/v1/partner/line-items", 1600),
+    ("INVOICE_SIGNED_URL", "POST /api/v1/invoice-document/signed-url", 10000),
+    ("INVOICE_SUMMARY", "GET /api/v1/invoice-document/summary", 1600),
 ]
 
 CAPTAIN_API_ROUTES = [
-    ("PAYMENTS_SUMMARY", "/v1/captain/captain-payments-summary", 1600),
-    ("PAYMENT_RECORDS", "/v1/captain/captain-payments-records", 1600),
-    ("PAYMENT_RECORDS_TABLE_SUMMARY", "/v1/captain/captain-payments-table-summary", 1600),
-    ("PAYMENT_DETAILS", "/v1/captain/captain-payments-details", 1600),
-    ("LOSS_SUMMARY", "/v1/captain/captain-losses-summary", 1600),
-    ("LOSS_DETAILS", "/v1/captain/captain-losses-records", 1600),
+    # ValCrew-Captain-Service. All six verified; all six require a VALMO-ROLE-ID header, which
+    # the client route table does not mention. `captain-losses` (no suffix) is allow-listed in
+    # their prod config and served by nothing — a dead path, not an endpoint.
+    ("PAYMENTS_SUMMARY", "/api/v1/captain/captain-payments-summary", 1600),
+    ("PAYMENT_RECORDS", "/api/v1/captain/captain-payments-records", 1600),
+    ("PAYMENT_RECORDS_TABLE_SUMMARY", "/api/v1/captain/captain-payments-table-summary", 1600),
+    ("PAYMENT_DETAILS", "/api/v1/captain/captain-payments-details", 1600),
+    ("LOSS_SUMMARY", "/api/v1/captain/captain-losses-summary", 1600),
+    ("LOSS_DETAILS", "/api/v1/captain/captain-losses-records", 1600),
     ("FETCH_SHIPMENT_SUMMARY", "/v1/shipment/summary", 1600),
     ("FETCH_SHIPMENT_DETAILS", "/v1/hubs/shipments", 1600),
-    ("HUB_LIST", "/v1/captain/hubs", 1600),
+    ("HUB_LIST", "/api/v1/captain/hubs", 1600),
     ("SERVICE_AREA_CLUSTER_HISTORY", "/v1/fetch/serviceable-cluster-version/history", 1600),
     ("SERVICE_AREA_MAP_LAYER_DATA", "/v2/fetch/service-type-configs", 1600),
     ("SERVICE_AREA_POLYGON_DATA", "/v1/fetch/serviceability-cluster", 1600),
@@ -63,14 +101,21 @@ CAPTAIN_API_ROUTES = [
     ("MISROUTE_SHIPMENT_DOWNLOAD", "/v1/misroute-shipment-download", 10000),
 ]
 
+# ValmoLogisticsService, not a "growth service". `order-summary` already returns a COMPOSED
+# answer to "capacity cut kyun laga": banner_type="red_capacity_cut" with the sentence "You are
+# under capacity cut due to {low D0 | high DOH}, and capacity has been set to {N} till {date}."
+# Both routes also require a VALMO-HUB-CODES authorization header the client table omits.
 GROWTH_DASHBOARD_API_ROUTES = [
-    ("YOUR_METRICS", "/v1/captain/growth-dashboard/:hubID/your-metrics", 1000),
-    ("ORDER_SUMMARY", "/v1/captain/growth-dashboard/:hubID/order-summary", 1000),
+    ("YOUR_METRICS", "/api/v1/captain/growth-dashboard/{hubId}/your-metrics", 1000),
+    ("ORDER_SUMMARY", "/api/v1/captain/growth-dashboard/{hubId}/order-summary", 1000),
 ]
 
+# Same path, THREE methods, different semantics — POST is read-shaped with a write side-effect.
+# `/v1/captain/dc-capacity/update` was catalogued here and does not exist in the service at all.
 DC_CAPACITY_API_ROUTES = [
-    ("HUB_CAPACITY_DATA", "/v1/captain/hub-capacity/:hubID", 10000),
-    ("DC_CAPACITY_UPDATE", "/v1/captain/dc-capacity/update", 10000),
+    ("HUB_CAPACITY_READ", "GET /api/v1/captain/hub-capacity/{hubId}", 10000),
+    ("HUB_CAPACITY_UPDATE", "PUT /api/v1/captain/hub-capacity/{hubId}", 10000),
+    ("HUB_CAPACITY_INIT", "POST /api/v1/captain/hub-capacity/{hubId}", 10000),
 ]
 
 # Endpoints outside the captain panel, from the service repos themselves. Included because two
@@ -109,7 +154,7 @@ _GROUPS = [
     {
         "group": "GROWTH_DASHBOARD_API_ROUTES",
         "queue": "Orders & Planning",
-        "service": "captain-panel BFF → growth service",
+        "service": "ValmoLogisticsService (not a separate growth service)",
         "adapter": "substrate/adapters/growth",
         "status": "fixture",
         "env": "PSP_GROWTH_SOURCE=live",
@@ -131,16 +176,17 @@ _GROUPS = [
                 "shipment in it already became a loss. Live would be the forward-looking queue.",
     },
     {
-        "group": "CAPTAIN_PAYOUTS_AUTO_API_ROUTES",
-        "queue": "Payments · Losses & Debits",
-        "service": "payouts-auto",
-        "adapter": "substrate/adapters/prism_provider (payments unwired)",
+        "group": "VETAN_PAYMENT_ROUTES",
+        "queue": "Payments",
+        "service": "vetan — Partner Payout compute and scheduler",
+        "adapter": "none written (was mis-filed under prism_provider)",
         "status": "none",
-        "env": "PSP_DATA_PROVIDER=prism",
-        "routes": CAPTAIN_PAYOUTS_AUTO_API_ROUTES,
-        "note": "payment_not_received is ~26% of labelled tickets and has no data source today. "
-                "/v1/shipments/loss-details is the per-captain loss list PSP currently reads "
-                "from valmo.db instead.",
+        "env": "—",
+        "routes": VETAN_PAYMENT_ROUTES,
+        "note": "IDENTIFIED, not unknown. Payments is the largest classified ticket sub-type and "
+                "PSP can answer none of it — but the owner, the routes and the response shapes "
+                "are all now known, and vetan already composes the captain-facing sentence "
+                "itself. The gap is read access, not discovery or design.",
     },
     {
         "group": "CAPTAIN_API_ROUTES",
@@ -157,7 +203,7 @@ _GROUPS = [
     {
         "group": "DC_CAPACITY_API_ROUTES",
         "queue": "Orders & Planning (capacity)",
-        "service": "captain-panel BFF → capacity service",
+        "service": "ValmoLogisticsService — same controller as growth",
         "adapter": "(none)",
         "status": "none",
         "env": "—",

@@ -30,7 +30,16 @@ import { getConnectors, getTickets } from "../lib/api.js";
 
    Previously this page also carried "already live in production" directly under
    `total endpoints = 46` while the status tiles beside it read 0 live / 31 fixture / 15 none.
-   That sentence is gone. ── */
+   That sentence is gone.
+
+   ── AND THE REGISTRY BEHIND IT WAS CORRECTED AGAINST THE SERVICE SOURCE ─────────────────────
+   This page was built on a registry assembled from the captain panel's CLIENT-SIDE route table.
+   Six service repositories were then read directly, and that table was wrong in three ways that
+   would each have broken a real integration: every captain path was missing its `/api` prefix
+   (including the two this page calls CONNECTED), service ownership was guessed and mostly wrong
+   ("payouts-auto" is not a service that exists — the owner is `vetan`), and one catalogued
+   endpoint does not exist at all. So the "what it takes" column below now names paths that
+   would actually resolve. See backend/app/substrate/connectors.py for the full correction. ── */
 
 const cx = (...a) => a.filter(Boolean).join(" ");
 
@@ -52,16 +61,16 @@ const DOMAINS = [
     takes: "PSP_GROWTH_SOURCE=live — the adapter is written and the contract matches; this is one env var and a network allow-list." },
   { key: "payments", label: "Payments",
     question: "“Mera payment nahi aaya” — where is my money",
-    queues: ["Payments · Losses & Debits"],
+    queues: ["Payments"],
     answerable: false,
-    have: "Nothing. The endpoints are catalogued; no adapter reads them.",
-    takes: "Prism read access (9 endpoints). Payments is the single largest classified ticket sub-type in the export — 1,525 of the 1,750 that carry one." },
+    have: "No adapter — but the owner is now known. `vetan` (\"Partner Payout compute and scheduler\") serves it, and it already composes the answer sentence itself: “Payment credited on {date} to {account}”, “Your payment has failed due to {reason}”, “Payment initiated on {date} — it will be credited in 2-3 days”.",
+    takes: "Read access to vetan. The one endpoint that matters most is POST /api/v2/payments/details — credited-on timestamp, masked account, UTR and failure reason. GET /api/v2/earnings/current-cycle-details is the only endpoint anywhere that answers “payment kab aayega” rather than “what happened”." },
   { key: "capacity", label: "Capacity & pendency",
     question: "“Capacity cut kyun laga” · “COD pendency clear karo”",
     queues: ["Orders & Planning (capacity)"],
     answerable: false,
-    have: "Nothing. No adapter for DC capacity or cash pendency.",
-    takes: "Two endpoint families on the captain BFF: dc-capacity and cash-pendency. Both are already built for the captain's own panel — this is read access to what they can see themselves." },
+    have: "No adapter. But ValmoLogisticsService's order-summary already returns a COMPOSED answer — banner_type “red_capacity_cut” with the sentence naming the cause and the date it lifts.",
+    takes: "GET /api/v1/captain/hub-capacity/{hubId} plus the two cod-pendency reads. Both already serve the captain's own panel, so this is read access to what they can see themselves — nothing to build on their side." },
 ];
 
 function Tile({ icon: Icon, n, label, sub, tone }) {

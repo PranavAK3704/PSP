@@ -181,22 +181,59 @@ def get_loss_by_awb(awb: str) -> dict | None:
 
 
 def _normalize_qc(rows: list[dict]) -> dict:
-    """Map a secondary-QC-fail evidence row into the loss-row shape. QC PASS or an LM in-scan
-    is the reversal signal; `price` is the debit; reason_l1 falls back to secondary_qc_fail."""
+    """Map a secondary-QC-fail evidence row into the loss-row shape.
+
+    ── THE ADJUDICATED VERDICT IS IN THIS TABLE AND WAS BEING IGNORED ────────────────────────
+    `qc_fail` carries 53 columns. This function read seven, and the two it skipped are the ones
+    that decide the case:
+
+        debitable_entity_role   100% filled. 'No Debit' on 214,078 of 252,187 rows (84.9%).
+        debit_reason            100% filled. 'No defect found' (147,141) and 'Box item - no
+                                debit' (66,937) are the two most common values in the dataset.
+
+    Meanwhile `reason_l1` — the only reason field this function DID read — is empty on 216,232
+    rows (85.7%), so it fell through to the literal string "secondary_qc_fail", which
+    `policies.py` maps to an unconditional escalation to Quality / QC (L2).
+
+    The result was the worst kind of wrong. **The single most common outcome in the QC dataset is
+    an EXONERATION, and PSP was escalating it as an open dispute** — and because `loss_value` was
+    set to `price` regardless of the verdict, on 31,907 of those cleared rows it would ALSO have
+    told the captain about a rupee debit the ledger says does not exist. ₹15,024,687 of debits
+    that were already dismissed.
+
+    Two string comparisons fix it. A row the ledger has cleared now carries `qc_no_debit`, a
+    `loss_value` of 0, and the adjudicator's own words for why — which turns the largest
+    escalation bucket in the corpus into an answer given in the conversation.
+    """
     row = rows[-1]
     inscan = (row.get("rto_shipment_inscan_at_lm") or "").strip()
     inscan = inscan[:10] if inscan[:1].isdigit() else ""     # a real date, not 'null'/blank
     qc_pass = "pass" in ((row.get("sec_qc_lm_status") or "") + (row.get("sec_qc_fm_status") or "")).lower()
+    # The adjudication. `role` names who (if anyone) is debitable; `verdict` is why.
+    role = (row.get("debitable_entity_role") or "").strip()
+    verdict = (row.get("debit_reason") or "").strip()
+    no_debit = role.lower() == "no debit"
     return {
         "awb": row.get("awb"),
-        "reason_l1": (row.get("reason_l1") or "").strip() or "secondary_qc_fail",
-        "loss_value": row.get("price"), "loss_percentage": "100%",
+        # `qc_no_debit` when the ledger has cleared it — a DIFFERENT disposition, not a softer
+        # version of the same one, because the action it deserves is opposite.
+        "reason_l1": ("qc_no_debit" if no_debit
+                      else (row.get("reason_l1") or "").strip() or "secondary_qc_fail"),
+        # ZERO when nobody is being debited. Reporting `price` here is how PSP quoted amounts
+        # that had already been dismissed.
+        "loss_value": 0 if no_debit else row.get("price"),
+        "loss_percentage": "0%" if no_debit else "100%",
         "facility_inscan": inscan, "attribution_changed": "no",
         "cn_flag": "no", "cn_number": "",
         "current_movement_type": "rto", "leg": "", "location": row.get("hub_location", ""),
         "row_count": len(rows), "_src": "qc_fail",
         "_qc_status": (row.get("sec_qc_lm_status") or row.get("sec_qc_fm_status") or ""),
         "_qc_pass": qc_pass,
+        # The adjudicator's own words, so the reply can quote the reason rather than paraphrase a
+        # code: "No defect found", "Box item - no debit", "ICSD vs FM image mismatch".
+        "_qc_verdict": verdict,
+        "_qc_debitable_role": role,
+        "_qc_no_debit": no_debit,
     }
 
 

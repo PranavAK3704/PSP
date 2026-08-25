@@ -812,6 +812,12 @@ GRAPHS: dict[str, tuple[FollowUp, ...]] = {
     "shipment_shortage": _SHORTAGE,
     "intransit_loss": _INTRANSIT,
     "secondary_qc_fail": _QC,
+    # A cleared QC case shares the QC follow-up graph: the captain's next questions are the same
+    # ones ("why did QC flag it", "what is the process"), and they still deserve answers even
+    # though nothing was debited. Without this entry the disposition would offer NO chips at all,
+    # which on the cheapest possible turn — "you are not being charged" — would be the worst place
+    # to lose them.
+    "qc_no_debit": _QC,
 }
 
 #: The queue each graphed disposition belongs to, for the RULE 2 foreign-word test. Keys are
@@ -824,6 +830,7 @@ SCOPE_DOMAIN: dict[str, str] = {
     "shipment_shortage": "losses",
     "intransit_loss": "losses",
     "secondary_qc_fail": "losses",
+    "qc_no_debit": "losses",
 }
 
 _ALL_NODES = GLOSSARY + UNIVERSAL + _LOAD + _HARDSTOP + _SHORTAGE + _INTRANSIT + _QC

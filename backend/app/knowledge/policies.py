@@ -121,6 +121,13 @@ _TAXONOMY = {
     "wrong_rvp_pickup":            ("wrong_rvp_pickup",           "RVP / Returns (L2)",             "escalate",      None),
     "damage":                      ("damage",                     "Quality / QC (L2)",              "escalate",      None),
     "secondary_qc_fail":           ("secondary_qc_fail",          "Quality / QC (L2)",              "escalate",      None),
+    # THE LEDGER HAS ALREADY CLEARED THIS CAPTAIN. `qc_fail.debitable_entity_role` = 'No Debit'
+    # on 84.9% of the QC dataset, with `debit_reason` giving the adjudicator's own words ('No
+    # defect found', 'Box item - no debit'). `inform` rather than `escalate` because there is
+    # nothing to escalate — no debit was raised, and sending it to Quality/QC (L2) makes a
+    # captain wait a day to be told they were never charged. Same action `debit_revoked` uses,
+    # for the same reason. See loss_db._normalize_qc for how the verdict is read.
+    "qc_no_debit":                 ("qc_no_debit",                "Quality / QC (L2)",              "inform",        None),
     "seller_dependency_sop_breached": ("seller_dependency",       "Seller Ops (L2)",                "escalate",      None),
     "pilot_shipment_lost_on_field":("pilot_lost_on_field",        "Losses & Debits (L2)",           "escalate",      None),
     "data platform issue":         ("data_platform_issue",        "Tech / Data Platform (L3)",      "escalate",      None),

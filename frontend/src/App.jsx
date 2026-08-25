@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import CaptainPanel from "./pages/CaptainPanel.jsx";
 import GrowthDashboard from "./pages/GrowthDashboard.jsx";
+import CaptainPanelReplica from "./captain/CaptainPanelReplica.jsx";
 import Connectors from "./pages/Connectors.jsx";
 import Calibration from "./pages/Calibration.jsx";
 import L3Workspace from "./pages/L3Workspace.jsx";
@@ -37,9 +38,16 @@ import { AuthProvider, useAuth } from "./lib/auth.jsx";
 const VIEWS = {
   // The partner's OWN screen, with support docked beside it. Same payload, two presentations —
   // which is only a demonstrable claim if both are on the projector at the same time.
-  captain: { label: "Captain Panel",        icon: "bar_chart",       comp: GrowthDashboard,
-             title: "Captain Panel · Growth Dashboard",
-             sub: "What the captain sees — support widget and risk monitoring docked beside it." },
+  // THE FULL EIGHT-MODULE PANEL, with Valmo Support opening the widget in place of the Kapture
+  // portal it opens upstream. This is what a captain's screen actually looks like; the Growth
+  // Dashboard is one module inside it, which is why it stopped being the whole destination.
+  captain: { label: "Captain Panel",        icon: "bar_chart",       comp: CaptainPanelReplica,
+             title: "Captain Panel",
+             sub: "The partner's own app, reproduced — with Valmo Support answering in place." },
+  // Kept as its own row: it is the module running on real data, and the demo spends time on it.
+  growth:  { label: "Growth Dashboard",     icon: "trending_up",     comp: GrowthDashboard,
+             title: "Growth Dashboard",
+             sub: "The one captain module on real data — widget and risk monitoring beside it." },
   l3:      { label: "L3 Console",           icon: "inbox",           comp: L3Workspace,
              title: "L3 Console",           sub: "Escalated cases worked by the L3 desk." },
   support: { label: "Support Command",      icon: "space_dashboard", comp: SupportCommand,
@@ -60,7 +68,7 @@ const VIEWS = {
 /* One group per PERSONA. `.nav-sep` has existed in styles.css since the first build and was
    never used — this is what it was for. */
 const NAV_GROUPS = [
-  { label: "captain",      rows: ["captain"] },
+  { label: "captain",      rows: ["captain", "growth"] },
   { label: "l3 desk",      rows: ["l3"] },
   // `connectors` and `calibration` sit here because a support-team person is who reads them,
   // and they fold INTO Support Command as sub-tabs in the next pass — at which point this

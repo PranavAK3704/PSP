@@ -93,6 +93,10 @@
    and the bench has its own hue below, so the collision is gone rather than "accepted". */
 .app[data-view="captain"] { --accent: var(--signal); --accent-soft: var(--signal-soft);
   --accent-line: var(--signal-line); --accent-glow: var(--signal-glow); }
+/* Same hue as `captain` on purpose here: the Growth Dashboard IS a module of the Captain Panel,
+   so they are one destination split across two rows for demo convenience, not two places. */
+.app[data-view="growth"]  { --accent: var(--signal); --accent-soft: var(--signal-soft);
+  --accent-line: var(--signal-line); --accent-glow: var(--signal-glow); }
 .app[data-view="l3"]      { --accent: var(--violet); --accent-soft: var(--violet-soft);
   --accent-line: rgba(177,139,255,0.38); --accent-glow: rgba(177,139,255,0.42); }
 .app[data-view="support"] { --accent: var(--teal); --accent-soft: var(--teal-soft);
@@ -150,6 +154,7 @@ body {
    `calibration` before, and it is why there is now a check that walks VIEWS against both maps
    rather than a comment asking the next person to remember. */
 .nav-item[data-view="captain"]     { --nav: var(--signal); }
+.nav-item[data-view="growth"]      { --nav: var(--signal); }
 .nav-item[data-view="l3"]          { --nav: var(--violet); }
 .nav-item[data-view="support"]     { --nav: var(--teal); }
 .nav-item[data-view="bench"]       { --nav: var(--warn); }

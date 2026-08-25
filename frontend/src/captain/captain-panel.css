@@ -1,0 +1,213 @@
+/* ── The Captain Panel replica's own skin ─────────────────────────────────────────────────────
+
+   DELIBERATELY NOT PSP's THEME. PSP is a dark operator console; the real Captain Panel is a navy
+   sidebar against a white content area with Meesho's type scale. Rendering the replica in PSP's
+   dark palette would quietly turn it into a redesign, and the entire point of the screen is that
+   a captain RECOGNISES it — recognition is the argument.
+
+   So every rule here is namespaced `cp-` and every colour is a literal rather than a PSP token.
+   Tokens would inherit the dark theme and, worse, would mean a future change to PSP's palette
+   silently restyles a screen whose job is to look like someone else's product.
+
+   Colours sampled from partner-app.valmo.in: sidebar #0F1F3D, active row #1B3564, the Meesho
+   pink NEW badge #E5397F, body #F4F6FA, card #FFFFFF, primary text #1A1A1A, muted #6B7280,
+   the outline-button blue #2563EB, and negative amounts in #DC2626.
+   ── */
+
+.cp-root {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  min-height: 100%;
+  background: #F4F6FA;
+  color: #1A1A1A;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  border-radius: 12px;
+  overflow: hidden;
+  /* The replica is a page inside PSP's shell, so it needs its own containing block. */
+  position: relative;
+}
+
+/* ══ SIDEBAR ══════════════════════════════════════════════════════════════════════════════════ */
+.cp-sidebar {
+  background: #0F1F3D;
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 14px;
+  min-height: 100%;
+}
+.cp-profile { display: flex; gap: 11px; align-items: flex-start; padding: 20px 16px 18px;
+  position: relative; }
+.cp-avatar { width: 40px; height: 40px; border-radius: 50%; background: #F4F6FA; color: #0F1F3D;
+  display: grid; place-items: center; flex: none; }
+.cp-role { color: #fff; font-size: 13px; font-weight: 700; letter-spacing: .6px; }
+.cp-hub { margin-top: 5px; display: inline-flex; align-items: center; gap: 4px;
+  background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.42);
+  border-radius: 5px; padding: 2px 7px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.cp-hub:hover { background: rgba(255,255,255,.08); }
+.cp-hub-menu { position: absolute; z-index: 5; top: 62px; left: 66px; background: #fff;
+  border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.28); overflow: hidden; min-width: 92px; }
+.cp-hub-item { padding: 8px 13px; font-size: 13px; cursor: pointer; }
+.cp-hub-item:hover { background: #F4F6FA; }
+.cp-hub-item.on { font-weight: 700; color: #2563EB; }
+
+/* THE VALMO SUPPORT ROW. Given its own rule rather than sharing .cp-nav-item because it sits
+   above the nav upstream and because this is the one row whose behaviour PSP changes — it opens
+   a panel instead of window.open()-ing an external ticket portal. */
+.cp-support { display: flex; align-items: center; gap: 13px; width: 100%; padding: 12px 16px;
+  background: transparent; border: none; border-top: 1px solid rgba(255,255,255,.10);
+  border-bottom: 1px solid rgba(255,255,255,.10);
+  color: rgba(255,255,255,.86); font-size: 14px; cursor: pointer; text-align: left;
+  font-family: inherit; position: relative; }
+.cp-support:hover { background: rgba(255,255,255,.06); color: #fff; }
+.cp-support.on { background: #1B3564; color: #fff; }
+.cp-support-dot { width: 7px; height: 7px; border-radius: 50%; background: #E5397F;
+  margin-left: auto; box-shadow: 0 0 0 3px rgba(229,57,127,.25); }
+
+.cp-nav { padding: 6px 0; flex: 1; }
+.cp-nav-item { display: flex; align-items: center; gap: 13px; width: 100%; padding: 11px 16px;
+  background: transparent; border: none; color: rgba(255,255,255,.78); font-size: 14px;
+  cursor: pointer; text-align: left; font-family: inherit; }
+.cp-nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
+.cp-nav-item.on { background: #1B3564; color: #fff; font-weight: 600;
+  box-shadow: inset 3px 0 0 #E5397F; }
+.cp-nav-item svg { flex: none; opacity: .9; }
+.cp-nav-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Upstream's NEW tag: Meesho pink, uppercase, on five of the eight rows. */
+.cp-new { margin-left: auto; background: #E5397F; color: #fff; font-size: 8.5px;
+  font-weight: 800; letter-spacing: .5px; padding: 2px 5px; border-radius: 3px; flex: none; }
+
+.cp-foot { border-top: 1px solid rgba(255,255,255,.10); padding-top: 6px; }
+.cp-brand { display: flex; align-items: baseline; gap: 8px; padding: 14px 16px 0; }
+.cp-brand b { color: #fff; font-size: 17px; letter-spacing: 1.5px; }
+.cp-brand span { color: rgba(255,255,255,.55); font-size: 11px; }
+
+/* ══ CONTENT ══════════════════════════════════════════════════════════════════════════════════ */
+.cp-main { padding: 22px 26px 34px; min-width: 0; overflow-x: hidden; }
+.cp-topline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.cp-topline h1 { font-size: 25px; font-weight: 700; letter-spacing: -.3px; }
+
+.cp-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
+  letter-spacing: .5px; padding: 4px 9px; border-radius: 20px; text-transform: uppercase; }
+.cp-chip.real { background: #E7F6EE; color: #067647; border: 1px solid #A6E9C5; }
+.cp-chip.sim  { background: #FFF4E5; color: #9A5B00; border: 1px solid #FFD79A; }
+
+.cp-simbanner { background: #FFFBF3; border: 1px solid #FFE1B3; border-left: 4px solid #F59E0B;
+  border-radius: 8px; padding: 11px 14px; font-size: 12.5px; line-height: 1.65; color: #6B4C15;
+  margin-bottom: 18px; }
+.cp-simbanner code { background: #FFF0D6; padding: 1px 5px; border-radius: 3px;
+  font-size: 11.5px; }
+
+.cp-body { display: flex; flex-direction: column; gap: 18px; }
+
+.cp-card { background: #fff; border-radius: 12px; padding: 18px 20px;
+  box-shadow: 0 1px 3px rgba(16,24,40,.07), 0 1px 2px rgba(16,24,40,.04); }
+.cp-card-top { display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  flex-wrap: wrap; margin-bottom: 15px; }
+.cp-card-top h2 { font-size: 18px; font-weight: 700; }
+
+/* the header "TOTAL PENDING PAYMENT" card */
+.cp-pending-label { font-size: 11.5px; font-weight: 700; letter-spacing: .7px; color: #6B7280;
+  display: flex; align-items: center; gap: 6px; }
+.cp-pending-amt { font-size: 33px; font-weight: 700; letter-spacing: -.8px; margin-top: 7px;
+  border-bottom: 1px dashed #D1D5DB; display: inline-block; padding-bottom: 3px; }
+
+/* This Month / Previous Month / Last 3 Months */
+.cp-seg { display: inline-flex; border: 1px solid #D1D5DB; border-radius: 8px; overflow: hidden; }
+.cp-seg button { background: #fff; border: none; padding: 9px 17px; font-size: 13px;
+  cursor: pointer; font-family: inherit; color: #374151; border-right: 1px solid #E5E7EB; }
+.cp-seg button:last-child { border-right: none; }
+.cp-seg button.on { background: #EEF4FF; color: #1D4ED8; font-weight: 600; }
+
+/* the four totals */
+.cp-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; }
+.cp-total { padding: 13px 16px; border-right: 1px solid #E5E7EB; }
+.cp-total:last-child { border-right: none; }
+.cp-total-label { font-size: 12.5px; color: #6B7280; display: flex; align-items: center; gap: 5px; }
+.cp-total-amt { font-size: 19px; font-weight: 700; margin-top: 5px; display: flex;
+  align-items: center; gap: 6px; }
+.cp-total-amt.neg, td.neg { color: #DC2626; }
+
+/* the payment-cycle table */
+.cp-tablewrap { margin-top: 16px; overflow-x: auto; border: 1px solid #E5E7EB;
+  border-radius: 8px; }
+.cp-table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 780px; }
+.cp-table th { text-align: left; background: #F9FAFB; padding: 13px 16px; font-weight: 700;
+  color: #374151; border-bottom: 1px solid #E5E7EB; white-space: nowrap; }
+.cp-table td { padding: 15px 16px; border-bottom: 1px solid #F3F4F6; vertical-align: top;
+  white-space: nowrap; }
+.cp-table tr:last-child td { border-bottom: none; }
+.cp-cycle { font-weight: 600; }
+.cp-underc, .cp-credited { font-size: 11.5px; color: #6B7280; margin-top: 4px;
+  display: flex; align-items: center; gap: 5px; white-space: normal; }
+.cp-btn-out { background: #fff; border: 1px solid #2563EB; color: #2563EB; border-radius: 7px;
+  padding: 8px 15px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+  white-space: nowrap; }
+.cp-btn-out:hover { background: #EFF6FF; }
+.cp-tablefoot { margin-top: 11px; font-size: 12px; color: #6B7280; }
+.cp-tablefoot a { color: #2563EB; font-weight: 600; }
+
+/* tooltip — hover AND focus, so it is reachable by keyboard */
+.cp-tip { position: relative; display: inline-flex; color: #9CA3AF; cursor: help; outline: none; }
+.cp-tip-body { position: absolute; bottom: calc(100% + 8px); left: -8px; width: 290px;
+  background: #111827; color: #F9FAFB; font-size: 11.5px; line-height: 1.6; font-weight: 400;
+  padding: 9px 11px; border-radius: 7px; opacity: 0; pointer-events: none;
+  transition: opacity .14s; z-index: 20; letter-spacing: 0; text-transform: none; }
+.cp-tip:hover .cp-tip-body, .cp-tip:focus .cp-tip-body { opacity: 1; }
+
+/* generic rows used by the simulated modules */
+.cp-rows { margin-top: 15px; display: flex; flex-direction: column; gap: 9px; }
+.cp-row { display: flex; align-items: center; gap: 13px; font-size: 13px; }
+.cp-row-k { width: 118px; flex: none; color: #374151; font-weight: 600; }
+.cp-row-v { width: 232px; flex: none; text-align: right; color: #6B7280;
+  display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.cp-bar { flex: 1; height: 8px; background: #F3F4F6; border-radius: 4px; overflow: hidden;
+  min-width: 60px; }
+.cp-bar-fill { height: 100%; background: #2563EB; border-radius: 4px; }
+.cp-bar-fill.warn { background: #F59E0B; }
+
+.cp-note { margin-top: 15px; font-size: 12.5px; line-height: 1.7; color: #6B7280; }
+.cp-need { margin-top: 15px; padding: 11px 13px; background: #F9FAFB; border-radius: 7px;
+  border: 1px dashed #D1D5DB; font-size: 12.5px; line-height: 1.65; color: #374151; }
+.cp-need code { background: #EEF2FF; color: #3730A3; padding: 1px 6px; border-radius: 3px;
+  font-size: 11.5px; }
+.cp-inline-chip { font-size: 11px; color: #6B7280; background: #F3F4F6; padding: 4px 9px;
+  border-radius: 20px; }
+.cp-inline-chip.warn { background: #FFF4E5; color: #9A5B00; }
+
+.cp-pins { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 9px; }
+.cp-pin { border: 1px solid #E5E7EB; border-radius: 7px; padding: 9px 11px; font-size: 12.5px; }
+.cp-pin b { display: block; font-size: 14px; }
+.cp-pin span { color: #6B7280; font-size: 11.5px; }
+.cp-pin.off { background: #FEF2F2; border-color: #FECACA; }
+.cp-pin.off span { color: #B91C1C; }
+
+/* ══ THE SUPPORT PANEL — what Valmo Support opens ═════════════════════════════════════════════
+   Fixed to the viewport rather than a grid column: it must overlay whichever module is open,
+   because a captain opens support FROM a screen and should not lose it. */
+.cp-support-panel { position: fixed; top: 0; right: 0; bottom: 0; width: 408px; max-width: 92vw;
+  background: #fff; box-shadow: -14px 0 44px rgba(15,31,61,.24); z-index: 60;
+  display: flex; flex-direction: column; }
+.cp-support-head { background: #0F1F3D; color: #fff; padding: 14px 16px; display: flex;
+  align-items: flex-start; justify-content: space-between; gap: 10px; }
+.cp-support-title { display: flex; align-items: center; gap: 7px; font-size: 14.5px;
+  font-weight: 700; }
+.cp-support-sub { font-size: 10.5px; color: rgba(255,255,255,.62); margin-top: 4px;
+  line-height: 1.5; }
+.cp-support-sub code { background: rgba(255,255,255,.12); padding: 1px 4px; border-radius: 3px; }
+.cp-x { background: rgba(255,255,255,.12); border: none; color: #fff; width: 26px; height: 26px;
+  border-radius: 6px; display: grid; place-items: center; cursor: pointer; flex: none; }
+.cp-x:hover { background: rgba(255,255,255,.22); }
+.cp-support-body { flex: 1; overflow-y: auto; padding: 12px; background: #F4F6FA; }
+
+/* PSP components embedded in the replica keep their own dark styling; this just gives them room
+   without inheriting the white card padding. */
+.cp-embed { margin: -4px 0; }
+
+@media (max-width: 1080px) {
+  .cp-root { grid-template-columns: 68px minmax(0, 1fr); }
+  .cp-nav-item span, .cp-support span, .cp-new, .cp-brand span, .cp-profile > div:last-child,
+  .cp-foot .cp-nav-item span { display: none; }
+  .cp-nav-item, .cp-support { justify-content: center; }
+}

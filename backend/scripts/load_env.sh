@@ -15,6 +15,40 @@ set_from_file() {
     fi
 }
 
+# ── backend/.env FIRST, because that is where the keys actually live ────────────────────────
+# This script read only the baked `data/*.txt` files, and `data/anthropic_key.txt` does not
+# exist — while `backend/.env` has held a working ANTHROPIC_API_KEY all along. With
+# `provider: claude` active, that meant EVERY LLM turn failed: the chat widget rendered one
+# error bubble ("I can't reach my reasoning model"), so there were no progress steps to show
+# and no answer to type out, and the whole thing read as "no animations, no interactivity".
+#
+# PARSED, not sourced. `set -a; . .env` was the obvious version and it is wrong: it OVERWRITES
+# a variable that is already set, so a real deploy-time env var loses to a checked-in file. This
+# file's own header promises the opposite ("a set var is never overwritten"), and in production
+# that promise is the whole point — GCP Secret Manager must beat a stale local .env.
+# Verified both ways: an absent var gets the file's value, a present one keeps its own.
+#
+# Only `KEY=value` lines are read; comments, blanks and `export ` prefixes are handled, and
+# surrounding quotes are stripped. Anything else in the file is ignored rather than executed,
+# which also means a `.env` cannot run commands as a side effect of loading credentials.
+ENV_FILE="${PSP_ENV_FILE:-.env}"
+if [ -f "$ENV_FILE" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line#export }"
+        case "$line" in
+            ''|\#*) continue ;;
+            *=*) ;;
+            *) continue ;;
+        esac
+        k="${line%%=*}"; v="${line#*=}"
+        case "$k" in *[!A-Za-z0-9_]*|'') continue ;; esac
+        # strip one layer of matching quotes
+        case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; \'*\') v="${v#\'}"; v="${v%\'}" ;; esac
+        eval "cur=\$$k"
+        [ -z "$cur" ] && [ -n "$v" ] && export "$k=$v"
+    done < "$ENV_FILE"
+fi
+
 set_from_file OPENAI_API_KEY     "$DATA/llm_key.txt"
 set_from_file ANTHROPIC_API_KEY  "$DATA/anthropic_key.txt"
 set_from_file GEMINI_API_KEY     "$DATA/gemini_key.txt"

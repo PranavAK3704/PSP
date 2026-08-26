@@ -203,7 +203,31 @@
 
 /* PSP components embedded in the replica keep their own dark styling; this just gives them room
    without inheriting the white card padding. */
-.cp-embed { margin: -4px 0; }
+.cp-embed { margin: -4px 0; color: var(--text); }
+/* The dashboards draw their own chrome with utility classes and a dark drop shadow. Re-pointing
+   tokens fixes colour but not the shadow or the glass effect, so those are restated here. */
+.cp-embed .card, .cp-embed .glass-card, .cp-embed .active-glass {
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(16,24,40,.07), 0 1px 2px rgba(16,24,40,.04);
+  backdrop-filter: none;
+}
+.cp-embed .card-head { background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.cp-embed .card-head h3, .cp-embed h1, .cp-embed h2, .cp-embed h3 { color: var(--text); }
+.cp-embed .mono { color: var(--text-faint); }
+.cp-embed .chip { background: #fff; border: 1px solid #BFDBFE; color: #1D4ED8; }
+.cp-embed .chip:hover:not(:disabled) { background: #EFF6FF; border-color: #2563EB; }
+.cp-embed .chip:disabled { color: #9CA3AF; border-color: var(--line); background: #F9FAFB; }
+.cp-embed table { color: var(--text); }
+.cp-embed th { background: var(--surface-2); color: #374151; }
+.cp-embed input, .cp-embed select, .cp-embed textarea {
+  background: #fff; border: 1px solid #D1D5DB; color: var(--text); }
+/* Tailwind text utilities in these pages resolve to the dark theme's on-surface colours, which
+   are near-white. Remap the ones the two modules actually use. */
+.cp-embed .text-on-surface { color: var(--text) !important; }
+.cp-embed .text-on-surface-variant { color: var(--text-mute) !important; }
+.cp-embed .text-secondary-container { color: #1D4ED8 !important; }
+.cp-embed .text-tertiary { color: var(--good) !important; }
+.cp-embed .text-error { color: var(--bad) !important; }
 
 @media (max-width: 1080px) {
   .cp-root { grid-template-columns: 68px minmax(0, 1fr); }
@@ -227,7 +251,8 @@
 
    The values are the replica's own palette, so the widget now reads as part of the Captain Panel:
    white cards, #1A1A1A text, the Meesho-blue accent, and the same 12px radius as the modules. ── */
-.cp-support-body {
+.cp-support-body,
+.cp-embed {
   --bg: #F4F6FA;
   --surface: #FFFFFF;
   --surface-2: #F9FAFB;
@@ -238,6 +263,20 @@
      token the widget subtree actually reads (15 of them) instead of patching the one that showed. */
   --surface-0: #FFFFFF;
   --ink-4: #6B7280;
+  /* ── THE SEVEN THE DASHBOARDS NEED AND THE CHAT DRAWER DID NOT ────────────────────────────
+     `.cp-embed` was `margin: -4px 0` and NOTHING ELSE — it re-pointed zero tokens. So the Growth
+     Dashboard and Loss Management rendered PSP's DARK palette inside a white page: near-white
+     text on white, dark cards with dark text. Unreadable, and the same root cause as the chat
+     input that came out black-on-black.
+     Found the same way, by listing every token those components actually read (25) against what
+     was re-pointed (0), rather than by fixing the one element that looked worst. */
+  --surface-1: #F9FAFB;
+  --surface-4: #E5E7EB;
+  --signal-line: rgba(37,99,235,.35);
+  --bad: #DC2626;                    /* was #ffb4ab — a pale red built for a dark background */
+  --c-teal: #0F766E;
+  --c-amber: #B45309;
+  --c-rose: #BE185D;
   --line: #E5E7EB;
   --line-soft: #F3F4F6;
   --text: #1A1A1A;

@@ -289,6 +289,40 @@ def _normalize_qc(rows: list[dict]) -> dict:
     }
 
 
+#: Cached row counts. Reset only by a process restart, which is correct: the loss dataset is a
+#: read-only SNAPSHOT — nothing in this application inserts into `losses`, `attribution` or
+#: `qc_fail` — so a count taken once is a count that stays true for the life of the container.
+_COUNTS: dict[str, int | None] = {}
+
+
+def row_count(table: str) -> int | None:
+    """`COUNT(*)` for a table, computed ONCE per process.
+
+    ── WHY THIS EXISTS, and it is not micro-optimisation ─────────────────────────────────────
+    `/api/health` ran `SELECT COUNT(*) FROM losses` on every request. On SQLite that is a full
+    scan of 1,000,001 rows; against Turso it is 1,000,001 metered row reads.
+
+    `render.yaml` sets `healthCheckPath: /api/health`, so the platform polls it continuously. At
+    one poll every 30 seconds that is ~2.88 BILLION row reads per day, which exhausts a
+    1-billion-per-month free quota in about eight hours — and it did: reads are currently
+    returning `BLOCKED`. The frontend also calls `getHealth()` on every shell mount, so each page
+    load added another million.
+
+    One scan per container instead of one per poll. Table name is validated against a fixed set
+    rather than interpolated freely, because this is the one place a table name reaches SQL as a
+    string.
+    """
+    if table not in ("losses", "attribution", "qc_fail", "captain_summary"):
+        raise ValueError(f"row_count: unknown table {table!r}")
+    if table in _COUNTS:
+        return _COUNTS[table]
+    try:
+        _COUNTS[table] = _i(_query(f"SELECT COUNT(*) AS n FROM {table}", ())[0]["n"])
+    except Exception:  # noqa: BLE001 — health must never throw
+        _COUNTS[table] = None
+    return _COUNTS[table]
+
+
 def get_attribution(awb: str) -> dict | None:
     """Raw loss-attribution-ledger row (debit/reversal state) for evidence enrichment."""
     if not available() or not awb:

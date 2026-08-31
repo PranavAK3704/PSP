@@ -275,7 +275,10 @@ def health():
     try:
         # _i(): Turso's Hrana wire format returns every INTEGER as a JSON *string*, so a raw
         # cell here reported "losses": "1000001" — a count that reads as a string to any client.
-        ds["losses"] = loss_db._i(loss_db._query("SELECT COUNT(*) AS n FROM losses", ())[0]["n"])
+        # CACHED, deliberately. This was a live COUNT(*) over 1,000,001 rows on an endpoint the
+        # platform polls continuously — see loss_db.row_count for the arithmetic that produced a
+        # blocked Turso quota.
+        ds["losses"] = loss_db.row_count("losses")
     except Exception:  # noqa: BLE001
         ds["losses"] = None
     # Which account-data provider is live (canned demo vs the Prism data lake) + its reachability.

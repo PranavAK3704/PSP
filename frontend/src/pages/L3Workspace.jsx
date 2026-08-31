@@ -28,7 +28,7 @@ function StatusPill({ it, big = false }) {
 }
 
 export default function L3Workspace() {
-  const [data, setData] = useState({ items: [], teams: [] });
+  const [data, setData] = useState({ items: [], teams: [], meta: {} });
   const [selId, setSelId] = useState(null);
   const [actioned, setActioned] = useState({});
   const [busyId, setBusyId] = useState(null);
@@ -42,7 +42,7 @@ export default function L3Workspace() {
   function load(keepSel) {
     return getL3().then((d) => {
       const items = [...(d.items || [])].sort((a, b) => (b.breached - a.breached) || (b.age_hours - a.age_hours));
-      setData({ items, teams: d.teams || [] });
+      setData({ items, teams: d.teams || [], meta: d.meta || {} });
       setSelId((c) => (keepSel && items.some((i) => i.concern_id === c) ? c : items[0]?.concern_id || null));
     });
   }
@@ -97,6 +97,7 @@ export default function L3Workspace() {
     alert("Rule queued for approval → once approved, the engine follows it automatically.");
   }
 
+  const M = data.meta || {};
   const sel = useMemo(() => data.items.find((i) => i.concern_id === selId), [data, selId]);
   const breached = data.items.filter((i) => i.breached).length;
   const avgAge = data.items.length ? (data.items.reduce((s, i) => s + (i.age_hours || 0), 0) / data.items.length).toFixed(1) : "0";
@@ -138,6 +139,17 @@ export default function L3Workspace() {
           <span className="text-[10px] bg-surface-variant px-sm py-0.5 rounded-full text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>PRIORITY SORT</span>
         </div>
 
+        {(M.test_rows || M.pre_provenance_residue) ? (
+          <div className="px-lg py-sm text-[11px] text-on-surface-variant border-b border-on-primary-fixed-variant/15 leading-relaxed">
+            Showing <b className="text-on-surface">{M.showing ?? data.items.length}</b> of{" "}
+            {M.open_escalations} open escalations · set aside{" "}
+            {M.test_rows ? <><b>{M.test_rows}</b> test</> : null}
+            {M.test_rows && M.pre_provenance_residue ? " + " : null}
+            {M.pre_provenance_residue ? <><b>{M.pre_provenance_residue}</b> pre-provenance</> : null}
+            {" "}(kept in the log, not worked here)
+          </div>
+        ) : null}
+
         {/* column header */}
         <div className={`grid ${COLS} gap-md px-lg h-[32px] items-center text-[9px] uppercase tracking-[0.1em] text-on-surface-variant border-b border-on-primary-fixed-variant/15`}
           style={{ fontFamily: "JetBrains Mono" }}>
@@ -146,7 +158,22 @@ export default function L3Workspace() {
 
         <div className="max-h-[320px] overflow-y-auto custom-scrollbar">
           {data.items.length === 0 && (
-            <div className="px-lg py-lg text-on-surface-variant text-sm">No escalations — resolve or escalate a concern in the Captain Panel.</div>
+            <div className="px-lg py-lg">
+              <p className="text-on-surface font-semibold text-sm mb-xs">Queue clear.</p>
+              <p className="text-on-surface-variant text-xs leading-relaxed max-w-[64ch]">
+                No open escalation needs a person right now. Escalate a concern from the Captain
+                Panel and it arrives here within 6 seconds.
+                {M.test_rows || M.pre_provenance_residue ? (
+                  <> Set aside, not deleted:
+                    {M.test_rows ? <> <b className="text-on-surface">{M.test_rows}</b> written by
+                      test runs</> : null}
+                    {M.test_rows && M.pre_provenance_residue ? " and" : null}
+                    {M.pre_provenance_residue ? <> <b className="text-on-surface">{M.pre_provenance_residue}</b>
+                      from before the platform recorded what a captain actually typed</> : null}
+                    {" "}— every one is still in the concern log.</>
+                ) : null}
+              </p>
+            </div>
           )}
           {data.items.map((it) => {
             const active = it.concern_id === selId;

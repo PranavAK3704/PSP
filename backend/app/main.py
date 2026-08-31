@@ -712,7 +712,8 @@ def whatsapp_webhook(body: WhatsAppIn):
 # ── L3 functional-team platform ─────────────────────────────────────────────
 @app.get("/api/l3/inbox", dependencies=[_authed])
 def l3_inbox():
-    return {"items": l3.inbox(), "teams": l3.team_metrics()}
+    # `meta` lets the desk explain an empty queue instead of looking like a failed fetch.
+    return {"items": l3.inbox(), "teams": l3.team_metrics(), "meta": l3.inbox_meta()}
 
 
 @app.post("/api/l3/resolve", dependencies=[_authed])

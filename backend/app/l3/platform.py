@@ -67,6 +67,30 @@ def _team_of(concern: dict) -> str:
     return (p or {}).get("escalation", {}).get("team", "Functional team (L2/L3)")
 
 
+def inbox_meta() -> dict:
+    """What the queue is showing versus what exists, so an empty desk can explain itself.
+
+    A queue that drops from 180 rows to 1 without saying why is indistinguishable from a broken
+    fetch — and an L3 member who thinks the page is broken will go back to Kapture. This returns
+    the counts behind the filters so the desk can state them.
+    """
+    raw = concern_log.all_concerns()
+    escalated = [c for c in raw if c.get("outcome") == "escalated"]
+    resolved_ids = {c["resolves_concern_id"] for c in raw if c.get("resolves_concern_id")}
+    open_esc = [c for c in escalated if c.get("id") not in resolved_ids]
+    test = [c for c in open_esc if c.get("source") in concern_log.NON_INBOUND_SOURCES]
+    residue = [c for c in open_esc
+               if c.get("source") not in concern_log.NON_INBOUND_SOURCES
+               and str(c.get("intent") or "") == str(c.get("disposition") or "")]
+    return {
+        "showing": len(open_esc) - len(test) - len(residue),
+        "open_escalations": len(open_esc),
+        "test_rows": len(test),
+        "pre_provenance_residue": len(residue),
+        "resolved_ever": len(resolved_ids),
+    }
+
+
 def inbox(include_test: bool = False) -> list[dict]:
     """Escalated Concerns as L3 work items with SLA + breach status. Cases that have been
     resolved-back (a follow-up concern links to them) drop out of the active queue.
@@ -84,6 +108,22 @@ def inbox(include_test: bool = False) -> list[dict]:
     if not include_test:
         all_concerns = [c for c in all_concerns
                         if c.get("source") not in concern_log.NON_INBOUND_SOURCES]
+        # ── AND THE PRE-PROVENANCE RESIDUE ──────────────────────────────────────────────────
+        # The queue looked like seeded dummy data and it is not — it is real engine output from
+        # before the provenance field existed. But measured, it is not WORK either: 97 of 98 cases
+        # sat on one captain id, 97 carried `intent` equal to the literal string "hardstop_loss"
+        # (the token bug fixed in tools.py), and every one was 266-284 hours past a 24-hour SLA.
+        #
+        # `intent == disposition` is the precise, evidence-based test: only the pre-fix
+        # `_apply_policy` could produce it, because it wrote the routing token into the field
+        # meant for the captain's own words. A row written since carries a sentence. So this
+        # excludes provably machine-generated rows without touching anything a person wrote,
+        # and without deleting a byte from an append-only ledger.
+        #
+        # Nothing is hidden silently — `residue` comes back in the payload so the desk can say
+        # how many were set aside and why, and `include_test=True` shows everything.
+        all_concerns = [c for c in all_concerns
+                        if str(c.get("intent") or "") != str(c.get("disposition") or "")]
     resolved_ids = {c["resolves_concern_id"] for c in all_concerns if c.get("resolves_concern_id")}
     items = []
     for c in all_concerns:

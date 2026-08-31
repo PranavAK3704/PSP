@@ -3,7 +3,7 @@ import { HelpCircle, Wallet, Truck, TrendingUp, MapPin, PackageX, Coins,
          ReceiptText, Users, LogOut, ChevronDown, X, Info, Radar } from "lucide-react";
 import { getGrowthIndex, getCaptainNudges } from "../lib/api.js";
 import { REAL } from "./figures.js";
-import { SupportWidget } from "../components/SupportWidget.jsx";
+import { SupportWidget, MyCases } from "../components/SupportWidget.jsx";
 import { useAudience } from "../lib/audienceMode.js";
 import Payments from "./modules/Payments.jsx";
 import GrowthModule from "./modules/GrowthModule.jsx";
@@ -245,6 +245,15 @@ export default function CaptainPanelReplica() {
             {/* No `embedded` prop — SupportWidget's signature is ({ hub, partnerId, askRef,
                 showEngine }), and passing one it does not accept looks wired and does nothing. */}
             <SupportWidget hub={hub} partnerId={partnerId} showEngine={showEngine} />
+            {/* ── MY CASES, HERE, because this is where a captain looks for them ─────────────
+                It was mounted only inside the Growth Dashboard module — so a captain landing on
+                Payments (which is where they land) had their own open cases three clicks away,
+                inside a different screen, with nothing indicating they existed. Support is the
+                row they press when they want to know what happened to something, so the answer
+                belongs in the same drawer. Renders nothing when there are no cases. */}
+            <div style={{ marginTop: 12 }}>
+              <MyCases partnerId={partnerId} />
+            </div>
           </div>
         </aside>
       )}

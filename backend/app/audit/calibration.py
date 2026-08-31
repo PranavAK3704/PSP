@@ -97,7 +97,9 @@ def _labels() -> dict[str, dict]:
     # 2) An L3 closure means a human worked the escalation to a resolution — so escalating was
     #    the right call. It says nothing about whether a RESOLUTION would have been right, so it
     #    is only a label for concerns that actually escalated.
-    all_concerns = concern_log.all_concerns()
+    # Inbound only: an L3 closure on a harness row is a fabricated label, and labels are the
+    # scarcest input this whole module has (there are two).
+    all_concerns = concern_log.inbound_concerns()
     escalated = {c["id"] for c in all_concerns
                  if c.get("id") and c.get("action_taken") == "escalate"}
     for c in all_concerns:
@@ -135,7 +137,7 @@ def reliability() -> dict:
     audits = _audit_scores()
 
     # L3 follow-ups shadow an original concern; counting them would double-count.
-    concerns = [c for c in concern_log.all_concerns() if not c.get("resolves_concern_id")]
+    concerns = [c for c in concern_log.inbound_concerns() if not c.get("resolves_concern_id")]
     scored = [c for c in concerns if isinstance(c.get("confidence"), (int, float))]
 
     bins = []

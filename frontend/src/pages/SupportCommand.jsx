@@ -50,17 +50,78 @@ export function Command() {
   const art = (d.avg_resolution_time && typeof d.avg_resolution_time === "object") ? d.avg_resolution_time : {};
   const artDisplay = art.display || (typeof d.avg_resolution_time === "string" ? d.avg_resolution_time : "—");
   const artSub = art.sample ? `${art.sample} resolved · ${art.via_l3 || 0} via L3` : "ops metric";
+  // ── WHERE THESE NUMBERS COME FROM ─────────────────────────────────────────────────────────
+  // `stats()` excludes harness runs and monitor detections, which is the honest thing to count.
+  // But a filtered number with nothing explaining the filter is its own kind of misleading: a
+  // reader cannot tell whether 431 means "a quiet month" or "we dropped 589 rows". So the
+  // composition sits directly above the tiles it qualifies.
+  const P = d.provenance || {};
+  const PC = P.counts || {};
+  const SRC_LABEL = { partner: "captains", operator: "test bench", monitor: "monitor",
+                      l3: "L3 desk", harness: "test runs", unclassified: "pre-provenance" };
   const dispEntries = Object.entries(L.by_disposition || {});
   const dispMax = dispEntries.reduce((m, [, v]) => Math.max(m, v || 0), 0) || 1;
 
   return (
     <div className="space-y-gutter">
+      {P.total > 0 && (
+        <div className="glass-card rounded-xl px-lg py-md">
+          <div className="flex items-baseline justify-between gap-md flex-wrap mb-sm">
+            <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-on-surface-variant"
+              style={{ fontFamily: "JetBrains Mono" }}>Where these numbers come from</span>
+            <span className="text-[11px] text-on-surface-variant">
+              counting <b className="text-on-surface">{(P.inbound || 0).toLocaleString("en-IN")}</b>
+              {" "}of {(P.total || 0).toLocaleString("en-IN")} rows
+              {P.excluded ? <> · excluding <b className="text-warn">{P.excluded.toLocaleString("en-IN")}</b>
+                {" "}({(P.excluded_sources || []).join(" + ")})</> : null}
+            </span>
+          </div>
+          <div className="flex gap-xs h-[7px] rounded-full overflow-hidden bg-surface-variant/40">
+            {["partner","operator","l3","unclassified","monitor","harness"].map((k) => {
+              const v = PC[k] || 0;
+              if (!v) return null;
+              const excluded = (P.excluded_sources || []).includes(k);
+              return <div key={k} title={`${SRC_LABEL[k]}: ${v.toLocaleString("en-IN")}`}
+                style={{ width: `${100 * v / (P.total || 1)}%`,
+                  background: excluded ? "var(--line)"
+                    : k === "partner" ? "var(--good)"
+                    : k === "unclassified" ? "var(--warn)" : "var(--accent)" }} />;
+            })}
+          </div>
+          <div className="flex gap-lg flex-wrap mt-sm text-[11px]" style={{ fontFamily: "JetBrains Mono" }}>
+            {Object.entries(PC).filter(([, v]) => v > 0).map(([k, v]) => (
+              <span key={k} className={(P.excluded_sources || []).includes(k)
+                  ? "text-on-surface-variant/50 line-through" : "text-on-surface-variant"}>
+                {SRC_LABEL[k] || k} <b className="text-on-surface">{v.toLocaleString("en-IN")}</b>
+              </span>
+            ))}
+          </div>
+          {(PC.unclassified > 0 || PC.partner === 0) && (
+            <p className="text-[11px] text-on-surface-variant/80 mt-sm leading-relaxed max-w-[78ch]">
+              {PC.unclassified > 0 && <>
+                <b className="text-warn">{PC.unclassified.toLocaleString("en-IN")} rows predate the
+                provenance field</b> and are counted, because they sit on real partner ids and
+                hiding a genuine concern is worse than counting an uncertain one. </>}
+              {PC.partner === 0
+                ? <>No row can yet be shown to be captain traffic — the field did not exist when
+                   these were written. That number is earned by live turns, not asserted.</>
+                : <>Only <b className="text-tertiary">{PC.partner.toLocaleString("en-IN")}</b> are
+                   confirmed captain traffic since the field was added.</>}
+            </p>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-gutter">
-        <Kpi icon="receipt_long" label="Concerns Logged" value={total} sub="total logged" tone="text-secondary-container" />
+        <Kpi icon="receipt_long" label="Concerns Logged" value={total}
+          sub={P.excluded ? `${P.excluded.toLocaleString("en-IN")} test rows excluded` : "total logged"}
+          tone="text-secondary-container" />
         <Kpi icon="bolt" label="Resolved in Convo" value={L.resolved_in_conversation}
           sub={`of ${total}${automation != null ? ` · ${automation}% automation` : ""}`} tone="text-tertiary" />
         <Kpi icon="savings" label="Recovered for Partners"
-          value={`₹${(L.money_recovered_for_partners_inr || 0).toLocaleString("en-IN")}`} sub="tier-1 partners" tone="text-tertiary" />
+          value={`₹${(L.money_recovered_for_partners_inr || 0).toLocaleString("en-IN")}`}
+          sub={(L.money_recovered_for_partners_inr || 0) === 0
+                 ? "no reversal has moved money yet" : "reversals raised"}
+          tone="text-tertiary" />
         <Kpi icon="sentiment_satisfied" label="CSAT" value={S.csat_pct == null ? "—" : `${S.csat_pct}%`}
           sub={`${S.responses || 0} rated · target 85%+`} tone="text-secondary-container" />
       </div>

@@ -1,0 +1,121 @@
+{
+ "avg_resolution_hours": 58.2,
+ "by_folder": {
+  "Email Escalation": 280,
+  "Evidence Submission": 3725,
+  "Inbox": 6370,
+  "Others": 1,
+  "Payments": 2,
+  "Valmo Tech Support": 788,
+  "Web Form": 14742,
+  "Whatsapp folder": 114967
+ },
+ "by_queue": {
+  "Backup_queue": 1795,
+  "Q-WA": 112210,
+  "Q-WEB": 7027,
+  "R_O": 1279,
+  "Trust & Safety": 1263,
+  "W- LD": 1185,
+  "W-PT": 1682
+ },
+ "by_source": {
+  "Email": 15276,
+  "General": 5,
+  "Other Communication": 10628,
+  "WhatsApp": 114966
+ },
+ "by_status": {
+  "Complete": 124738,
+  "Junk": 362,
+  "Pending": 14629
+ },
+ "by_sub_type": {
+  "Cash Deposit / COD Process": 1,
+  "FE re-activation": 68,
+  "Fraud": 1,
+  "Line Haul": 1,
+  "Losses & Debits": 121,
+  "Orders & Planning (Rvp)": 3,
+  "Orders and Planning (Fwd)": 7,
+  "Others": 1,
+  "Payments": 1525,
+  "Pilot Support (Onboarding & Account Updates)": 24
+ },
+ "generated_at": "2026-08-31T07:11:09+00:00",
+ "generated_from": "tickets.db",
+ "hubs_with_tickets": 4018,
+ "monthly": {
+  "2026-05": 36643,
+  "2026-06": 39184,
+  "2026-07": 65048
+ },
+ "sla": {
+  "breached": 27391,
+  "within": 101802,
+  "within_pct": 78.8
+ },
+ "top_hubs": [
+  {
+   "breached": 10,
+   "hub_code": "B97",
+   "tickets": 64
+  },
+  {
+   "breached": 0,
+   "hub_code": "M3Q",
+   "tickets": 43
+  },
+  {
+   "breached": 1,
+   "hub_code": "DCM",
+   "tickets": 41
+  },
+  {
+   "breached": 0,
+   "hub_code": "K6D",
+   "tickets": 35
+  },
+  {
+   "breached": 2,
+   "hub_code": "FB1",
+   "tickets": 34
+  },
+  {
+   "breached": 0,
+   "hub_code": "PEX",
+   "tickets": 32
+  },
+  {
+   "breached": 1,
+   "hub_code": "I2Y",
+   "tickets": 31
+  },
+  {
+   "breached": 10,
+   "hub_code": "ACY",
+   "tickets": 30
+  },
+  {
+   "breached": 4,
+   "hub_code": "M8I",
+   "tickets": 29
+  },
+  {
+   "breached": 3,
+   "hub_code": "BV5",
+   "tickets": 28
+  },
+  {
+   "breached": 0,
+   "hub_code": "I6H",
+   "tickets": 26
+  },
+  {
+   "breached": 2,
+   "hub_code": "IVF",
+   "tickets": 25
+  }
+ ],
+ "total": 140875
+}

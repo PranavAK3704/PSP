@@ -58,11 +58,18 @@ def satisfaction_stats() -> dict:
             "open_cpd": sum(1 for i in items if i.get("is_cpd") and i.get("status") == "open")}
 
 
-def audit_trail(limit: int = 50) -> list[dict]:
+def audit_trail(limit: int = 50, include_test: bool = False) -> list[dict]:
     """Fair audit: for each Concern, the full chain (who → disposition → data →
-    understanding → action → outcome), straight from the immutable Concern Log."""
+    understanding → action → outcome), straight from the immutable Concern Log.
+
+    A SAMPLE of the newest `limit` rows, which is why it filters: unfiltered, the 50 newest rows
+    are whatever the last test run wrote, and a reader would conclude the platform spends its
+    life answering `VLMO-CPT-4471`. `include_test=True` restores the raw view for anyone
+    debugging the harness.
+    """
     out = []
-    for c in concern_log.all_concerns()[:limit]:
+    src = concern_log.all_concerns() if include_test else concern_log.inbound_concerns()
+    for c in src[:limit]:
         out.append({
             "concern_id": c.get("id"), "captain_id": c.get("captain_id"),
             "channel": c.get("channel"), "conversation_id": c.get("conversation_id"),

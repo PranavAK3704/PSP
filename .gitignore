@@ -49,3 +49,11 @@ backend/data/concern_log.pre-provenance-*.json
 # in the review-fixes commit). Kept locally so they survive this session; git-ignored because
 # they are recoverable test-captain turns, not authored content.
 backend/data/concern_log.orphaned-traces-8.json
+
+# ── COMMITTED ON PURPOSE: the ticket aggregate ────────────────────────────────────────────────
+# `backend/data/*.json` above excludes the mutable stores, which is right. This one is the
+# opposite: a small, generated, counts-only snapshot of the 140,875-ticket export, needed because
+# tickets.db is 39 MB and .dockerignore'd — so without it the deployed Data Access page loses its
+# best evidence. Regenerate with scripts/build_tickets_summary.py, which refuses to write
+# anything that looks like row data rather than a count.
+!backend/data/tickets_summary.json

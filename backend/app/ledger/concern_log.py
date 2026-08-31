@@ -114,6 +114,45 @@ def all_concerns() -> list[dict]:
     return list(reversed(_load()))   # newest first
 
 
+def provenance_counts() -> dict:
+    """How the ledger breaks down by where each row came from, plus what the aggregates drop.
+
+    Exists so a number on the deck can be shown NEXT TO its own composition. "Concerns Logged"
+    filtered to inbound is the honest figure, but a filtered number with nothing explaining the
+    filter is its own kind of misleading — a reader cannot tell whether 431 means "quiet month"
+    or "we excluded 589 rows". This makes the exclusion visible instead of implied.
+    """
+    log = _load()
+    counts = {s: 0 for s in SOURCES}
+    for c in log:
+        counts[c.get("source") if c.get("source") in SOURCES else "unclassified"] += 1
+    dropped = sum(counts[s] for s in NON_INBOUND_SOURCES)
+    return {
+        "counts": counts,
+        "total": len(log),
+        "inbound": len(log) - dropped,
+        "excluded": dropped,
+        "excluded_sources": list(NON_INBOUND_SOURCES),
+    }
+
+
+def inbound_concerns() -> list[dict]:
+    """`all_concerns()` minus the rows nobody asked for — harness runs and monitor detections.
+
+    THE DISTINCTION THIS EXISTS TO KEEP: the append-only LOG shows everything, because a test
+    row is provenance and deleting it would make the ledger a worse record. But anything that
+    AGGREGATES or SAMPLES — a score, a rate, an audit queue, a themes list — is answering a
+    question about captain traffic, and 588 harness rows in a 1,014-row ledger will dominate any
+    such answer.
+
+    Not a filter to reach for by default. A lookup BY ID must use `all_concerns()`, or a row that
+    was audited while it was visible becomes unreadable afterwards; the same goes for anything
+    rendering the log itself. Every call site of this function should be a place where the answer
+    is a statistic.
+    """
+    return [c for c in all_concerns() if c.get("source") not in NON_INBOUND_SOURCES]
+
+
 #: Rows that are not a captain raising a concern. `harness` is a test run; `monitor` is the
 #: platform noticing something nobody asked about (a real event, but not inbound traffic).
 #: `unclassified` is deliberately NOT here — it predates the field and may well be real, and

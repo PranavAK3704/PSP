@@ -964,6 +964,9 @@ def insights():
         "provider": llm_registry.active_provider_name(),
         "knowledge": store.corpus_stats(),
         "ledger": concern_log.stats(),
+        # The composition behind every ledger number above, so the UI can show what was excluded
+        # rather than presenting a filtered figure as the whole truth.
+        "provenance": concern_log.provenance_counts(),
         "satisfaction": cpd.satisfaction_stats(),
         "l3_teams": l3.team_metrics(),
         "cpd_open": len(cpd.cpd_items()),

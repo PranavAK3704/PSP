@@ -255,7 +255,11 @@ def audit_batch(limit: int = DEFAULT_BATCH) -> dict:
 
     audited_ids = {a.get("concern_id") for a in _load()}
     todo = []
-    for c in concern_log.all_concerns():   # newest first
+    # INBOUND only. Every row picked up here becomes an LLM judge call, and scoring a harness row
+    # spends real money to grade the test suite — then contributes that grade to the studio's
+    # headline score. `_get_concern` below deliberately does NOT filter: a row audited while it
+    # was visible must stay readable afterwards.
+    for c in concern_log.inbound_concerns():   # newest first
         cid = c.get("id")
         if cid and cid not in audited_ids:
             todo.append(cid)

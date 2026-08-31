@@ -67,6 +67,32 @@ def _team_of(concern: dict) -> str:
     return (p or {}).get("escalation", {}).get("team", "Functional team (L2/L3)")
 
 
+def is_workable(c: dict) -> bool:
+    """Will a human desk actually open this case?
+
+    ── WHY THIS IS ONE FUNCTION AND NOT TWO FILTERS ──────────────────────────────────────────
+    It was two, for about an hour, and the hour produced the worst bug in this module's history:
+    the L3 queue applied a residue filter and the captain's own case strip did not, so a captain
+    saw SIX cases reading "With the team — you'll be updated" while the desk showed one, and not
+    one of the six was among them. The platform was making a promise on behalf of a desk that
+    would never see the case.
+
+    Two views of one record must not be allowed to disagree about whether that record is work.
+    So the predicate lives here and both callers use it — `cases()` for what the captain is told,
+    `inbox()` for what the desk is given.
+
+    Two exclusions, both evidence-based rather than heuristic:
+      · `source` in NON_INBOUND_SOURCES — a test run is not somebody's escalation.
+      · `intent == disposition` — only the pre-fix `_apply_policy` could produce that, because it
+        wrote the routing token into the field meant for the captain's own words. Anything written
+        since carries a sentence. It is a fact about how the row was made, not a guess about its
+        age, which is why it beats a date cutoff.
+    """
+    if c.get("source") in concern_log.NON_INBOUND_SOURCES:
+        return False
+    return str(c.get("intent") or "") != str(c.get("disposition") or "")
+
+
 def inbox_meta() -> dict:
     """What the queue is showing versus what exists, so an empty desk can explain itself.
 
@@ -106,24 +132,7 @@ def inbox(include_test: bool = False) -> list[dict]:
     """
     all_concerns = concern_log.all_concerns()
     if not include_test:
-        all_concerns = [c for c in all_concerns
-                        if c.get("source") not in concern_log.NON_INBOUND_SOURCES]
-        # ── AND THE PRE-PROVENANCE RESIDUE ──────────────────────────────────────────────────
-        # The queue looked like seeded dummy data and it is not — it is real engine output from
-        # before the provenance field existed. But measured, it is not WORK either: 97 of 98 cases
-        # sat on one captain id, 97 carried `intent` equal to the literal string "hardstop_loss"
-        # (the token bug fixed in tools.py), and every one was 266-284 hours past a 24-hour SLA.
-        #
-        # `intent == disposition` is the precise, evidence-based test: only the pre-fix
-        # `_apply_policy` could produce it, because it wrote the routing token into the field
-        # meant for the captain's own words. A row written since carries a sentence. So this
-        # excludes provably machine-generated rows without touching anything a person wrote,
-        # and without deleting a byte from an append-only ledger.
-        #
-        # Nothing is hidden silently — `residue` comes back in the payload so the desk can say
-        # how many were set aside and why, and `include_test=True` shows everything.
-        all_concerns = [c for c in all_concerns
-                        if str(c.get("intent") or "") != str(c.get("disposition") or "")]
+        all_concerns = [c for c in all_concerns if is_workable(c)]
     resolved_ids = {c["resolves_concern_id"] for c in all_concerns if c.get("resolves_concern_id")}
     items = []
     for c in all_concerns:
@@ -146,6 +155,25 @@ def inbox(include_test: bool = False) -> list[dict]:
             "ladder": sla["ladder"], "governance": _governance_placeholder(c),
             "worked_case": {"evidence_trail": c.get("evidence_trail", []), "reply": c.get("reply")},
             "logged_at": c.get("logged_at"),
+            # ── THE SITUATION ────────────────────────────────────────────────────────────────
+            # An L3 member was being handed a case whose heading read "CNC-101E069D: cash_cod"
+            # while the captain's actual words — "Captain wants to know their current COD pendency
+            # amount" — sat in the payload unrendered, and the reason it escalated ("Cash/COD data
+            # source not connected, cannot verify or state pendency figure") was buried in an
+            # evidence card below two chip rows. Everything needed to understand the case was
+            # already on the record; none of it was where a person reads first.
+            "channel": c.get("channel") or "chat",
+            "entities": c.get("entities") or {},
+            "attachments": c.get("attachments") or [],
+            "conversation_id": c.get("conversation_id") or "",
+            # The engine's own sentence for why it could not resolve this. `_escalate_case` writes
+            # it as the first evidence row; pull it out so the UI does not have to know that.
+            "escalation_reason": next(
+                (e.get("value") for e in (c.get("evidence_trail") or [])
+                 if str(e.get("source") or "") == "escalate_case"),
+                (c.get("evidence_trail") or [{}])[0].get("value", "") if c.get("evidence_trail") else ""),
+            "confidence": c.get("confidence"),
+            "has_trace": bool(c.get("conversation_id")),
         })
     return items
 
@@ -264,7 +292,9 @@ def cases(captain_id: str, *, limit: int = 6, include_test: bool = False) -> lis
             continue
         if c.get("captain_id") != captain_id:
             continue
-        if not include_test and c.get("source") == "harness":
+        # THE SAME predicate the L3 desk uses — see `is_workable`. A captain must never be told
+        # a case is with the team when no desk will open it.
+        if not include_test and not is_workable(c):
             continue
         team = _team_of(c)
         res = resolutions.get(c.get("id"))

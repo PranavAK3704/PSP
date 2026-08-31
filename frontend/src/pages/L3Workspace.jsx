@@ -206,9 +206,17 @@ export default function L3Workspace() {
                 <div className="flex items-center gap-sm mb-xs flex-wrap">
                   <span className="rounded-full bg-secondary-container text-on-secondary px-2.5 py-1 text-[10px] font-bold tracking-wide">ACTIVE CASE</span>
                   <StatusPill it={sel} big />
-                  <h2 className="text-lg font-semibold text-secondary-container">{sel.concern_id}: {sel.disposition}</h2>
+                  {/* The captain's OWN WORDS as the heading. This read "{concern_id}: {disposition}"
+                      — so the desk's most prominent line was a routing token while the actual
+                      question sat unrendered in the payload. */}
+                  <h2 className="text-lg font-semibold text-secondary-container">
+                    {sel.intent && sel.intent !== sel.disposition ? sel.intent : sel.concern_id}
+                  </h2>
                 </div>
-                <p className="text-on-surface-variant text-xs" style={{ fontFamily: "JetBrains Mono" }}>{sel.captain_id} · logged {(sel.logged_at || "").slice(0, 19).replace("T", " ")} UTC</p>
+                <p className="text-on-surface-variant text-xs" style={{ fontFamily: "JetBrains Mono" }}>
+                  {sel.concern_id} · {sel.captain_id} · via {sel.channel || "chat"} · logged{" "}
+                  {(sel.logged_at || "").slice(0, 19).replace("T", " ")} UTC
+                </p>
               </div>
               <div className="text-right">
                 <p className="text-[9px] uppercase tracking-[0.12em] text-on-surface-variant" style={{ fontFamily: "JetBrains Mono" }}>SLA THRESHOLD</p>
@@ -218,6 +226,66 @@ export default function L3Workspace() {
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto custom-scrollbar p-lg space-y-lg">
+              {/* ── THE SITUATION, before anything else ─────────────────────────────────────
+                  Everything here was already on the record and none of it was where a person
+                  reads first: the question was in the payload but not rendered, and the engine's
+                  own reason for giving up was three cards down inside an evidence list. */}
+              <div className="glass-card rounded-lg p-lg border-l-2 border-l-secondary-container">
+                <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-secondary-container mb-md"
+                  style={{ fontFamily: "JetBrains Mono" }}>The situation</h3>
+                <dl className="space-y-md text-sm">
+                  <div>
+                    <dt className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mb-xs"
+                      style={{ fontFamily: "JetBrains Mono" }}>What the captain asked</dt>
+                    <dd className="text-on-surface leading-relaxed">
+                      {sel.intent && sel.intent !== sel.disposition
+                        ? `“${sel.intent}”`
+                        : <span className="text-on-surface-variant italic">
+                            Not recorded — this case predates the platform storing the captain's own
+                            words. Its disposition is <b>{sel.disposition}</b>.
+                          </span>}
+                    </dd>
+                  </div>
+                  {sel.escalation_reason && (
+                    <div>
+                      <dt className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mb-xs"
+                        style={{ fontFamily: "JetBrains Mono" }}>Why the engine could not resolve it</dt>
+                      <dd className="text-on-surface-variant leading-relaxed">{sel.escalation_reason}</dd>
+                    </div>
+                  )}
+                  {Object.keys(sel.entities || {}).length > 0 && (
+                    <div>
+                      <dt className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mb-xs"
+                        style={{ fontFamily: "JetBrains Mono" }}>What the captain gave us</dt>
+                      <dd className="flex flex-wrap gap-xs">
+                        {Object.entries(sel.entities).map(([k, v]) => (
+                          <span key={k} className="rounded-full bg-surface-variant px-2.5 py-0.5 text-[11px]"
+                            style={{ fontFamily: "JetBrains Mono" }}>{k}: <b>{String(v)}</b></span>
+                        ))}
+                      </dd>
+                    </div>
+                  )}
+                  <div className="flex gap-lg flex-wrap text-[11px] pt-xs"
+                    style={{ fontFamily: "JetBrains Mono" }}>
+                    <span className="text-on-surface-variant">amount{" "}
+                      <b className="text-on-surface">{sel.amount_inr != null ? `₹${sel.amount_inr}` : "—"}</b></span>
+                    <span className="text-on-surface-variant">attachments{" "}
+                      <b className="text-on-surface">{(sel.attachments || []).length}</b></span>
+                    <span className="text-on-surface-variant">engine confidence{" "}
+                      <b className="text-on-surface">{sel.confidence != null ? sel.confidence : "—"}</b></span>
+                    <span className={sel.breached ? "text-error" : "text-on-surface-variant"}>
+                      {sel.breached ? "past SLA" : "within SLA"}{" "}
+                      <b>{Math.round(sel.age_hours)}h / {sel.sla_hours}h</b></span>
+                  </div>
+                </dl>
+                {!sel.has_trace && (
+                  <p className="text-[11px] text-on-surface-variant/70 mt-md leading-relaxed">
+                    No engine trace was persisted for this case, so the checks it ran cannot be
+                    replayed below — the reason above is the whole record.
+                  </p>
+                )}
+              </div>
+
               {/* WHY THIS REACHED YOU. This answer appeared nowhere on the page: an L3 member was
                   handed a concern with no record of what the engine had already checked, so the
                   first thing they did was re-check it. Same component the widget and the ledger

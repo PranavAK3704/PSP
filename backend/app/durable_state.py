@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys as _sys
 from pathlib import Path
 
 from .state_paths import state_path
@@ -28,6 +29,7 @@ _url: str | None = None
 _tok: str | None = None
 _inited = False
 _cache: dict[str, str | None] = {}   # write-through cache of durable values (this process only)
+_warned_unreadable: set[str] = set()  # one warning per key, not per write
 
 
 def _init() -> bool:
@@ -94,6 +96,20 @@ class _DurablePath:
             return True
         return self._path.exists()
 
+    def read_failed(self) -> bool:
+        """True when a DURABLE read was attempted and failed — as opposed to genuinely absent.
+
+        `read_confirmed()` has always drawn this distinction; the Path-like handle did not, so
+        `concern_log._load()` could not tell "the mirror says empty" from "the mirror would not
+        answer". With Turso's read quota exhausted that stopped being hypothetical: reads return
+        BLOCKED while WRITES still succeed, so a caller that reads 0 rows and then appends would
+        publish a one-row log over the mirror's real contents.
+        """
+        if not _init():
+            return False                      # no mirror configured — the local file is truth
+        ok, _ = _fetch(self._name)
+        return not ok
+
     def read_text(self, *a, **k) -> str:
         ok, val = _fetch(self._name)
         if ok and val is not None:
@@ -105,11 +121,35 @@ class _DurablePath:
         return self._path.read_text(*a, **k)
 
     def write_text(self, data, *a, **k) -> int:
+        """Write the local cache, then publish to the mirror — UNLESS the mirror is unreadable.
+
+        ── NEVER PUBLISH OVER A MIRROR YOU CANNOT READ ────────────────────────────────────────
+        This published unconditionally, which is safe only while reads work. Turso's read quota is
+        currently exhausted, and its failure mode is asymmetric: reads return BLOCKED while WRITES
+        STILL SUCCEED. So the sequence was
+            read  -> fails -> caller sees an empty or stale store
+            write -> succeeds -> that empty/stale store becomes the durable truth
+        and the mirror's real contents are gone, with no way to have checked first because reading
+        is the thing that is broken.
+
+        Degrading to local-only is strictly better: the local cache keeps working, the mirror keeps
+        whatever it had, and the divergence is reported rather than resolved by guessing. The
+        stored value is stale from that moment on — which is a known, recoverable state, unlike a
+        clobbered one.
+        """
         text = data if isinstance(data, str) else str(data)
         try:
-            self._path.write_text(data, *a, **k)   # local cache
+            self._path.write_text(data, *a, **k)   # local cache always
         except Exception:  # noqa: BLE001
             pass
+        if self.read_failed():
+            global _warned_unreadable
+            if self._name not in _warned_unreadable:
+                _warned_unreadable.add(self._name)
+                print(f"WARNING: durable mirror unreadable for {self._name!r} — writing LOCAL "
+                      f"ONLY so the stored copy is not overwritten with unverified state. "
+                      f"The mirror is now stale for this key.", file=_sys.stderr)
+            return len(text)
         _put(self._name, text)                      # durable (best-effort)
         return len(text)
 

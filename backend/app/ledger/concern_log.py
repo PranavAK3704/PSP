@@ -95,6 +95,16 @@ def _load() -> list[dict]:
     return []
 
 
+class LedgerUnavailable(RuntimeError):
+    """The durable ledger could not be read, so it must not be written.
+
+    Raised rather than swallowed because the alternative is silent data loss: with Turso's read
+    quota exhausted, reads fail while writes succeed, so `_load()` returns [] and the next append
+    publishes a one-row log over the mirror's 1,020 rows. A turn that cannot be recorded should
+    fail loudly and leave the record intact.
+    """
+
+
 def append(concern: dict) -> dict:
     """Append an immutable Concern record. Returns the stored record.
 
@@ -102,7 +112,24 @@ def append(concern: dict) -> dict:
     provenance vocabulary enforced at this line cannot be bypassed by adding a caller.
     """
     with _lock:
+        # ── DO NOT WRITE OVER A LEDGER WE COULD NOT READ ────────────────────────────────────
+        # `_load()` returns [] both when the ledger is genuinely empty and when the durable read
+        # FAILED. Those must not be treated alike: writing a fresh log after a failed read
+        # replaces the real one. This is live, not theoretical — Turso's read quota is exhausted,
+        # reads return BLOCKED, and writes still succeed.
         log = _load()
+        # Refuse ONLY when the mirror is unreadable AND there is no local cache to append to —
+        # i.e. we would be creating a brand-new one-row log while a real one exists somewhere we
+        # cannot see. That is the deployed shape (fresh container, quota exhausted).
+        #
+        # With a local cache present the append is safe and proceeds: `_DurablePath.write_text`
+        # now declines to publish to an unreadable mirror on its own, so the local file grows and
+        # the stored copy is left alone rather than clobbered. Losing a turn's record is worse
+        # than a stale mirror, so this guard is deliberately as narrow as it can be.
+        if not log and hasattr(_STORE, "read_failed") and _STORE.read_failed():
+            raise LedgerUnavailable(
+                "durable ledger unreadable and no local cache — refusing to append, because "
+                "writing now would replace the stored log with a one-row one")
         concern = {**concern, "source": _provenance(concern.get("source")),
                    "logged_at": _now(), "seq": len(log) + 1}
         log.append(concern)

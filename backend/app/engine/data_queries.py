@@ -21,12 +21,17 @@ from ..substrate import captain_context as ctx
 
 # Named, whitelisted queries. New data need = a new entry here (or emitted by the
 # SOP), NOT free-form SQL. Each maps to a deterministic function over the context.
+from ..substrate import loss_db          # noqa: E402
+
 QUERIES = {
     "shipment_status": "Current status + manifest path of the captain's open shipments (Log10)",
     "scan_history": "Full scan trail for a specific AWB (Log10) — needs an awb",
     "payout_status": "The captain's most recent payout/credit (Metabase)",
     "loss_summary": "Summary of losses/debits marked against the captain (Metabase)",
     "cod_status": "COD pendency + latest CMS deposit (Metabase)",
+    "payout_deductions": ("What the loss deduction on a payout is made of — the lump sum split "
+                          "into its AWBs, each with its loss type, amount and date "
+                          "(valmo.db attribution, grouped on payout_id)"),
     "load_status": ("Why this captain's hub is getting the load it is getting — the order "
                     "waterfall, which stage lost the orders, the four performance levers "
                     "against their targets, and the ₹ at stake (Growth Dashboard)"),
@@ -45,6 +50,16 @@ def _run(name: str, params: dict, context: dict) -> list[dict]:
         if not scans:
             return []
         return [{"awb": awb, "scan": e["scan"], "at": e["at"], "node": e["node"]} for e in scans.get("events", [])]
+    if name == "payout_deductions":
+        # ── THE LUMP-SUM QUESTION ───────────────────────────────────────────────────────────
+        # "Rs 20,129 kaat liya, kis cheez ka?" A captain sees ONE figure and knows about two or
+        # three AWBs. `attribution.payout_id` bundles them and had never been read — 1,438
+        # payouts in this dataset carry more than one AWB, and every one of those questions was
+        # an escalation.
+        b = loss_db.payout_breakdown(str(cid), params.get("payout_id"))
+        if not b:
+            return []
+        return [{"_summary": True, **{k: v for k, v in b.items() if k != "lines"}}] + b["lines"]
     if name == "payout_status":
         credits = [l for l in context.get("ledger", []) if l.get("type") == "credit"]
         return [{"id": c["id"], "amount_inr": c["amount_inr"], "date": c["date"], "narration": c["narration"]}
@@ -171,6 +186,31 @@ def _compose_scan_history(rows: list[dict], params: dict, src: dict) -> str:
             f"on {last.get('at', 'an unrecorded date')}.")
 
 
+def _compose_payout_deductions(rows: list[dict], params: dict, src: dict) -> str:
+    """Answer the lump sum with its parts, biggest first.
+
+    Written to be SPOKEN as well as read: the total comes first, then how many shipments, then
+    the largest few. A captain listening to this on the read-aloud path needs the number in the
+    first clause — a sentence that builds to it loses them before it arrives.
+    """
+    head = next((r for r in rows if r.get("_summary")), None)
+    lines = [r for r in rows if not r.get("_summary")]
+    if not head or not lines:
+        return ("No payout with a loss deduction came back for this captain. That does NOT mean "
+                "nothing was deducted — it means no payout in the attribution ledger carries a "
+                "loss line for them. A deduction the captain can see on their invoice that is "
+                "absent here belongs with Payments (L2), not answered from this.")
+    parts = ", ".join(f"{t['n']} × {t['loss_type']} = {_inr(t['amount_inr'])}"
+                      for t in (head.get("by_loss_type") or [])[:4])
+    top = "; ".join(f"{l['awb']} {_inr(l['amount_inr'])}" for l in lines[:3])
+    return (f"{_inr(head['total_deducted_inr'])} was deducted for losses in payout "
+            f"{head.get('payout_id')}, across {_plural(head['shipments'], 'shipment')}"
+            + (f" from the cycle starting {head['cycle_start']}" if head.get("cycle_start") else "")
+            + f". By type: {parts}. Largest: {top}. "
+            f"Every line is a real attribution row — the total is the sum of those rows, not a "
+            f"figure quoted from a summary field.")
+
+
 def _compose_payout_status(rows: list[dict], params: dict, src: dict) -> str:
     if not rows:
         # Same discipline as above: state what came back, not a claim about the environment.
@@ -283,6 +323,7 @@ def _compose_load_status(rows: list[dict], params: dict, src: dict) -> str:
 
 
 _COMPOSERS = {
+    "payout_deductions": _compose_payout_deductions,
     "shipment_status": _compose_shipment_status,
     "scan_history": _compose_scan_history,
     "payout_status": _compose_payout_status,

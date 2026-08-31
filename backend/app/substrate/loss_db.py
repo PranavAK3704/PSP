@@ -323,6 +323,74 @@ def row_count(table: str) -> int | None:
     return _COUNTS[table]
 
 
+def payout_breakdown(partner_id: str, payout_id: str | None = None) -> dict | None:
+    """The loss deductions inside one payout, line by line.
+
+    ── THE QUESTION THIS ANSWERS ─────────────────────────────────────────────────────────────
+    "Rs 20,129 kaat liya — kis cheez ka?" A captain sees ONE lump sum on their payout and knows
+    about two or three AWBs. Today that is an escalation every time, because nothing joins the
+    deduction to the shipments inside it. `attribution.payout_id` groups them and has never been
+    read: 1,438 payouts in this dataset bundle more than one AWB.
+
+    ── WHAT THIS DELIBERATELY DOES NOT USE ───────────────────────────────────────────────────
+    `attribution.metadata` carries a `price_adjustments` block with its own `amount` and `count`,
+    and an earlier audit reported that it "reconciles exactly" against the row sum. Checked: it
+    matched on 3 of 6 payouts sampled. Where it differed, its stated `count` was LOWER than the
+    number of AWBs in the batch (7 against 61, 9 against 33) — so it is not the authority on what
+    the batch contains, or it means something other than what the name suggests.
+
+    So the total here is `SUM(attribution_amount)` over the rows themselves. That is arithmetic on
+    columns we can see rather than a claim from a field we cannot explain, and it is the difference
+    between an answer and a confidently wrong one. If the metadata's meaning is established later,
+    it becomes a cross-check — not the source.
+    """
+    if not available() or not partner_id:
+        return None
+    where = "partner_id = ?"
+    args: tuple = (str(partner_id).strip(),)
+    if payout_id:
+        where += " AND payout_id = ?"
+        args = args + (str(payout_id).strip(),)
+    else:
+        # Newest payout that actually bundles something. A single-AWB payout needs no explaining.
+        where += (" AND payout_id IS NOT NULL AND TRIM(payout_id) <> '' AND payout_id = ("
+                  "  SELECT payout_id FROM attribution WHERE partner_id = ?"
+                  "   AND payout_id IS NOT NULL AND TRIM(payout_id) <> ''"
+                  "   GROUP BY payout_id ORDER BY COUNT(*) DESC, MAX(payout_start_date) DESC"
+                  "   LIMIT 1)")
+        args = args + (str(partner_id).strip(),)
+    rows = _query(
+        f"SELECT awb, loss_type, attribution_amount, attribution_date, payout_id, "
+        f"       payout_start_date, invoice_id, current_status, request_id "
+        f"FROM attribution WHERE {where} ORDER BY CAST(attribution_amount AS REAL) DESC", args)
+    if not rows:
+        return None
+    lines = [{
+        "awb": r.get("awb"),
+        "loss_type": (r.get("loss_type") or "").strip() or "unspecified",
+        "amount_inr": _amt(r.get("attribution_amount")),
+        "attributed_on": (r.get("attribution_date") or "")[:10],
+        "status": (r.get("current_status") or "").strip(),
+        "request_id": r.get("request_id"),
+    } for r in rows]
+    by_type: dict[str, dict] = {}
+    for ln in lines:
+        b = by_type.setdefault(ln["loss_type"], {"loss_type": ln["loss_type"], "n": 0, "amount_inr": 0.0})
+        b["n"] += 1
+        b["amount_inr"] += ln["amount_inr"] or 0.0
+    return {
+        "payout_id": rows[0].get("payout_id"),
+        "invoice_id": rows[0].get("invoice_id"),
+        "cycle_start": (rows[0].get("payout_start_date") or "")[:10],
+        "shipments": len(lines),
+        "total_deducted_inr": round(sum(ln["amount_inr"] or 0.0 for ln in lines), 2),
+        "by_loss_type": sorted(by_type.values(), key=lambda b: -b["amount_inr"]),
+        "lines": lines,
+        # Named so a reader knows the total is computed, not quoted.
+        "basis": "SUM(attribution.attribution_amount) over the rows in this payout_id",
+    }
+
+
 def get_attribution(awb: str) -> dict | None:
     """Raw loss-attribution-ledger row (debit/reversal state) for evidence enrichment."""
     if not available() or not awb:

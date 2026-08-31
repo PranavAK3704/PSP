@@ -6,8 +6,10 @@ import { useEffect, useRef, useState } from "react";
 // failing at build time. `vite build` cannot catch this: an undefined identifier in JSX is
 // perfectly valid JavaScript until it is evaluated.
 import { FolderOpen, Sparkles, MessageSquare, Send, Paperclip, Radar,
-         CheckCircle2, Clock } from "lucide-react";
+         CheckCircle2, Clock, Mic, Square, Volume2, VolumeX, Keyboard } from "lucide-react";
 import { chatStream, getCaptainCases } from "../lib/api.js";
+import { useVoice, VOICE_LANGS, phrases } from "../lib/useVoice.js";
+import VoiceBars from "./VoiceBars.jsx";
 import TraceView from "./TraceView.jsx";
 
 /* ── The docked support widget, and the captain's own case strip ───────────────────────────────
@@ -168,6 +170,13 @@ function SupportWidget({ hub, partnerId, askRef, showEngine }) {
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  // ── VOICE FIRST ─────────────────────────────────────────────────────────────────────────────
+  // The mic is the PRIMARY control and typing is the fallback, which is the inverse of how this
+  // panel was built. For an audience where 100% of DCs prefer Hindi or a regional language and an
+  // adoption pilot activated 16.3% because people "still couldn't log in or navigate", a text box
+  // puts the hardest interaction first and the easiest one in a corner.
+  const V = useVoice();
+  const [typing, setTyping] = useState(false);   // the keyboard is opt-in
   // The RAW event list, not a pre-flattened list of strings.
   //
   // This was `steps` — an array of one-line mono strings built by an 8-line mapping that read
@@ -238,6 +247,11 @@ function SupportWidget({ hub, partnerId, askRef, showEngine }) {
         if (ev.node === "escalate" && ev.data?.reference_id) {
           escalated = { ref: ev.data.reference_id, team: ev.data.team || "" };
         }
+        if (ev.node === "reply" && ev.data?.reply && !ev.data?.engine_error) {
+          // Read it out when the captain has asked for that. Fires once per turn, on the reply
+          // event, so a long trace never delays the voice.
+          V.speak(ev.data.reply);
+        }
         if (ev.node === "reply" && ev.data?.reply) {
           setMsgs((m) => [...m, { who: "psp", text: ev.data.reply,
                                   failed: !!ev.data.engine_error,
@@ -292,7 +306,16 @@ function SupportWidget({ hub, partnerId, askRef, showEngine }) {
             border: `1px solid ${m.failed ? "rgba(255,185,95,.35)" : "var(--line-soft)"}`,
             color: "var(--text)" }}>
             {m.who === "psp" && !m.failed
-              ? <Typed text={m.text} animate={i === msgs.length - 1} />
+              ? (V.speaking && i === msgs.length - 1
+                  // KARAOKE. Each phrase lights as it is spoken, which couples the sound to the
+                  // shape of the words — for a reader who finds Hinglish hard, that makes the text
+                  // legible rather than decorative, and lets them follow along again afterwards.
+                  ? phrases(m.text).map((ph, j) => (
+                      <span key={j} className={j === V.spokenIdx ? "sw-said" : "sw-say"}>
+                        {ph}{" "}
+                      </span>
+                    ))
+                  : <Typed text={m.text} animate={i === msgs.length - 1} />)
               : m.text}
             {/* THE LINE A REAL CAPTAIN GETS. It survives with the engine trace hidden, because
                 it is the only part of the escalation that concerns them: it went somewhere, here
@@ -318,8 +341,74 @@ function SupportWidget({ hub, partnerId, askRef, showEngine }) {
         <div ref={endRef} />
       </div>
 
+      {/* ── THE MIC, AS THE PRIMARY CONTROL ──────────────────────────────────────────────────
+          One large button, the language beside it, read-aloud beside that, and typing as a link
+          underneath. No animation fixes a wrong hierarchy; getting the hierarchy right is what
+          makes this panel feel like it was built for the person using it. */}
+      <div className="sw-voice">
+        {V.listening ? (
+          <>
+            <button className="sw-mic listening" onClick={V.stop}
+              aria-label="Stop listening">
+              <Square size={17} />
+            </button>
+            <div className="sw-voice-mid">
+              <VoiceBars levelRef={V.levelRef} active={V.listening} />
+              <div className="sw-heard">{V.heard || "sun raha hoon…"}</div>
+            </div>
+          </>
+        ) : (
+          <>
+            <button className="sw-mic sw-tap" disabled={busy || !partnerId || !V.supported}
+              onClick={() => V.start((text) => send(text))}
+              aria-label="Hold to speak"
+              title={V.supported ? "Bolkar poochhiye" : "Voice needs Chrome or Edge"}>
+              <Mic size={19} />
+            </button>
+            <div className="sw-voice-mid">
+              <div className="sw-voice-cta">
+                {V.speaking ? "bol raha hoon…" : busy ? "dekh raha hoon…" : "Bolkar poochhiye"}
+              </div>
+              <div className="sw-voice-ctl">
+                <select className="sw-lang" value={V.lang}
+                  onChange={(e) => V.setLang(e.target.value)} aria-label="Language">
+                  {VOICE_LANGS.map(([code, label]) => (
+                    <option key={code} value={code}>{label}</option>
+                  ))}
+                </select>
+                <button className={`sw-toggle ${V.readAloud ? "on" : ""}`}
+                  onClick={() => V.readAloud ? (V.stopSpeaking(), V.setReadAloud(false))
+                                             : V.setReadAloud(true)}
+                  title={V.readAloud ? "Jawab bola jaayega — band karne ke liye dabaiye"
+                                     : "Jawab sunne ke liye dabaiye"}>
+                  {V.readAloud ? <Volume2 size={12} /> : <VolumeX size={12} />}
+                  {V.readAloud ? "sunaayenge" : "sirf likha"}
+                </button>
+                {V.speaking && (
+                  <button className="sw-toggle" onClick={V.stopSpeaking}>
+                    <Square size={10} />rukiye
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {V.denied && (
+        <div className="sw-denied">
+          Mic band hai. Browser ki settings mein microphone allow kijiye — ya neeche likh kar
+          poochhiye.
+        </div>
+      )}
+
+      {!typing ? (
+        <button className="sw-typelink" onClick={() => setTyping(true)}>
+          <Keyboard size={11} />likh kar poochhna hai?
+        </button>
+      ) : (
       <div style={{ display: "flex", gap: 7, padding: "10px 12px", borderTop: "1px solid var(--line-soft)" }}>
-        <input value={input} onChange={(e) => setInput(e.target.value)}
+        <input value={input} onChange={(e) => setInput(e.target.value)} autoFocus
           onKeyDown={(e) => { if (e.key === "Enter") send(); }}
           placeholder={partnerId ? "Ask about your load…" : "no partner mapped to this hub"}
           disabled={busy || !partnerId}
@@ -329,6 +418,7 @@ function SupportWidget({ hub, partnerId, askRef, showEngine }) {
         <button className="icon-btn" onClick={() => send()} disabled={busy || !partnerId}
           title="Send" style={{ width: 34, height: 34 }}><Send size={14} /></button>
       </div>
+      )}
     </div>
   );
 }

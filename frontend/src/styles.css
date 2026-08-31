@@ -716,3 +716,68 @@ pre.json .s { color: var(--good); }
   .sw-tap:active:not(:disabled) { transform: none; }
   .sw-caret { opacity: 1; }
 }
+
+/* ══ VOICE-FIRST INPUT ════════════════════════════════════════════════════════════════════════
+   The mic is the primary control and typing is the fallback — the inverse of how this panel was
+   built. The reason is the audience: 100% of DCs prefer support in Hindi or a regional language,
+   and the adoption pilot activated 16.3% because people "still couldn't log in or navigate". A
+   text box puts the hardest interaction first. No animation fixes a wrong hierarchy.
+
+   `--live-bar` is declared here so VoiceBars can read one token for its colour in either theme. */
+:root { --live-bar: #ff6b6b; }
+
+.sw-voice { display: flex; align-items: center; gap: 12px; padding: 13px 14px 11px;
+  border-top: 1px solid var(--line-soft); }
+.sw-voice-mid { flex: 1; min-width: 0; }
+.sw-voice-cta { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.sw-voice-ctl { display: flex; align-items: center; gap: 7px; margin-top: 6px; flex-wrap: wrap; }
+
+/* A 52px target, because this is pressed by someone standing in a warehouse holding a phone. */
+.sw-mic { width: 52px; height: 52px; flex: none; border-radius: 50%; border: none; cursor: pointer;
+  display: grid; place-items: center; color: #fff; background: var(--accent);
+  box-shadow: 0 2px 10px -2px var(--accent-glow); transition: transform .12s, box-shadow .2s; }
+.sw-mic:hover:not(:disabled) { transform: scale(1.05); }
+.sw-mic:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
+.sw-mic:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+/* Listening is the one state that gets a colour of its own, and it is the only use of it, so
+   "red ring" comes to mean "the mic is open" and nothing else. */
+.sw-mic.listening { background: var(--live-bar); box-shadow: 0 0 0 0 rgba(255,107,107,.55);
+  animation: swPulse 1.6s ease-out infinite; }
+@keyframes swPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(255,107,107,.5); }
+  70%  { box-shadow: 0 0 0 14px rgba(255,107,107,0); }
+  100% { box-shadow: 0 0 0 0 rgba(255,107,107,0); }
+}
+.sw-heard { font-size: 12.5px; color: var(--text); line-height: 1.45; margin-top: 4px;
+  min-height: 18px; }
+
+.sw-lang { background: var(--surface-2); border: 1px solid var(--line); border-radius: 20px;
+  padding: 4px 9px; font-size: 11.5px; color: var(--text); font-family: inherit; cursor: pointer; }
+.sw-toggle { display: inline-flex; align-items: center; gap: 5px; background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 20px; padding: 4px 10px; font-size: 11px;
+  color: var(--text-mute); cursor: pointer; font-family: inherit; }
+.sw-toggle:hover { color: var(--text); border-color: var(--text-faint); }
+.sw-toggle.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-line); }
+
+/* Typing is opt-in and looks like it: a quiet link, not a competing control. */
+.sw-typelink { display: inline-flex; align-items: center; gap: 6px; background: none; border: none;
+  color: var(--text-faint); font-size: 11.5px; cursor: pointer; padding: 0 14px 12px;
+  font-family: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.sw-typelink:hover { color: var(--accent); }
+
+.sw-denied { margin: 0 14px 10px; padding: 8px 11px; border-radius: 8px;
+  background: var(--warn-soft); color: var(--warn); font-size: 11.5px; line-height: 1.55; }
+
+/* ── KARAOKE ──────────────────────────────────────────────────────────────────────────────────
+   Each phrase lights as it is spoken. For a reader who finds Hinglish hard this couples the sound
+   to the shape of the words, which makes the text legible rather than decorative — and lets them
+   follow it again at their own pace afterwards. */
+.sw-say  { opacity: .45; transition: opacity .25s, background .25s; }
+.sw-said { opacity: 1; background: var(--accent-soft); border-radius: 4px;
+  box-shadow: 0 0 0 2px var(--accent-soft); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-mic.listening { animation: none; box-shadow: 0 0 0 3px rgba(255,107,107,.5); }
+  .sw-mic:hover:not(:disabled) { transform: none; }
+  .sw-say { opacity: 1; }
+}

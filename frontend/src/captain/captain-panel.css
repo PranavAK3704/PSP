@@ -263,6 +263,9 @@
      token the widget subtree actually reads (15 of them) instead of patching the one that showed. */
   --surface-0: #FFFFFF;
   --ink-4: #6B7280;
+  /* The voice controls read these. `--live-bar` is the mic-is-open red and is used for nothing
+     else in either theme, so the ring always means the same thing. */
+  --live-bar: #DC2626;
   /* ── THE SEVEN THE DASHBOARDS NEED AND THE CHAT DRAWER DID NOT ────────────────────────────
      `.cp-embed` was `margin: -4px 0` and NOTHING ELSE — it re-pointed zero tokens. So the Growth
      Dashboard and Loss Management rendered PSP's DARK palette inside a white page: near-white

@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.1",
+  "note": "v1.1 = v1's 25 keys + has_media. Key order below is canonical; conform() emits in this order.",
+  "keys": [
+    "schema_version",
+    "source",
+    "workspace_id",
+    "channel_id",
+    "channel_name",
+    "message_id",
+    "ts_epoch",
+    "ts_iso",
+    "author_id",
+    "author_name",
+    "author_email",
+    "author_is_bot",
+    "text",
+    "subtype",
+    "thread_ref",
+    "is_thread_parent",
+    "reply_count",
+    "mentions",
+    "channel_mention",
+    "subteam_mentions",
+    "attachments",
+    "has_media",
+    "reactions",
+    "permalink",
+    "edited_ts",
+    "fetched_at"
+  ]
+}

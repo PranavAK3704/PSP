@@ -184,16 +184,68 @@ def build_0905():
                   "_seconds_apart": round(b["ts_epoch"] - a["ts_epoch"], 2)}
 
 
+# ── 2026-08-29: one hub, two unrelated issues ───────────────────────────────────────────────
+# This is what prices `join_on_weak`. NQS raises a payout problem and, 26 hours later, a
+# vehicle held at a check post. They share nothing but the hub. Joining on a DC code merges
+# them into whichever came first, so the vehicle reply lands on the payout issue -- "the wrong
+# DC gets the wrong answer". Strong-token joining leaves them as two issues, which is the
+# recoverable error.
+SAME_HUB = [
+    "DC Code: NQS payout not reflecting for 3 field executives this cycle.",
+    "DC Code: NQS vehicle held at check post since 6 AM, need approval to release.",
+]
+
+
+def build_0829():
+    base = datetime(2026, 8, 29, 8, 30, 0, tzinfo=IST).timestamp()
+    recs = []
+    for i, text in enumerate(SAME_HUB):
+        ts = base + i * 26 * 3600 + 0.500000 * (i + 1)
+        r = _rec(AMS, ts, "U09HH8QKZ43", text, is_parent=True, reply_count=1)
+        recs.append(r)
+        recs.append(_rec(AMS, ts + 900, "U076430KSP4", "Noted, checking.",
+                         thread_ref=r["message_id"]))
+    return recs, {"_what": "One hub, two unrelated issues 26h apart. They share only the DC "
+                           "code, so joining on it merges them into one -- the contamination "
+                           "the over-splitting bias exists to avoid.",
+                  "_hub": "NQS",
+                  "_expected_issues_strong_join": 2,
+                  "_expected_issues_weak_join": 1,
+                  "_anchors": [recs[0]["message_id"], recs[2]["message_id"]]}
+
+
+def write_by_day(records: list[dict]) -> dict[str, int]:
+    """Write records into one file per IST day, derived from each record's own ts_iso.
+
+    validate.js checks the IST day of every record against a YYYY-MM-DD in its filename, and
+    it caught a real mistake here: build_0829's 26-hour gap crosses midnight, so half those
+    records belong in 2026-08-30.ndjson. Bucketing by the record's own day makes that class of
+    error impossible rather than something to remember.
+    """
+    buckets: dict[str, list[dict]] = {}
+    for r in records:
+        buckets.setdefault(r["ts_iso"][:10], []).append(r)
+    for day, rows in buckets.items():
+        rows.sort(key=lambda r: r["ts_epoch"])
+        (OUT / f"{day}.ndjson").write_text(
+            "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n",
+            encoding="utf-8")
+    return {d: len(v) for d, v in sorted(buckets.items())}
+
+
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
 
     r0828, e0828 = build_0828()
-    (OUT / "2026-08-28.ndjson").write_text(
-        "\n".join(json.dumps(r, ensure_ascii=False) for r in r0828) + "\n", encoding="utf-8")
+    written = write_by_day(r0828)
+
+    r0829, e0829 = build_0829()
+    written.update(write_by_day(r0829))
+    (OUT / "expected_same_hub.json").write_text(json.dumps(e0829, indent=2) + "\n",
+                                                encoding="utf-8")
 
     r0905, e0905 = build_0905()
-    (OUT / "2026-09-05.ndjson").write_text(
-        "\n".join(json.dumps(r, ensure_ascii=False) for r in r0905) + "\n", encoding="utf-8")
+    written.update(write_by_day(r0905))
 
     # SUBSTANTIVE top-level: excludes channel_join/channel_leave. The brief's measurement
     # is "7 of 18 top-level", and that 18 is the substantive count, not the raw one.
@@ -218,10 +270,11 @@ def main() -> int:
         **e0905,
     }, indent=2) + "\n", encoding="utf-8")
 
-    print(f"wrote {len(r0828)} records to 2026-08-28.ndjson "
-          f"({len(top)} top-level, {sum(1 for v in e0828.values() if v)} code-bearing)")
-    print(f"wrote {len(r0905)} records to 2026-09-05.ndjson "
-          f"(cross-post {e0905['_seconds_apart']}s apart)")
+    for day, n in sorted(written.items()):
+        print(f"  {day}.ndjson  {n:>3} records")
+    print(f"28-Aug measurement: {len(top)} substantive top-level, "
+          f"{sum(1 for v in e0828.values() if v)} code-bearing")
+    print(f"cross-post {e0905['_seconds_apart']}s apart")
     print(f"expected union: {sorted({c for v in e0828.values() for c in v})}")
     return 0
 

@@ -1,0 +1,10 @@
+{
+  "_what": "One hub, two unrelated issues 26h apart. They share only the DC code, so joining on it merges them into one -- the contamination the over-splitting bias exists to avoid.",
+  "_hub": "NQS",
+  "_expected_issues_strong_join": 2,
+  "_expected_issues_weak_join": 1,
+  "_anchors": [
+    "1787972400.500000",
+    "1788066001.000000"
+  ]
+}

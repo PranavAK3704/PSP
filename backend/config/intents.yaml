@@ -1,0 +1,69 @@
+# Intent taxonomy for stage 6. DERIVED FROM THE DATA, and obviously editable.
+#
+# ── WHERE THIS CAME FROM, AND WHERE IT DID NOT ───────────────────────────────────────────────
+# Not from tickets.db: its folder_l1 is the TRANSPORT the ticket arrived on ("Whatsapp folder"
+# 114,967 / "Web Form" 14,742 / "Inbox" 6,370), and sub_type is empty on 139,123 of 140,875
+# rows — 98.8%. It is a channel breakdown wearing a taxonomy's clothes.
+# Not from governance_framework.json either: that file self-identifies as
+# "Seller Governance OS — PLACEHOLDER (replace with Valmo captain governance)".
+#
+# So these come from the issue types actually described in #valmo-firefighters and
+# #valmo-lm-ams, per the intake brief's own channel descriptions.
+#
+# ── UNMAPPED IS MANDATORY ────────────────────────────────────────────────────────────────────
+# Stage 6 must be able to answer "none of these". A classifier forced into the nearest bucket
+# produces a register that looks complete and is quietly wrong, and the UNMAPPED volume is the
+# only honest signal for where this list needs to grow. Review it weekly; add a bucket when a
+# theme repeats, not when it appears once.
+
+intents:
+  # ── #valmo-firefighters: captain/pilot-facing systems and money ──
+  - id: captain_panel_login
+    label: Captain panel login failure
+    hints: [login, otp, password, panel not opening, unable to login, cannot login]
+  - id: pilot_onboarding
+    label: Pilot / FE onboarding or account update
+    hints: [onboarding, activation, reactivation, kyc, document, profile update]
+  - id: payout_not_received
+    label: Payout not received or not reflecting
+    hints: [payout, payment not received, not reflecting, salary, vetan, cycle]
+  - id: invoice_not_generating
+    label: Invoice not generating
+    hints: [invoice, invoicing, bill not generated, gst]
+  - id: app_error
+    label: App or panel error
+    hints: [app crash, error, not working, blank screen, page not loading]
+
+  # ── #valmo-lm-ams: network and line-haul operations ──
+  - id: dc_closure
+    label: DC closure / daily closure not happening
+    hints: [closure, dc closure, daily closure, not closing, close karo]
+  - id: vehicle_held
+    label: Vehicle held or detained
+    hints: [vehicle held, detained, check post, seized, stuck]
+  - id: load_not_received
+    label: Load not received at hub
+    hints: [load not received, no load, load pending, not receiving load]
+  - id: line_haul_delay
+    label: Line-haul or landing delay
+    hints: [line haul, linehaul, landing time, delayed, late arrival, eta]
+  - id: rto_loss_revocation
+    label: RTO loss / debit revocation
+    hints: [rto loss, revocation, reversal, hardstop, shortage, debit]
+  - id: negative_payout
+    label: Negative payout
+    hints: [negative payout, negative balance, recovery, deduction]
+
+  # ── not an issue, but must be classifiable so it stops being one ──
+  - id: weather_callout
+    label: Weather / operational callout — informational, not a ticket
+    hints: [rain, rainfall, weather, flood, monsoon, storm, waterlogging]
+  - id: manpower_shortage
+    label: Manpower / absenteeism callout
+    hints: [manpower, absenteeism, festival, leave, attendance, fe not reported]
+
+  # ── the mandatory escape hatch ──
+  - id: UNMAPPED
+    label: Not covered by any bucket above
+    hints: []
+    mandatory: true

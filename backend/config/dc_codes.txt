@@ -19,8 +19,8 @@
 # codes observed in the Slack channels (L9D, T5X, RX3, R2F, AML) are missing from it.
 # `intake evaluate` reports registry coverage separately so that stays visible.
 #
-# 18 of these are ALSO in config/dc_denylist.txt and are therefore NOT
-# usable as bare Tier B tokens: 239 897 ALL AND AWB CRM DAY FAD HUB NDR NEW OLD PFB POD RVP SIR TID YES
+# 39 of these are ALSO in config/dc_denylist.txt and are therefore NOT
+# usable as bare Tier B tokens: 239 897 ADD ALL AND APP ASN AWB CPS CRM DAY DPS END FAD FMH GET HAI HRS HUB ITS KYA LMD MAY MIS NDR NEW OLD OTD PFB PLS POD RVP SET SIR SOP TID UMS USE YES
 #
 1GL
 1MR

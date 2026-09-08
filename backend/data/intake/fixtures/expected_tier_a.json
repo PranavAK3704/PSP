@@ -1,0 +1,56 @@
+{
+  "_what": "message_id -> the EXACT set of DC codes Tier A must extract. Token sets, never counts: every regex error in this project produced a plausible count.",
+  "_measured": "7 of 18 top-level messages are code-bearing, yielding 10 distinct codes with zero false positives.",
+  "_expected_union": [
+    "CKH",
+    "IQU",
+    "J93",
+    "L9D",
+    "MFC",
+    "NQS",
+    "PJ2",
+    "PJR",
+    "RW3",
+    "UB1"
+  ],
+  "_substantive_top_level": 18,
+  "_joins_excluded": 3,
+  "_code_bearing": 7,
+  "by_message": {
+    "1787887800.100000": [
+      "NQS"
+    ],
+    "1787887937.200000": [
+      "IQU"
+    ],
+    "1787888074.300000": [
+      "UB1"
+    ],
+    "1787888211.400000": [
+      "J93",
+      "L9D"
+    ],
+    "1787888348.500000": [
+      "CKH",
+      "RW3"
+    ],
+    "1787888485.600000": [
+      "PJ2",
+      "PJR"
+    ],
+    "1787888622.700000": [
+      "MFC"
+    ],
+    "1787891400.200000": [],
+    "1787891611.400000": [],
+    "1787891822.600000": [],
+    "1787892033.800000": [],
+    "1787892245.000000": [],
+    "1787892456.200000": [],
+    "1787892667.400000": [],
+    "1787892878.600000": [],
+    "1787893089.800000": [],
+    "1787893301.000000": [],
+    "1787893512.200000": []
+  }
+}

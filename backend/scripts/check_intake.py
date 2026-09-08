@@ -42,12 +42,23 @@ from app.intake import loadstage, store  # noqa: E402
 FIXTURES = ROOT / "data" / "intake" / "fixtures"
 
 
-def _raw_copy() -> Path:
-    """A writable, day-partitioned copy of the committed fixtures."""
+def _raw_copy(only: str | None = None) -> Path:
+    """A writable, day-partitioned copy of the committed fixtures.
+
+    `only` copies a single day, which the negative cases need: they rewrite a file down to one
+    mutated record, and with the whole corpus present the other days would mask the effect.
+    """
     d = Path(tempfile.mkdtemp(prefix="intake-raw-"))
     for f in sorted(FIXTURES.glob("*.ndjson")):
-        shutil.copy(f, d / f.name)
+        if only is None or f.name == only:
+            shutil.copy(f, d / f.name)
     return d
+
+
+#: Records in the committed corpus — derived, never hardcoded. The fixtures grow as cases are
+#: added, and an assertion of "3 rows" silently became a false failure the first time they did.
+CORPUS_N = sum(1 for f in FIXTURES.glob("*.ndjson")
+               for line in f.read_text(encoding="utf-8").splitlines() if line.strip())
 
 
 def _first(raw: Path) -> dict:
@@ -87,7 +98,7 @@ def main() -> int:
         check("validate.js skipped (node absent)", True,
               "the JS validator is the exporter's own gate and is not reimplemented in Python")
 
-    bad = _raw_copy()
+    bad = _raw_copy("2026-09-04.ndjson")
     rec = _first(bad); rec["ts_iso"] = "2026-09-04T00:46:11Z"      # UTC Z — field-map.md forbids
     _write_one(bad, rec)
     if loadstage.validator_available():
@@ -102,14 +113,15 @@ def main() -> int:
 
     head("stage 1 — load-time invariants")
     for label, value in [("float", 1788482771.760339), ("int", 1788482771), ("null", None)]:
-        d = _raw_copy(); r = _first(d); r["message_id"] = value; _write_one(d, r)
+        d = _raw_copy("2026-09-04.ndjson"); r = _first(d)
+        r["message_id"] = value; _write_one(d, r)
         try:
             loadstage.load(d, run_id="neg", skip_validate=True)
             check(f"message_id as {label} is rejected", False, "it was LOADED")
         except loadstage.ContractError as e:
             check(f"message_id as {label} is rejected", "must be a string" in str(e))
 
-    d = _raw_copy(); r = _first(d); r.pop("permalink"); _write_one(d, r)
+    d = _raw_copy("2026-09-04.ndjson"); r = _first(d); r.pop("permalink"); _write_one(d, r)
     try:
         loadstage.load(d, run_id="neg", skip_validate=True)
         check("a missing v1.1 key is rejected", False, "it was LOADED")
@@ -125,22 +137,24 @@ def main() -> int:
     head("stage 1 — idempotency and immutability")
     s1 = loadstage.load(raw, run_id="r1", skip_validate=True)
     s2 = loadstage.load(raw, run_id="r1", skip_validate=True)
-    check("first load inserts", s1["inserted"] == 3, f"{s1['inserted']} rows")
+    check("first load inserts the whole corpus", s1["inserted"] == CORPUS_N,
+          f"{s1['inserted']} of {CORPUS_N} records")
     check("re-running the same directory is a no-op", s2["inserted"] == 0,
           f"{s2['already_present']} already present")
 
     con = store.connect()
     total = con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
-    check("two loads leave 3 rows, not 6", total == 3, f"{total} rows")
+    check(f"two loads leave {CORPUS_N} rows, not {CORPUS_N * 2}", total == CORPUS_N,
+          f"{total} rows")
 
-    joins = con.execute(
-        "SELECT c.message_id AS child, p.message_id AS parent FROM messages c "
-        "JOIN messages p ON p.channel_id = c.channel_id AND p.message_id = c.thread_ref "
-        "WHERE c.thread_ref IS NOT NULL").fetchall()
-    check("thread_ref joins its parent at full precision",
-          [(r["child"], r["parent"]) for r in joins]
-          == [("1788483900.114201", "1788482771.760339")],
-          "a float cast would break this")
+    orphans = con.execute(
+        "SELECT COUNT(*) FROM messages c WHERE c.thread_ref IS NOT NULL AND NOT EXISTS "
+        "(SELECT 1 FROM messages p WHERE p.channel_id = c.channel_id "
+        " AND p.message_id = c.thread_ref)").fetchone()[0]
+    replies = con.execute(
+        "SELECT COUNT(*) FROM messages WHERE thread_ref IS NOT NULL").fetchone()[0]
+    check("every reply joins its parent at full precision", orphans == 0 and replies > 0,
+          f"{replies} replies, {orphans} orphaned — a float cast would orphan all of them")
 
     empty_with_files = con.execute(
         "SELECT COUNT(*) FROM messages WHERE TRIM(text) = '' AND has_media = 1").fetchone()[0]
@@ -148,7 +162,7 @@ def main() -> int:
           "the content is only in the screenshot — stage 3 must never gate these")
     con.close()
 
-    d = _raw_copy()
+    d = _raw_copy("2026-09-04.ndjson")
     loadstage.load(d, run_id="c1", skip_validate=True)
     r = _first(d); original = r["text"]; r["text"] = original + " (changed)"; _write_one(d, r)
     s = loadstage.load(d, run_id="c2", skip_validate=True)
@@ -163,7 +177,8 @@ def main() -> int:
     head("what the contract gate CANNOT see")
     check("attachment coverage is recorded as a number", "attachment_coverage" in s1,
           f"{s1['attachment_coverage']:.0%} of fixture records carry files")
-    d = _raw_copy(); r = _first(d); r["attachments"], r["has_media"] = [], False; _write_one(d, r)
+    d = _raw_copy("2026-09-04.ndjson")
+    r = _first(d); r["attachments"], r["has_media"] = [], False; _write_one(d, r)
     blind = loadstage.load(d, run_id="blind", skip_validate=True)
     check("an attachment-blind export reports 0% coverage, not a silent pass",
           blind["attachment_coverage"] == 0.0,

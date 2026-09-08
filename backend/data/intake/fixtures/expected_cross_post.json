@@ -1,0 +1,15 @@
+{
+  "_what": "The confirmed cross-channel duplicate. Same author, near-identical text, posted in BOTH in-scope channels seconds apart, threads forked.",
+  "_why": "Per-channel dedupe creates two tickets on day one, and closure detection that looks at one channel leaves the other open forever.",
+  "1788583323.400000": [
+    "MX1"
+  ],
+  "1788583370.510000": [
+    "MX1"
+  ],
+  "_cross_channel_duplicate": [
+    "1788583323.400000",
+    "1788583370.510000"
+  ],
+  "_seconds_apart": 47.11
+}

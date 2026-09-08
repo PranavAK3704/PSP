@@ -56,6 +56,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from app.engine.algo.entities import _NOT_AN_ID  # noqa: E402  measured false-positive residue
+from app.engine.algo.followups import GLOSSARY  # noqa: E402  the curated Valmo term list
+
+#: Three-character Valmo terms taken from the repo's OWN curated glossary rather than
+#: hand-copied, so the denylist stays in sync as that glossary grows. Today it contributes CPS
+#: (Cost Per Shipment) — a real term that is ALSO a registry hub code. RTO was already covered;
+#: BIC, DOH and OCF are not in the registry and so need no denial.
+GLOSSARY_TERMS = {t.upper() for g in GLOSSARY
+                  for t in (getattr(g, "topic", None) or frozenset()) if len(t) == 3}
 
 VALMO_DB = ROOT / "data" / "valmo.db"
 TICKETS_DB = ROOT / "data" / "tickets.db"
@@ -71,11 +79,41 @@ SOURCES = [
     ("t", "tickets", "hub_code"),
 ]
 
-#: Ops acronyms that collide with the 3-char code shape. From the intake brief's own list;
-#: several of these are ALSO in the registry as real hub codes, which is exactly the problem.
+#: Three-character tokens that appear in ops chat as WORDS or ACRONYMS rather than codes.
+#: Measured, not guessed: of 97 candidates, 38 are actually present in the registry as
+#: "genuine" hub codes, and those are the only ones that need denying. Two of the 38 were
+#: caught by the fixture run rather than by reading the brief:
+#:
+#:   FMH — is on the brief's own DC *label* list ("DC|LMDC|FMH|Hub") and is ALSO a registry
+#:         code, so Tier B extracted the label itself as a code out of "FMH MFC invoices...".
+#:         A label is never a code.
+#:   SOP — "Please share the updated pilot onboarding SOP." SOP is a registry code too.
 OPS_ACRONYMS = {
+    # the DC labels themselves
+    "FMH", "HUB", "LMD",
+    # ops / logistics acronyms (the brief's list, plus what the fixtures surfaced)
     "TAT", "RTO", "RVP", "OBC", "FYI", "PFB", "DRS", "ETA", "FAD", "TID", "AWB", "COD",
-    "SLA", "POD", "QC", "FE", "DC", "LM", "FM", "RVP", "NDR", "OFD", "EDD", "CRM",
+    "SLA", "POD", "NDR", "OFD", "EDD", "CRM", "SOP", "OTP", "MIS", "OTD", "UMS", "DPS",
+    "ASN", "HRS", "KPI", "SKU",
+    # generic English / Hinglish that ops staff type in caps
+    "ADD", "ALL", "AND", "ANY", "APP", "BUT", "CAN", "DAY", "END", "GET", "HAI", "ITS",
+    "KYA", "MAY", "NEW", "NON", "NOT", "NOW", "OLD", "ONE", "OUR", "OUT", "PER", "PLS",
+    "SEE", "SET", "SIR", "THE", "TOP", "TWO", "USE", "WAS", "WHY", "YES", "YET", "YOU",
+}
+
+#: DC codes OBSERVED IN THE CHANNELS. These are never denied, even when they collide with an
+#: acronym, because a code someone actually typed next to a hub outranks a guess about what
+#: three letters usually mean.
+#:
+#: `INV` is the case that matters: it is in the registry, it is the obvious abbreviation for
+#: "invoice", AND the brief records it as a real bare code ("YNM, INV, AML — no label
+#: anywhere"). Denying it would lose a confirmed true positive to a plausible-sounding rule.
+#: The residual risk — a caps "INV" meaning invoice — is real and is why stage 5 biases toward
+#: over-splitting rather than merging on a single shared token.
+OBSERVED_IN_CHANNELS = {
+    "NQS", "IQU", "UB1", "L9D", "CKH", "RW3", "PJ2", "PJR", "J93", "MFC", "YWW", "CGV",
+    "CXL", "T5X", "RX3", "R2F", "K6L", "YNM", "INV", "AML", "MX1", "NXG", "HY9", "IAM",
+    "VN4",
 }
 
 
@@ -106,7 +144,8 @@ def build() -> tuple[set[str], set[str], dict[str, int]]:
         codes |= got
     con.close()
 
-    deny = {c for c in (_NOT_AN_ID | OPS_ACRONYMS) if len(c) == 3}
+    deny = ({c for c in (_NOT_AN_ID | OPS_ACRONYMS | GLOSSARY_TERMS) if len(c) == 3}
+            - OBSERVED_IN_CHANNELS)
     # Purely numeric 3-char codes are real in this data (239, 897) but indistinguishable from
     # the counts partners type ("342 Tids"). They stay OUT of the bare-token tier.
     numeric = {c for c in codes if c.isdigit()}

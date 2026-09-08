@@ -1,0 +1,48 @@
+# Tokens that must NEVER be extracted as a DC code, even when they appear in
+# config/dc_codes.txt as genuine hub codes. Applies to BOTH tiers.
+#
+# WHY THIS FILE IS REQUIRED, MEASURED:
+#   The brief's Tier B rule was 'only the registry rejects it'. The registry does
+#   reject 342 — but it CONTAINS ALL, AND, APP, DAY, FAD, NEW, OLD, PFB, PLS, RVP,
+#   SIR, TID and YES as real hub codes. FAD/PFB/RVP are on the brief's own ops-acronym
+#   list, and TID is in there while the canonical rejection case is about 'Tids'.
+#   app/engine/algo/entities.py learned this already: an earlier version matched 'OLD'
+#   and 'SIR' and produced 16.7% pure noise.
+#
+# Seeded from entities._NOT_AN_ID (the measured residue — every entry appeared in a
+# real false positive), the ops acronyms, and every purely-numeric code.
+#
+# A code removed from here becomes extractable again. Do that only with evidence.
+239
+897
+ALL
+AND
+AWB
+COD
+CRM
+DAY
+DRS
+EDD
+ETA
+FAD
+FOR
+FYI
+HAS
+HUB
+NDR
+NEW
+NOT
+OBC
+OFD
+OLD
+PFB
+PLZ
+POD
+RTO
+RVP
+SIR
+SLA
+TAT
+THE
+TID
+YES

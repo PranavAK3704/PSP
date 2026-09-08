@@ -59,13 +59,36 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
 
         # Non-gated messages in timestamp order. Order matters: an issue can only be joined to
         # after its anchor exists, which is what keeps the result deterministic.
+        # THE QUALIFICATION GATE IS ENFORCED HERE, not merely reported. Without this filter
+        # stage 2 is decorative: pilot_support_ams scores 11% and is excluded, and its sick-leave
+        # messages still become issues. A channel that has been excluded contributes NOTHING
+        # downstream.
+        #
+        # If stage 2 has not run for this run_id there is no qualification to enforce, and every
+        # channel is grouped — an unqualified run is visibly unfiltered rather than silently
+        # empty.
+        qualified = {r[0] for r in con.execute(
+            "SELECT channel_id FROM channel_qualification WHERE run_id = ? AND in_scope = 1",
+            (run_id,))}
+        scored = con.execute(
+            "SELECT COUNT(*) FROM channel_qualification WHERE run_id = ?", (run_id,)
+        ).fetchone()[0]
+
+        scope_sql, scope_args = "", []
+        if scored:
+            if not qualified:
+                scope_sql = " AND 1 = 0"
+            else:
+                scope_sql = " AND m.channel_id IN (%s)" % ",".join("?" * len(qualified))
+                scope_args = sorted(qualified)
+
         msgs = con.execute(
             "SELECT m.channel_id, m.message_id, m.ts_epoch, m.thread_ref, m.author_id "
             "FROM messages m LEFT JOIN message_flags f "
             "  ON f.channel_id = m.channel_id AND f.message_id = m.message_id "
             " AND f.run_id = ? "
-            "WHERE COALESCE(f.gated, 0) = 0 "
-            "ORDER BY m.ts_epoch", (run_id,)).fetchall()
+            "WHERE COALESCE(f.gated, 0) = 0" + scope_sql +
+            " ORDER BY m.ts_epoch", (run_id, *scope_args)).fetchall()
 
         tokens: dict[tuple[str, str], set[tuple[str, str]]] = {}
         for r in con.execute(
@@ -157,6 +180,11 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
 
         stats = {
             "messages": len(msgs),
+            "channels_in_scope": sorted(qualified) if scored else "qualify not run",
+            "excluded_by_qualification": con.execute(
+                "SELECT COUNT(*) FROM messages WHERE channel_id IN "
+                "(SELECT channel_id FROM channel_qualification WHERE run_id=? AND in_scope=0)",
+                (run_id,)).fetchone()[0],
             "issues": len(issue_tokens),
             "by_rule": by_rule,
             "join_weak_enabled": bool(weak),

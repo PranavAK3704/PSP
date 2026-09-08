@@ -58,6 +58,11 @@ INTENT_RULES: list[tuple[str, str]] = [
 
 GATED_EXACT = {"noted, thanks"}
 
+#: Channels the qualification gate excludes. They are in the fixture corpus ON PURPOSE — the
+#: gate has to be shown rejecting pilot_support_ams on evidence — but they have no issues, so
+#: they get no labels. Labelling them would score the pipeline for correctly ignoring them.
+OUT_OF_SCOPE = {"C0AKEL49PEF", "C07L4A02TC3"}
+
 
 def intent_for(text: str) -> str:
     low = (text or "").lower()
@@ -81,6 +86,8 @@ def main() -> int:
     rows = []
     for r in records:
         key = (r["channel_id"], r["message_id"])
+        if r["channel_id"] in OUT_OF_SCOPE:
+            continue
         if r["subtype"] in ("channel_join", "channel_leave"):
             continue
         if (r["text"] or "").strip().lower() in GATED_EXACT:

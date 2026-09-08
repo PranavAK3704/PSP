@@ -39,6 +39,8 @@ OUT = ROOT / "data" / "intake" / "fixtures"
 IST = timezone(timedelta(hours=5, minutes=30))
 FF = ("C09JY7YLB3L", "valmo-firefighters")
 AMS = ("C08T6NLL77H", "valmo-lm-ams")
+#: OUT OF SCOPE. Present in the export, and the reason the qualification gate exists.
+PSA = ("C0AKEL49PEF", "pilot_support_ams")
 WS = "T0S2UJU8H"
 
 USERS = {
@@ -47,6 +49,8 @@ USERS = {
     "U03H9UXLGES": ("Example Hub Lead", "example.hublead@meesho.com"),
     "U0BAM1ENFV0": ("Example Approver", "example.approver@meesho.com"),
     "U0C1AAAAAA1": ("Example Ops", "example.ops@meesho.com"),
+    "U0D2SUPPORT1": ("Example Support Agent", "example.agent@meesho.com"),
+    "U0D2SUPPORT2": ("Example Support Lead", "example.lead@meesho.com"),
 }
 
 
@@ -233,6 +237,44 @@ def write_by_day(records: list[dict]) -> dict[str, int]:
     return {d: len(v) for d, v in sorted(buckets.items())}
 
 
+# ── 2026-09-01: pilot_support_ams, the channel the gate must EXCLUDE ────────────────────────
+# The support team's OWN internal channel, not an escalation channel: sick leave, daily Kapture
+# closure summaries, product announcements. Pointed at this, the pipeline raises support tickets
+# for people requesting a day off.
+#
+# The gate must reject it on EVIDENCE, not on a name in an allowlist -- so this fixture is
+# built to the measured shape: ~11% of top-level messages carry any identifier, against ~56%
+# in firefighters. One of the nine below carries a ticket id; the rest carry nothing.
+SUPPORT_CHATTER = [
+    "Team, I am taking sick leave today, please cover my queue.",
+    "Good morning all, daily closure summary shared on the sheet.",
+    "Kapture closures for yesterday: 412 resolved, 38 pending reassignment.",
+    "Please note the new refund SOP is live from Monday.",
+    "I will be on leave on Friday for a family function.",
+    "Reminder: fill your weekly productivity tracker before EOD.",
+    "Product announcement — the new agent console rolls out next week.",
+    "Can someone take over the escalation queue for an hour? Stepping out.",
+    "Ticket 4788325630099 needs a second look, customer replied again.",
+]
+
+
+def build_0901():
+    base = datetime(2026, 9, 1, 9, 15, 0, tzinfo=IST).timestamp()
+    recs = []
+    for i, text in enumerate(SUPPORT_CHATTER):
+        uid = "U0D2SUPPORT1" if i % 2 == 0 else "U0D2SUPPORT2"
+        recs.append(_rec(PSA, base + i * 400 + 0.700000, uid, text))
+    return recs, {
+        "_what": "pilot_support_ams — the support team's own internal channel. MUST be excluded.",
+        "_why": "Pointed at this, the pipeline would raise support tickets for people "
+                "requesting a day off.",
+        "_top_level": len(SUPPORT_CHATTER),
+        "_carrying_an_identifier": 1,
+        "_expected_identifier_rate": round(1 / len(SUPPORT_CHATTER), 4),
+        "_expected_in_scope": False,
+    }
+
+
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
 
@@ -243,6 +285,11 @@ def main() -> int:
     written.update(write_by_day(r0829))
     (OUT / "expected_same_hub.json").write_text(json.dumps(e0829, indent=2) + "\n",
                                                 encoding="utf-8")
+
+    r0901, e0901 = build_0901()
+    written.update(write_by_day(r0901))
+    (OUT / "expected_out_of_scope.json").write_text(json.dumps(e0901, indent=2) + "\n",
+                                                    encoding="utf-8")
 
     r0905, e0905 = build_0905()
     written.update(write_by_day(r0905))

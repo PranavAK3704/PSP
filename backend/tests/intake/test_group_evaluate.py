@@ -189,3 +189,37 @@ def test_one_to_one_matching_is_deterministic_and_catches_degenerate_clusters():
     assert m["accuracy"] < 1.0
     # the degenerate shape is visible rather than hidden inside the percentage
     assert m["pred_clusters"] == 1 and m["gold_clusters"] == 2
+
+
+# ── the qualification gate must actually bite ───────────────────────────────────────────────
+def test_an_excluded_channel_contributes_no_issues(pipeline):
+    """Without this the gate is decorative: pilot_support_ams scores 11%, is excluded, and its
+    sick-leave messages still become issues. This is the assertion that keeps stage 2 real."""
+    from app.intake import qualify
+
+    q = qualify.run("r1", con=pipeline)
+    assert "pilot_support_ams" in q["excluded"]
+    assert "11.1%" in q["excluded"]["pilot_support_ams"], "excluded WITH the number attached"
+
+    group.run("r1", con=pipeline)
+    leaked = pipeline.execute(
+        "SELECT COUNT(*) FROM assignments WHERE run_id='r1' AND channel_id='C0AKEL49PEF'"
+    ).fetchone()[0]
+    assert leaked == 0
+
+    # but the messages are still in the store — excluded, not deleted
+    stored = pipeline.execute(
+        "SELECT COUNT(*) FROM messages WHERE channel_id='C0AKEL49PEF'").fetchone()[0]
+    assert stored == 9
+
+
+def test_without_qualification_nothing_is_filtered(pipeline):
+    """An unqualified run must be visibly UNfiltered rather than silently empty."""
+    pipeline.execute("DELETE FROM channel_qualification WHERE run_id='r1'")
+    pipeline.commit()
+    stats = group.run("r1", con=pipeline)
+    assert stats["channels_in_scope"] == "qualify not run"
+    leaked = pipeline.execute(
+        "SELECT COUNT(*) FROM assignments WHERE run_id='r1' AND channel_id='C0AKEL49PEF'"
+    ).fetchone()[0]
+    assert leaked > 0

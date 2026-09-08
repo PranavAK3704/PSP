@@ -29,7 +29,8 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 from app.intake import (  # noqa: E402
-    dedupe, evaluate, extract, group, loadstage, noise, qualify, register, report, store,
+    dedupe, emit, evaluate, extract, group, loadstage, noise, qualify, register, report,
+    store,
 )
 
 DEFAULT_RAW = BACKEND / "data" / "intake" / "raw"
@@ -83,6 +84,12 @@ def cmd_dedupe(args) -> int:
     return 0
 
 
+def cmd_emit(args) -> int:
+    """Draft a ticket per issue. Creates nothing: the only sink in phase 1 is the dry run."""
+    _show("emit", emit.run(_run_id(args), require_identifier=args.require_identifier))
+    return 0
+
+
 def cmd_report(args) -> int:
     _show("report", report.run(_run_id(args), args.out, redact_pii=not args.no_redact))
     return 0
@@ -121,13 +128,15 @@ def cmd_run_all(args) -> int:
     _show("5 group", group.run(rid, join_weak=args.join_weak))
     _show("7 register", register.run(rid))
     _show("8 dedupe", dedupe.run(rid))
+    _show("10 emit", emit.run(rid, require_identifier=args.require_identifier))
     if args.out:
         _show("9 report", report.run(rid, args.out, redact_pii=not args.no_redact))
     r = evaluate.run(rid)
     if r.get("CAVEAT"):
         print(f"\n!! {r['CAVEAT']}\n")
     _show("evaluate", r)
-    print(f"\nrun_id {rid} — stage 6 (adjudicate) was NOT run, so zero API calls were made.")
+    print(f"\nrun_id {rid} — stage 6 (adjudicate) was NOT run, so zero API calls were made, "
+          f"and no ticket was created: the only sink in phase 1 is the dry run.")
     return 0
 
 
@@ -153,6 +162,8 @@ def build_parser() -> argparse.ArgumentParser:
             ("adjudicate", cmd_adjudicate, "stage 6 (Claude) — not implemented", False),
             ("register", cmd_register, "one row per issue", False),
             ("dedupe", cmd_dedupe, "cross-channel duplicates", False),
+            ("emit", cmd_emit,
+             "draft a ticket per issue — creates NOTHING, dry-run sink only", False),
             ("report", cmd_report, "write the xlsx", False),
             ("evaluate", cmd_evaluate, "score against golden labels", False),
             ("run-all", cmd_run_all, "every implemented stage, in order", True)]:
@@ -165,6 +176,11 @@ def build_parser() -> argparse.ArgumentParser:
                            help="day-partitioned NDJSON directory (default: data/intake/raw)")
             s.add_argument("--skip-validate", action="store_true",
                            help="skip tools/validate.js — only when it was run elsewhere")
+        if name in ("emit", "run-all"):
+            s.add_argument("--require-identifier", action="store_true",
+                           help="hold back issues with no DC code, mobile, waybill or ticket "
+                                "id — nobody outside the conversation can act on those. Off by "
+                                "default: whether it is true depends on how the desk works")
         if name in ("group", "run-all"):
             s.add_argument("--join-weak", action="store_true",
                            help="also join on DC code. Off by default: a DC identifies a "

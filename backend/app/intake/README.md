@@ -1,11 +1,21 @@
 # Slack-to-ticket intake — phase 1
 
-A **batch** pipeline over exported Slack NDJSON. It turns messages in `#valmo-firefighters` and
-`#valmo-lm-ams` into an issue register with first-response times, DC codes, duplicates and a
-review spreadsheet — the thing that does not exist today.
+**A ticket per conversation, derived from the flow of the conversation.** A batch pipeline over
+exported Slack NDJSON: it reads `#valmo-firefighters` and `#valmo-lm-ams`, works out where one
+issue ends and the next begins, and drafts a ticket for each — with the raiser, the DC code, the
+identifiers, the first-response time, and the duplicates already collapsed.
 
-**Phase 1 does not create tickets, does not write to Slack, and has no live ingest.** Not one
-code path. Nothing here runs in the deployed app.
+That is the deliverable. **Where the tickets are finally raised is a replaceable decision** —
+`TicketSink` in `emit.py` is the whole contract, and PSP is one candidate implementation of it,
+not an assumption baked into the pipeline. See
+[`docs/psp-ticket-contract.md`](../../../docs/psp-ticket-contract.md).
+
+**Phase 1 creates no tickets, writes nothing to Slack, and has no live ingest.** Not one code
+path: `emit.py` imports no HTTP client and a test asserts it. Nothing here runs in the deployed
+app.
+
+On the committed fixtures: **43 messages → 23 issues → 20 tickets it would raise, 3 held back**
+(two weather callouts, one side of a cross-channel duplicate), for **$0**.
 
 ## Run it
 
@@ -40,12 +50,17 @@ python -m app.intake.cli evaluate --run-id demo
 | `adjudicate` | 6 | **not implemented** — the only stage that calls a model. See below |
 | `register` | 7 | one row per issue, with a state machine |
 | `dedupe` | 8 | cross-channel duplicates. Links, never merges |
+| `emit` | 10 | **drafts a ticket per issue.** Creates nothing — dry-run sink only |
 | `report` | 9 | the xlsx |
 | `evaluate` | — | scores against `data/intake/golden/labels.csv` |
 
 ## Read the report
 
-Five sheets. Read them in this order:
+Six sheets. Read them in this order:
+
+0. **`tickets`** — the product. One row per issue: `would_raise` yes/no, the title, and
+   `held_back_because` for the ones it stopped. This is the sheet to show someone who asks what
+   the thing does.
 
 1. **`summary`** — issue counts by intent, % with no closure signal, median and p90 first
    response, repeat issues per DC, cross-channel duplicates, gated counts by rule.
@@ -91,6 +106,9 @@ reported separately.
   `AML`) are missing. `evaluate` reports registry coverage separately so that never reads as
   poor regex recall. **Ops still owes names and cities** — no code→name mapping exists anywhere
   in the repo.
+- **No sink is implemented.** `emit` drafts; nothing raises. That is phase 1 working as
+  specified, not a gap — the payload and the key are the parts that are painful to retrofit,
+  and they are done.
 - **Stage 6 is not implemented**, so nothing reaches `RESOLVED` or `CLOSED` and intent is
   `(unadjudicated)`. That is deliberate: run `evaluate` and read
   `THE_NUMBER_grouping_without_stage_6` first. If deterministic grouping is good enough, stage
@@ -98,6 +116,25 @@ reported separately.
 - **The 90-day backfill needs a Slack token** — a user token (`xoxp`) held by a channel member,
   with `groups:history`, `users:read` and `users:read.email`. A bot token will not work for
   thread replies.
+
+## Lifting this out of PSP
+
+It is close to standalone, and deliberately so.
+
+- **No network and no PSP database at runtime.** Every stage reads its own SQLite and its own
+  `config/*.yaml`.
+- **Exactly one cross-package import**: `app/intake/extract.py` → `app.engine.algo.entities`.
+  Take that one file and the module runs anywhere. It is the shared home for hub-code
+  extraction and the measured `_NOT_AN_ID` stoplist, which is why it is shared rather than
+  copied.
+- **Two build-time imports**, both in `scripts/build_dc_registry.py`
+  (`entities._NOT_AN_ID` and `followups.GLOSSARY`). Their output is a plain text file, so once
+  `config/dc_codes.txt` and `config/dc_denylist.txt` are generated, nothing needs them again.
+- **The DC registry is seeded from `valmo.db` / `tickets.db`** — but only by that script, once.
+  Elsewhere, point it at whatever hub master exists, or paste the ops list in.
+
+So the extraction is: `app/intake/`, `config/*.yaml`, `config/dc_*.txt`, `tools/validate.js`,
+`tests/intake/`, and `app/engine/algo/entities.py`.
 
 ## Two things that will bite you
 

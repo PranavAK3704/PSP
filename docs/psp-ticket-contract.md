@@ -1,9 +1,39 @@
-# The PSP ticket contract — what phase 2 would post to
+# Ticket sinks — what PSP would need, and what ANY sink needs
 
-**Investigated 8 Sep 2026 against `phase2-router`. Documentation only; phase 1 writes no
-ticket-creation code.**
+**Investigated 8 Sep 2026 against `phase2-router`. Documentation only; phase 1 creates no
+tickets and calls no support backend.**
 
-## The answer
+## Read this first: PSP is one candidate sink, not the destination
+
+The product is the **intake pipeline and its register** — a ticket per conversation, derived
+from the flow of the conversation. Where those tickets are finally raised is a replaceable
+decision, and PSP may well not be the system this ends up feeding.
+
+So the pipeline commits to a payload and a seam, not to a backend:
+
+```python
+class TicketSink(Protocol):          # app/intake/emit.py
+    name: str
+    def create(self, draft: TicketDraft) -> str: ...
+```
+
+Phase 1 ships exactly one implementation — `DryRunTicketSink`, which writes drafts to a local
+table and returns `DRY-…` references. `app/intake/emit.py` imports no HTTP client, and a test
+asserts that. A PSP sink, a Kapture sink, a Jira sink or a CSV sink are the same three lines,
+and nothing upstream of that file knows which is in use.
+
+## What any sink must provide
+
+| # | Requirement | Why |
+|---|---|---|
+| 1 | Honour `draft.idempotency_key` as the natural key | It is `sha256(source_system, channel_id, anchor_message_id)` — derived from the **source message**, not minted by the sink, so the same Slack message yields the same key on every run, machine and sink. Creating twice with one key must return the first ticket, not make a second. If the backend cannot do that, the sink keeps the mapping itself |
+| 2 | Accept a source reference | `source_system` + `source_id` + `source_permalink`, so "does a ticket already exist for Slack message `1788482771.760339`?" is answerable from either side |
+| 3 | Return a stable external reference | Stored in `ticket_drafts.external_ref`, which is how a closure signal later finds its way back |
+
+Everything below is what **this repo specifically** would need to satisfy those three. It is
+worth reading as evidence of how much a sink can be missing, not as a blocker on the pipeline.
+
+## The answer for PSP
 
 **There is no ticket-create entry point in this repo.** Nothing a pipeline can POST to will
 produce a case. The word "ticket" here means one of two things and neither is writable.
@@ -75,6 +105,16 @@ of Slack posts already carry one — behind the `KaptureDedupeSource` protocol i
 
 ## What intake does in the meantime
 
-Nothing. Phase 1 creates no tickets and calls no support backend, by design. The register is
-the artefact; `duplicate_of` records what stage 8 found; and the xlsx is a copy for humans to
-read, not the way tickets travel.
+It drafts. `intake emit` writes one `ticket_drafts` row per issue — title, description, raiser,
+DC code, identifiers, source permalink and the idempotency key — and creates nothing. On the
+committed fixtures that is **23 issues → 20 tickets it would raise, 3 held back**: two weather
+callouts and one side of the cross-channel duplicate.
+
+Holding things back is part of the product, not a limitation. A pipeline that raises a ticket
+for rain, or two tickets for one issue posted in two channels, produces a register nobody
+trusts — which is the thing this project exists to fix. Every held-back draft carries the
+reason, so "what would we have raised, and what did we stop" is answerable before any sink
+exists.
+
+The xlsx `tickets` sheet is that list. It is a copy for humans to read, not the way tickets
+travel: if a person has to upload it for anything to happen, the point has been lost.

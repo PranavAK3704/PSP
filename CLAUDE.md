@@ -68,6 +68,26 @@ that a reader might otherwise reverse by accident.
 - **The qualification gate is enforced in `group.py`, not just reported.** It was excluding
   `pilot_support_ams` and letting its messages through anyway.
 
+## Ticket emission (stage 10)
+
+- **The product is a ticket per conversation; the sink is replaceable.** PSP may not be the
+  system this ends up feeding, so the pipeline commits to `TicketDraft` + `TicketSink` and
+  nothing else. Phase 1 ships only `DryRunTicketSink`.
+- **`idempotency_key = sha256(source_system, channel_id, anchor_message_id)`** — derived from
+  the source, never minted by a sink, so it is stable across runs, machines and sinks. This is
+  the module supplying what PSP lacks: `concern_log.append()` has no idempotency and there is no
+  `external_ref` field to dedupe on.
+- **A draft is written for every issue, including suppressed ones**, with the reason. Same rule
+  as the noise gate: "what would we have raised, and what did we hold back" must be answerable.
+- **Informational and duplicate issues are suppressed by default; `require_identifier` is
+  off.** Whether "no DC code, no mobile, no waybill" disqualifies a ticket depends on how the
+  desk works, so it is a flag rather than a rule.
+- **Titles and descriptions are deterministic — no model.** The raiser already wrote the
+  summary; the DC code leads because that is what a triager asks first. This keeps the whole
+  ticket path at $0.
+- **`emit.py` imports no HTTP client, and a test asserts that.** The "no calls to any support
+  backend" constraint is kept structurally, not by intention.
+
 ## Cost and models
 
 - **`models.yaml` already has `provider: claude`** (`fast: claude-sonnet-5`,

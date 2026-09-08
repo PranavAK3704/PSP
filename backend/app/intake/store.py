@@ -56,6 +56,7 @@ STAGE_TABLES = {
     "adjudicate": "adjudications",
     "register":   "issues",
     "dedupe":     "duplicates",
+    "emit":       "ticket_drafts",
 }
 
 DDL = """
@@ -259,6 +260,45 @@ CREATE TABLE IF NOT EXISTS stage_runs (
   status      TEXT,
   PRIMARY KEY (run_id, stage)
 );
+
+-- ── stage 10: ticket drafts ─────────────────────────────────────────────────────────────────
+-- THE PRODUCT. One row per ticket that would be created from the flow of conversation.
+--
+-- `idempotency_key` is derived from the SOURCE MESSAGE, never minted by a sink: the same Slack
+-- message produces the same key on every run, on every machine, through every sink. That is
+-- what makes "a retry cannot double-create" true independently of where tickets eventually
+-- land -- and it matters because the obvious first sink, this repo's own Concern Log, has no
+-- idempotency of any kind (concern_log.append is an unconditional list append).
+--
+-- A draft is written for EVERY issue, including the ones that must NOT become tickets, with
+-- `suppressed` and `suppressed_reason` saying why. Same discipline as the noise gate: "what
+-- would we have raised, and what did we hold back" has to be answerable.
+CREATE TABLE IF NOT EXISTS ticket_drafts (
+  run_id            TEXT NOT NULL,
+  issue_id          TEXT NOT NULL,
+  idempotency_key   TEXT NOT NULL,
+  source_system     TEXT,
+  source_id         TEXT,
+  source_permalink  TEXT,
+  title             TEXT,
+  description       TEXT,
+  raiser            TEXT,
+  dc_code           TEXT,
+  intent            TEXT,
+  entity_tokens_json TEXT,
+  kapture_ticket_ids_json TEXT,
+  reply_count       INTEGER,
+  first_response_latency_s REAL,
+  state             TEXT,
+  duplicate_of      TEXT,
+  suppressed        INTEGER,
+  suppressed_reason TEXT,
+  sink              TEXT,
+  external_ref      TEXT,
+  emitted_at        TEXT,
+  PRIMARY KEY (run_id, issue_id)
+);
+CREATE INDEX IF NOT EXISTS ix_drafts_key ON ticket_drafts(idempotency_key);
 
 CREATE TABLE IF NOT EXISTS meta (
   k TEXT PRIMARY KEY,

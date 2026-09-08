@@ -105,6 +105,15 @@ def run(run_id: str, out_path: str | Path, *, con: sqlite3.Connection | None = N
         summary.append(["UNMAPPED intents",
                         sum(1 for i in issues if i["intent"] == "UNMAPPED")])
         summary.append(["PII redacted in this file", "yes" if redact_pii else "NO"])
+        drafts = q("SELECT COALESCE(SUM(suppressed=0),0), COALESCE(SUM(suppressed=1),0), "
+                   "COUNT(*) FROM ticket_drafts WHERE run_id=?", (run_id,))[0]
+        summary.append([])
+        summary.append(["TICKETS WE WOULD RAISE", drafts[0]])
+        summary.append(["held back (informational / duplicate / no identifier)", drafts[1]])
+        summary.append(["tickets ACTUALLY created (phase 1 creates none)", 0])
+        for r in q("SELECT suppressed_reason, COUNT(*) FROM ticket_drafts WHERE run_id=? "
+                   "AND suppressed=1 GROUP BY suppressed_reason ORDER BY 2 DESC", (run_id,)):
+            summary.append([f"  {str(r[0]).split(' —')[0]}", r[1]])
         summary.append([])
         summary.append(["issues by intent", ""])
         for r in q("SELECT COALESCE(intent,'(unadjudicated)'), COUNT(*) FROM issues "
@@ -157,6 +166,20 @@ def run(run_id: str, out_path: str | Path, *, con: sqlite3.Connection | None = N
                            "WHERE f.run_id=? AND f.informational=1 "
                            "ORDER BY f.informational_borderline DESC", (run_id,))],
                [20, 20, 30, 12, 90])
+
+        # ── tickets: THE PRODUCT, and what was held back ────────────────────────────────────
+        _sheet(wb, "tickets",
+               ["would_raise", "idempotency_key", "title", "dc_code", "intent", "raiser",
+                "reply_count", "first_response_s", "source_permalink", "held_back_because",
+                "sink", "dry_run_ref"],
+               [["YES" if not r["suppressed"] else "no", r["idempotency_key"][:16],
+                 r["title"], r["dc_code"], r["intent"] or "(unadjudicated)",
+                 (redact.mask_text(r["raiser"] or "") if redact_pii else r["raiser"]),
+                 r["reply_count"], r["first_response_latency_s"], r["source_permalink"],
+                 r["suppressed_reason"], r["sink"], r["external_ref"]]
+                for r in q("SELECT * FROM ticket_drafts WHERE run_id=? "
+                           "ORDER BY suppressed, title", (run_id,))],
+               [12, 20, 62, 9, 22, 20, 11, 15, 46, 78, 10, 20])
 
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)

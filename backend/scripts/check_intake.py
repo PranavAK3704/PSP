@@ -258,13 +258,78 @@ def main() -> int:
           extract("hub NQS")["hub_codes"] == [],
           "the digit rule was measured on partner Hinglish and still holds there")
 
+    head("stage 10 — ticket drafts (the product). NOTHING IS CREATED")
+    from app.intake import (dedupe, emit, group, qualify,  # noqa: E402
+                            register)
+    import inspect  # noqa: E402
+
+    noise_stats = None
+    from app.intake import noise as _noise  # noqa: E402
+    _noise.run("r1")
+    istage.run("r1")
+    qualify.run("r1")
+    group.run("r1")
+    register.run("r1")
+    dedupe.run("r1")
+    est = emit.run("r1")
+
+    check("a draft exists for every issue",
+          est["issues"] == est["would_create"] + est["suppressed"],
+          f"{est['would_create']} would be raised, {est['suppressed']} held back")
+    check("NO ticket is created", est["tickets_actually_created"] == 0
+          and est["sink"] == "dry_run")
+    check("emit.py imports no HTTP client",
+          not any(b in inspect.getsource(emit) for b in
+                  ("import requests", "import httpx", "import urllib", "from requests")),
+          "the 'no calls to any support backend' rule, kept structurally")
+
+    con = store.connect()
+    refs = [r[0] for r in con.execute(
+        "SELECT external_ref FROM ticket_drafts WHERE run_id='r1' AND suppressed=0")]
+    check("dry-run references are unmistakable", bool(refs)
+          and all(r.startswith("DRY-") for r in refs),
+          "so one can never be read as a ticket id in a spreadsheet")
+
+    before = {r["issue_id"]: r["idempotency_key"] for r in con.execute(
+        "SELECT issue_id, idempotency_key FROM ticket_drafts WHERE run_id='r1'")}
+    emit.run("r1")
+    after = {r["issue_id"]: r["idempotency_key"] for r in con.execute(
+        "SELECT issue_id, idempotency_key FROM ticket_drafts WHERE run_id='r1'")}
+    check("idempotency keys are stable across a re-run", before == after and bool(before),
+          "derived from the source message, never minted by a sink")
+    pure = all(
+        k == emit.idempotency_key("slack", r["anchor_channel_id"], r["anchor_message_id"])
+        for r in con.execute("SELECT issue_id, anchor_channel_id, anchor_message_id "
+                             "FROM issues WHERE run_id='r1'")
+        for k in [before[r["issue_id"]]])
+    check("the key is a pure function of the source", pure,
+          "so a retry, a re-run or a second operator cannot double-create")
+
+    sup = con.execute("SELECT COUNT(*) FROM ticket_drafts d JOIN issues i "
+                      "ON i.run_id=d.run_id AND i.issue_id=d.issue_id "
+                      "WHERE d.run_id='r1' AND i.informational=1 AND d.suppressed=0"
+                      ).fetchone()[0]
+    check("weather callouts are NOT raised as tickets", sup == 0,
+          "deliberate operational comms — ticketing rain produces a register nobody trusts")
+    dup = con.execute("SELECT d.suppressed FROM ticket_drafts d JOIN issues i "
+                      "ON i.run_id=d.run_id AND i.issue_id=d.issue_id "
+                      "WHERE d.run_id='r1' AND i.duplicate_of IS NOT NULL").fetchone()
+    check("one side of the cross-channel duplicate is held back",
+          dup is not None and dup["suppressed"] == 1,
+          "two tickets on day one is the failure this pipeline exists to stop")
+    unlabelled = con.execute("SELECT COUNT(*) FROM ticket_drafts WHERE run_id='r1' "
+                             "AND suppressed=1 AND (suppressed_reason IS NULL "
+                             "OR suppressed_reason='')").fetchone()[0]
+    check("every held-back draft says why", unlabelled == 0)
+    con.close()
+
     print(f"\n{'=' * 78}")
     if FAILED:
         print(f"FAILED {len(FAILED)}:")
         for f in FAILED:
             print(f"  - {f}")
         return 1
-    print("INTAKE VERIFIED — contract gate enforced, load idempotent, key precision kept.")
+    print("INTAKE VERIFIED — contract gate enforced, load idempotent, keys stable, nothing created.")
     return 0
 
 

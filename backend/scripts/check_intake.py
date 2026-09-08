@@ -169,6 +169,80 @@ def main() -> int:
           blind["attachment_coverage"] == 0.0,
           "attachments:[] + has_media:false satisfies the validator's agreement check")
 
+    head("stage 4 — DC codes, tier A (label-anchored, NO registry needed)")
+    from app.engine.algo.entities import (extract, extract_dc_tier_a,  # noqa: E402
+                                          extract_dc_tier_b, dc_tier_b_candidates)
+    from app.intake import extract as istage                            # noqa: E402
+    REG = istage.load_code_list(istage.DC_CODES)
+    DENY = istage.load_code_list(istage.DC_DENYLIST)
+
+    def ta(t):
+        return set(extract_dc_tier_a(t, DENY))
+
+    def tb(t, reg=None):
+        return set(extract_dc_tier_b(t, REG if reg is None else reg, DENY, exclude=ta(t)))
+
+    # TOKEN SETS, never counts. Every regex error in this project produced a plausible count.
+    for text, want in [
+        ("DC Code: NXG", {"NXG"}),
+        ("The *NQS DC landing time", {"NQS"}),
+        ("HY9, IAM, VN4 hub not recive", {"HY9", "IAM", "VN4"}),
+        ("DC Codes:\nNQS\nIQU\nUB1", {"NQS", "IQU", "UB1"}),
+        ("DC _UB1_ pending", {"UB1"}),
+        ("hub L9D and J93 down", {"L9D", "J93"}),
+        ("DC R2F, K6L & T5X", {"R2F", "K6L", "T5X"}),
+        ("LMDC PJ2/PJR", {"PJ2", "PJR"}),
+        ("Hubs CKH and RW3", {"CKH", "RW3"}),
+    ]:
+        got = ta(text)
+        check(f"tier A {text!r}", got == want, f"{sorted(got)}"
+              + ("" if got == want else f"  WANT {sorted(want)}"))
+
+    for text, why in [
+        ("DC landing time is late", "the (?i) leak would yield LAN — 8 fictional hits of 18"),
+        ("DC CODE IS MISSING", "_NOT_AN_ID stops the capture group yielding CODE"),
+        ("DC code 3531 issue", "353 must not match inside 3531"),
+        ("DC code: nxg", "the token class stays case-sensitive"),
+    ]:
+        got = ta(text)
+        check(f"tier A rejects {text!r}", got == set(), why if not got else f"GOT {sorted(got)}")
+
+    head("stage 4 — DC codes, tier B (registry REQUIRED)")
+    check("registry loaded", len(REG) > 0, f"{len(REG)} codes")
+    check("bare MX1 resolves (the cross-posted dedupe case)", tb("MX1 captain panel not working")
+          == {"MX1"})
+    check("'342 Tids' is REJECTED", tb("342 Tids are coming in Hardstop loss") == set(),
+          "word-bounded, 3 chars, digit-bearing — only the registry rejects it")
+    check("a digit-bearing heuristic WOULD have taken it",
+          "342" in dc_tier_b_candidates("342 Tids are coming in Hardstop loss", DENY),
+          "which is why digit-bearing is not a registry substitute")
+    check("'897 Tids' is also rejected", tb("897 Tids are coming in Hardstop loss") == set(),
+          "897 IS a real hub code — identical shape to 342, so shape cannot be the test")
+    for tok, text in [("SIR", "SIR PLEASE CHECK"), ("RVP", "RVP pending"),
+                      ("TID", "TID count is high")]:
+        check(f"registry contaminant {tok} is denied", tok in REG and tb(text) == set(),
+              "in the registry as a GENUINE hub code — membership is not sufficient evidence")
+    check("no registry => tier B is SKIPPED, not guessed",
+          extract_dc_tier_b("MX1 down", set(), DENY) == {}
+          and extract_dc_tier_b("342 Tids", set(), DENY) == {})
+
+    head("stage 4 — identifiers distinguished by exact length")
+    line = "Registered mobile 9900000001, ticket 4788325630026, waybill VL0084870753799."
+    pats = istage.load_patterns()
+    for kind, want in [("mobile", {"9900000001"}), ("kapture_id", {"4788325630026"}),
+                       ("waybill", {"VL0084870753799"})]:
+        got = {v for k, v, _, _ in istage.extract_text(line, pats, set(), set()) if k == kind}
+        check(f"{kind} does not match inside its neighbours", got == want, str(sorted(got)))
+
+    head("the live conversation path must not have moved")
+    check("extract('hub code is missing') still yields nothing",
+          extract("hub code is missing")["hub_codes"] == [])
+    check("extract('DC: BLR07 not working') still yields BLR07",
+          extract("DC: BLR07 not working")["hub_codes"] == ["BLR07"])
+    check("extract('hub NQS') still yields nothing (digit rule intact)",
+          extract("hub NQS")["hub_codes"] == [],
+          "the digit rule was measured on partner Hinglish and still holds there")
+
     print(f"\n{'=' * 78}")
     if FAILED:
         print(f"FAILED {len(FAILED)}:")

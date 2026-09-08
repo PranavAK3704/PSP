@@ -1,0 +1,48 @@
+# Entity patterns for the Slack intake pipeline (stage 4).
+#
+# DC / hub codes are NOT here. They are two tiers of positional logic, not a pattern, and they
+# live in app/engine/algo/entities.py alongside the measured `_NOT_AN_ID` stoplist that stops
+# "DC CODE IS MISSING" yielding CODE. Their inputs are config/dc_codes.txt (the registry) and
+# config/dc_denylist.txt.
+#
+# ── WHY EVERY NUMERIC PATTERN USES ALPHANUMERIC LOOKAROUNDS ──────────────────────────────────
+# The identifiers here are distinguished by EXACT LENGTH, so an unguarded pattern matches
+# inside a longer one. Measured on the fixture line
+#
+#     "Registered mobile 9900000001, ticket 4788325630026, waybill VL0084870753799."
+#
+#   · a bare [6-9]\d{9} finds a "mobile" inside the 13-digit Kapture id (7883256300)
+#   · a bare \d{12,13} finds a "Kapture id" inside the waybill (0084870753799)
+#
+# Both produce a plausible count and a wrong answer. `(?<![A-Za-z0-9])` / `(?![A-Za-z0-9])`
+# makes the three mutually exclusive, and test_extract.py asserts exactly that on this line.
+
+mobile:
+  # 10 digits starting 6-9. <tel:...> wrapping exists but is rare — 4 of 467 records — so bare
+  # digits are the normal case and the pattern must not require the markup.
+  pattern: '(?<![A-Za-z0-9])[6-9][0-9]{9}(?![A-Za-z0-9])'
+  redact: true
+
+kapture_id:
+  # 12-13 digits. Confirmed against 140,875 real tickets in backend/data/tickets.db:
+  # 116,528 are 13 digits and 24,347 are 12. Feeds cross-channel dedupe in stage 8.
+  pattern: '(?<![A-Za-z0-9])[0-9]{12,13}(?![A-Za-z0-9])'
+  redact: false
+
+waybill:
+  # VL + 13 digits is the form in the channels. VLR + 12 is also real and already recognised by
+  # engine/algo/entities.py, so both are accepted here rather than disagreeing with it.
+  pattern: '(?<![A-Za-z0-9])(?:VL[0-9]{13}|VLR[0-9]{12})(?![A-Za-z0-9])'
+  redact: false
+
+pilot_id:
+  # 8 digits, CONTEXTUAL. A bare 8-digit run is a date, an amount or half an order id far more
+  # often than it is a pilot, so a cue word is required. The cue is case-insensitive; nothing
+  # else is.
+  pattern: '(?i:\b(?:pilot|fe|rider|driver|de)\s*(?:id|code)?\s*[:#-]?\s*)(?<![A-Za-z0-9])([0-9]{8})(?![A-Za-z0-9])'
+  group: 1
+  redact: true
+
+email:
+  pattern: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+  redact: true

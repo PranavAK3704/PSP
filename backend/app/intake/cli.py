@@ -30,7 +30,7 @@ if str(BACKEND) not in sys.path:
 
 from app.intake import (  # noqa: E402
     dedupe, emit, evaluate, extract, group, loadstage, noise, qualify, register, report,
-    store,
+    slack_source, store,
 )
 
 DEFAULT_RAW = BACKEND / "data" / "intake" / "raw"
@@ -84,6 +84,88 @@ def cmd_dedupe(args) -> int:
     return 0
 
 
+def cmd_pull(args) -> int:
+    """Read a channel live into day-partitioned NDJSON. READ ONLY — the token has no write
+    scope, so there is no code path from here back into Slack."""
+    reader = slack_source.SlackReader()
+    recs = reader.fetch(args.channel, oldest=args.oldest)
+    written = slack_source.write_ndjson(recs, args.raw)
+    _show("pull", {"channel": args.channel, "records": len(recs), "files": written,
+                   "out": str(args.raw),
+                   "_next": f"python -m app.intake.cli run-all --raw {args.raw}"})
+    return 0
+
+
+def cmd_explain(args) -> int:
+    """THE OUTPUT LAYER: what the pipeline decided about every message, and why.
+
+    One line per message with the rule that fired at each stage. This is the artefact that
+    makes a wrong answer diagnosable instead of arguable — "why did this land here" is
+    answerable for every row, including the ones nothing matched.
+    """
+    rid = _run_id(args)
+    con = store.connect()
+    try:
+        rows = con.execute(
+            "SELECT m.channel_id, m.message_id, m.text, m.subtype, m.has_media, m.thread_ref, "
+            "       f.gated, f.gate_rule, f.informational, f.informational_rule, "
+            "       f.informational_borderline, a.issue_id, a.rule AS grp_rule, a.confidence "
+            "FROM messages m "
+            "LEFT JOIN message_flags f ON f.run_id=? AND f.channel_id=m.channel_id "
+            "     AND f.message_id=m.message_id "
+            "LEFT JOIN assignments a ON a.run_id=? AND a.channel_id=m.channel_id "
+            "     AND a.message_id=m.message_id "
+            "ORDER BY m.ts_epoch", (rid, rid)).fetchall()
+        if not rows:
+            print(f"no messages for run_id {rid!r}", file=sys.stderr)
+            return 2
+
+        drafts = {r["issue_id"]: r for r in con.execute(
+            "SELECT issue_id, suppressed, suppressed_reason, title FROM ticket_drafts "
+            "WHERE run_id=?", (rid,))}
+
+        print(f"\n{'=' * 100}\nWHAT THE PIPELINE DID  —  run_id {rid}\n{'=' * 100}")
+        for r in rows:
+            ents = con.execute(
+                "SELECT kind, value, tier FROM entities WHERE run_id=? AND channel_id=? "
+                "AND message_id=? ORDER BY kind, value",
+                (rid, r["channel_id"], r["message_id"])).fetchall()
+            txt = " ".join((r["text"] or "").split())[:72] or "(empty text)"
+            if r["has_media"]:
+                txt += "  [+file]"
+            print(f"\n  {txt}")
+
+            if r["gated"]:
+                print(f"     GATED       {r['gate_rule']}   -> not an issue")
+                continue
+            if r["gate_rule"]:                      # the kept-on-purpose case
+                print(f"     kept        {r['gate_rule']}")
+            if r["informational"]:
+                mark = " BORDERLINE" if r["informational_borderline"] else ""
+                print(f"     INFO        {r['informational_rule']}{mark}   -> flagged, not a ticket")
+            if ents:
+                print("     entities    " + ", ".join(
+                    f"{e['kind']}={e['value']}" + (f"(tier {e['tier']})" if e["tier"] else "")
+                    for e in ents))
+            else:
+                print("     entities    none")
+            if r["issue_id"]:
+                short = r["issue_id"].rsplit("-", 1)[-1]
+                print(f"     issue       {short}  via {r['grp_rule']} (conf {r['confidence']})")
+                d = drafts.get(r["issue_id"])
+                if d and r["grp_rule"] == "new_issue":
+                    if d["suppressed"]:
+                        print(f"     TICKET      held back — {d['suppressed_reason'][:64]}")
+                    else:
+                        print(f"     TICKET      WOULD RAISE — {d['title'][:64]}")
+            else:
+                print(f"     issue       unassigned ({r['grp_rule']}) -> stage 6")
+        print(f"\n{'=' * 100}")
+        return 0
+    finally:
+        con.close()
+
+
 def cmd_emit(args) -> int:
     """Draft a ticket per issue. Creates nothing: the only sink in phase 1 is the dry run."""
     _show("emit", emit.run(_run_id(args), require_identifier=args.require_identifier))
@@ -131,6 +213,7 @@ def cmd_run_all(args) -> int:
     _show("10 emit", emit.run(rid, require_identifier=args.require_identifier))
     if args.out:
         _show("9 report", report.run(rid, args.out, redact_pii=not args.no_redact))
+    cmd_explain(argparse.Namespace(run_id=rid))
     r = evaluate.run(rid)
     if r.get("CAVEAT"):
         print(f"\n!! {r['CAVEAT']}\n")
@@ -153,6 +236,9 @@ def build_parser() -> argparse.ArgumentParser:
         return s
 
     for name, fn, h, raw in [
+            ("pull", cmd_pull, "read a Slack channel LIVE into NDJSON (read-only)", True),
+            ("explain", cmd_explain, "what the pipeline decided about every message, and why",
+             False),
             ("load", cmd_load, "read NDJSON, gate it on tools/validate.js, write SQLite", True),
             ("qualify", cmd_qualify, "score every channel; exclude with the number attached",
              False),
@@ -176,6 +262,11 @@ def build_parser() -> argparse.ArgumentParser:
                            help="day-partitioned NDJSON directory (default: data/intake/raw)")
             s.add_argument("--skip-validate", action="store_true",
                            help="skip tools/validate.js — only when it was run elsewhere")
+        if name == "pull":
+            s.add_argument("--channel", required=True, help="channel id, e.g. C09JY7YLB3L")
+            s.add_argument("--oldest", default=None,
+                           help="unix ts to read from. A backfill and a poll are the same call "
+                                "with a different cursor")
         if name in ("emit", "run-all"):
             s.add_argument("--require-identifier", action="store_true",
                            help="hold back issues with no DC code, mobile, waybill or ticket "

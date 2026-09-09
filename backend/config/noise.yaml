@@ -57,14 +57,54 @@ rules:
     # Nothing left after markup and punctuation are stripped, but the raw text was non-empty.
     emoji_only: true
 
+  - name: ack_phrase
+    # GENERALISES the exact lists above. Fires when EVERY word of the normalised text is in the
+    # vocabulary below AND the message is short. Measured on 155 adversarial messages: `exact`
+    # matching caught 8 of 33 acks, because real ones are Hinglish and carry an emoji --
+    # "haan bhai ho gaya thank you 🙏", "gm all 🙏", "noted sir all clear now 👍". Enumerating
+    # every phrasing does not scale; requiring every word to be an ack word does.
+    #
+    # The word cap is what stops it over-reaching. "thanks but the DC is still down" survives
+    # because `dc`, `still` and `down` are not ack words -- but the cap means even an unlucky
+    # vocabulary hit cannot swallow a long message.
+    max_words: 7
+    all_words_in:
+      [ok, okk, okay, oky, k, kk, done, noted, note, ack, sure, yes, yeah, yep, ya, haan,
+       ji, han, thanks, thank, you, thankyou, thx, ty, tysm, thanku, shukriya, dhanyawad,
+       sir, madam, maam, bhai, boss, team, all, guys, ho, gaya, gyi, hua, clear, now,
+       great, good, gm, ga, ge, morning, afternoon, evening, night, hi, hii, hello, hey,
+       namaste, welcome, cool, nice, perfect, super, fine, alright, right, got, it, will,
+       do, ok_hand, plus, one, same, here, too, also, understood, received, recd, confirm,
+       confirmed, checking, check, please, pls, kindly, karo, kar, diya, dijiye]
+
 informational:
   # NOT noise and NOT a ticket. Weather callouts are deliberate operational comms — they are
   # 20-39% of top-level messages in lm-ams and carry roughly half of all attached media.
   # Flagged, never gated, and reported as a RANGE because the count is sensitive to where the
   # line is drawn.
   weather_terms:
-    [rain, rains, rainy, rainfall, raining, barish, weather, flood, flooding, waterlogging,
-     monsoon, storm, cyclone, heavy shower, showers, thunderstorm]
+    [rain, rains, rainy, rainfall, raining, barish, baarish, barsat, weather, flood, flooding,
+     waterlogging, waterlogged, water level, jal bharav, paani bhar, monsoon, storm, cyclone,
+     heavy shower, showers, thunderstorm, imd alert, orange alert, red alert]
+
+  # ── ANNOUNCEMENTS — the same axis as weather, found by measuring ──────────────────────────
+  # The brief seeded this classifier with weather keywords only, so it was weather-only. Run
+  # against 155 adversarial messages it caught 10 of 28: the other 18 were not weather at all
+  # but the same KIND of thing -- planned downtime, a public holiday, an SOP update, a road
+  # diversion, a daily MIS. Deliberate operational comms that are not tickets.
+  #
+  # This list is deliberately CONSERVATIVE and phrase-based rather than word-based. The risk is
+  # asymmetric: a real issue wrongly marked informational is HELD BACK and never becomes a
+  # ticket, which is the failure that matters. A missed announcement merely raises a ticket
+  # somebody closes. So only high-confidence announcement markers are here, and single common
+  # words like "update" or "notice" are deliberately absent -- "any update ??" is an orphan
+  # follow-up, not an announcement.
+  announcement_terms:
+    [planned downtime, scheduled maintenance, maintenance window, public holiday,
+     bank holiday, holiday hai, band rahega, bandh rahega, road blocked, full diversion,
+     route diversion, advisory, notice for all, please note that, dhyan de, dhyan den,
+     sabhi ko inform, for your information only, fyi only, no action required,
+     updated sop, process follow karna, daily mis, mis report]
 
   # An operational topic that is NOT weather. Used only to decide the STRICT bound: a message
   # is strictly informational when the FIRST topic keyword it mentions is a weather term.

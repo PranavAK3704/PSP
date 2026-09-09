@@ -99,6 +99,24 @@ OPS_ACRONYMS = {
     "ADD", "ALL", "AND", "ANY", "APP", "BUT", "CAN", "DAY", "END", "GET", "HAI", "ITS",
     "KYA", "MAY", "NEW", "NON", "NOT", "NOW", "OLD", "ONE", "OUR", "OUT", "PER", "PLS",
     "SEE", "SET", "SIR", "THE", "TOP", "TWO", "USE", "WAS", "WHY", "YES", "YET", "YOU",
+
+    # ── ADDED AFTER MEASURING ON 155 ADVERSARIAL MESSAGES ────────────────────────────────
+    # Precision was 82.8%, and the false positives clustered into three groups. None of these
+    # were guessed — each one was extracted from a real generated message and read back.
+    #
+    # 1. HINGLISH TYPED IN CAPS. When a hub captain is annoyed they type the whole message in
+    #    upper case, and ordinary Hindi words are then indistinguishable from hub codes by
+    #    shape. "CKH ME AAJ TAK LOAD NAHI AAYA" yielded TAK, AUR and DIN as DC codes.
+    "AUR", "TAK", "DIN", "HUA", "LAG", "AAJ", "KAL", "SAB", "YEH", "WOH", "KOI", "BHI",
+    "HAR", "JAB", "TAB", "KAR", "RHA", "GYA", "NHI", "MAI", "HUM", "TUM", "AAP", "USE",
+    "PAR", "SE", "KE", "KA", "KI", "ME", "HO", "TO", "NA",
+    # 2. CITY AND AIRPORT CODES. Routes are written "BLR-MUM", and those are three uppercase
+    #    characters that also happen to be in the hub registry.
+    "BLR", "MUM", "DEL", "HYD", "MAA", "CCU", "AMD", "PNQ", "JAI", "LKO", "IXC", "GOI",
+    "COK", "TRV", "BBI", "PAT", "NAG", "IDR", "VNS", "GAU",
+    # 3. DOMAIN ACRONYMS that appear in ops prose but are not hubs.
+    "IMD", "TRP", "STD", "ATD", "ETD", "GST", "TDS", "PAN", "SXL", "MIS", "RCA", "LMD",
+    "SOC", "SLA", "EWB", "POS", "UPI", "IFS", "NEF", "IMP", "OTP", "KYC", "NOC", "PDF",
 }
 
 #: DC codes OBSERVED IN THE CHANNELS. These are never denied, even when they collide with an

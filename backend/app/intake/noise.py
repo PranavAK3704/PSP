@@ -57,9 +57,17 @@ def load_rules(path: Path = CONFIG) -> dict:
     crash three stages later) and the fix costs one line.
     """
     spec = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    # Coerce EVERY list in every rule, not just `exact`. This trap has now bitten three times
+    # in this file -- once in bare_ack, once in the ack_phrase vocabulary (`yes` -> True, which
+    # crashed on .lower()), and it will bite the next person who adds a list. Coercing by shape
+    # rather than by field name is the only version that stays fixed.
     for rule in spec.get("rules") or []:
-        if "exact" in rule:
-            rule["exact"] = [str(e) for e in rule["exact"]]
+        for k, v in list(rule.items()):
+            if isinstance(v, list):
+                rule[k] = [str(e) for e in v]
+    for k, v in list((spec.get("informational") or {}).items()):
+        if isinstance(v, list):
+            spec["informational"][k] = [str(e) for e in v]
     return spec
 
 
@@ -106,9 +114,20 @@ def classify(text: str, subtype: str | None, has_media: bool, rules: dict) -> di
             if rule.get("emoji_only") and raw.strip() and not norm and not has_media:
                 out.update(gated=True, gate_rule=name)
                 break
+            vocab = rule.get("all_words_in")
+            if vocab and norm:
+                words = norm.split()
+                cap = int(rule.get("max_words", 7))
+                if len(words) <= cap and all(w in {v.lower() for v in vocab} for w in words):
+                    out.update(gated=True, gate_rule=name)
+                    break
 
     info = rules.get("informational") or {}
+    # Weather and announcements are the SAME axis: deliberate operational comms that are not
+    # tickets. They are two lists only so the report can say which kind, and so the weather
+    # share -- the figure the brief quotes at 20-39% -- stays separately countable.
     weather = [w.lower() for w in (info.get("weather_terms") or [])]
+    announce = [a.lower() for a in (info.get("announcement_terms") or [])]
     competing = [c.lower() for c in (info.get("competing_terms") or [])]
     low = raw.lower()
 
@@ -120,7 +139,7 @@ def classify(text: str, subtype: str | None, has_media: bool, rules: dict) -> di
                 best = (i, t)
         return best
 
-    w, c = first_hit(weather), first_hit(competing)
+    w, c, a = first_hit(weather), first_hit(competing), first_hit(announce)
     if w:
         out["informational"] = True
         if c and c[0] < w[0]:
@@ -128,6 +147,10 @@ def classify(text: str, subtype: str | None, has_media: bool, rules: dict) -> di
             out.update(informational_rule=f"loose:{w[1]}(after {c[1]})", borderline=True)
         else:
             out["informational_rule"] = f"strict:{w[1]}"
+    elif a:
+        # An announcement marker is a PHRASE, not a word, so it carries its own confidence and
+        # does not need the first-topic test weather needs.
+        out.update(informational=True, informational_rule=f"announcement:{a[1]}")
     return out
 
 

@@ -6,7 +6,7 @@
 # TO REPLACE WITH THE OPS MASTER: delete everything below this header and paste the
 # code column in. Nothing else needs to change — Tier B reads this file directly.
 #
-# SEEDED 2026-09-08 by scripts/build_dc_registry.py from data already
+# SEEDED 2026-09-09 by scripts/build_dc_registry.py from data already
 # in this repo. These codes are OBSERVED in transactional data, not authored by ops:
 #   attribution.entity_id          3188
 #   captain_summary.hub              12
@@ -19,8 +19,8 @@
 # codes observed in the Slack channels (L9D, T5X, RX3, R2F, AML) are missing from it.
 # `intake evaluate` reports registry coverage separately so that stays visible.
 #
-# 39 of these are ALSO in config/dc_denylist.txt and are therefore NOT
-# usable as bare Tier B tokens: 239 897 ADD ALL AND APP ASN AWB CPS CRM DAY DPS END FAD FMH GET HAI HRS HUB ITS KYA LMD MAY MIS NDR NEW OLD OTD PFB PLS POD RVP SET SIR SOP TID UMS USE YES
+# 67 of these are ALSO in config/dc_denylist.txt and are therefore NOT
+# usable as bare Tier B tokens: 239 897 ADD ALL AMD AND APP ASN AUR AWB BLR CCU CPS CRM DAY DIN DPS END ETD FAD FMH GAU GET GST HAI HAR HRS HUA HUB IDR IFS IMD ITS IXC KYA LAG LMD MAI MAY MIS MUM NDR NEF NEW OLD OTD PAN PAR PAT PFB PLS PNQ POD POS RVP SET SIR SOP STD TAB TAK TDS TID TRP UMS USE YES
 #
 1GL
 1MR

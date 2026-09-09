@@ -33,6 +33,15 @@ channels:
       groups:history. 20-39% of top-level messages are weather callouts, flagged informational
       rather than ticketed.
 
+  # ── TEST CHANNEL ───────────────────────────────────────────────────────────────────────────
+  - id: C0C0KPAFVT4
+    name: intake-test
+    in_scope: true
+    reason: >-
+      Private sandbox for exercising the live read path end to end. Real Slack, real bot token,
+      no production data. Kept in scope deliberately so a smoke test runs through the same gate
+      as the real channels rather than around it. Remove when the real channels are wired.
+
   # ── EXCLUDED, AND THIS MUST STAY EXCLUDED ──────────────────────────────────────────────────
   - id: C0AKEL49PEF
     name: pilot_support_ams

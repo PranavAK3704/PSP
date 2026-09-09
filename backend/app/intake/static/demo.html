@@ -1,0 +1,213 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Valmo Intake — live</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#151a21; --panel2:#1b212a; --line:#252c37;
+    --ink:#e6edf3; --dim:#8b98a9; --faint:#5b6675;
+    --green:#3fb950; --green-bg:#0f2417; --amber:#d29922; --amber-bg:#231a08;
+    --blue:#58a6ff; --blue-bg:#0d1f33; --red:#f85149; --violet:#a371f7;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  code,.mono{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
+
+  header{
+    position:sticky; top:0; z-index:10; background:var(--panel);
+    border-bottom:1px solid var(--line); padding:14px 22px;
+  }
+  .top{display:flex; align-items:center; gap:14px; flex-wrap:wrap}
+  h1{font-size:16px; margin:0; font-weight:650; letter-spacing:-.01em}
+  .chan{color:var(--dim); font-size:13px}
+  .live{
+    display:inline-flex; align-items:center; gap:7px; margin-left:auto;
+    font-size:12px; color:var(--dim);
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--green);
+       box-shadow:0 0 0 0 rgba(63,185,80,.7); animation:pulse 2s infinite}
+  .dot.err{background:var(--red); animation:none}
+  @keyframes pulse{70%{box-shadow:0 0 0 7px rgba(63,185,80,0)}100%{box-shadow:0 0 0 0 rgba(63,185,80,0)}}
+  .ro{border:1px solid var(--line); border-radius:999px; padding:2px 10px;
+      font-size:11px; color:var(--faint)}
+
+  .tiles{display:flex; gap:9px; margin-top:13px; flex-wrap:wrap}
+  .tile{
+    background:var(--panel2); border:1px solid var(--line); border-radius:9px;
+    padding:9px 14px; min-width:96px;
+  }
+  .tile .n{font-size:22px; font-weight:640; line-height:1.15; font-variant-numeric:tabular-nums}
+  .tile .l{font-size:10.5px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em}
+  .tile.good .n{color:var(--green)} .tile.warn .n{color:var(--amber)}
+  .tile.info .n{color:var(--blue)}
+
+  main{display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:18px; padding:18px 22px 60px}
+  @media (max-width:1100px){main{grid-template-columns:1fr}}
+  h2{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim);
+     margin:0 0 10px; font-weight:600}
+
+  .card{
+    background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--line);
+    border-radius:9px; padding:11px 14px; margin-bottom:9px;
+  }
+  .card.new{animation:flash 1.6s ease-out}
+  @keyframes flash{0%{border-left-color:var(--blue); background:#132133}100%{}}
+  .card.gated{opacity:.5; padding:8px 14px}
+  .card.info{border-left-color:var(--amber)}
+  .card.ticket{border-left-color:var(--green)}
+  .card.reply{margin-left:26px; border-left-color:var(--faint)}
+
+  .meta{display:flex; gap:9px; align-items:baseline; font-size:12px; color:var(--dim)}
+  .meta .who{color:var(--ink); font-weight:600}
+  .meta a{color:var(--faint); text-decoration:none; margin-left:auto; font-size:11px}
+  .meta a:hover{color:var(--blue)}
+  .txt{margin:6px 0 9px; white-space:pre-wrap; word-break:break-word}
+  .txt.empty{color:var(--faint); font-style:italic}
+
+  .chips{display:flex; gap:5px; flex-wrap:wrap; margin-bottom:7px}
+  .chip{
+    font-size:11px; padding:2px 8px; border-radius:5px; border:1px solid transparent;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  .chip.dc{background:var(--blue-bg); color:var(--blue); border-color:#1f4b7a}
+  .chip.ent{background:#1a2030; color:#9db4d0; border-color:#2b3446}
+  .chip.file{background:#241a30; color:var(--violet); border-color:#3d2b57}
+  .chip.rx{background:#2a2410; color:var(--amber); border-color:#4a3d16}
+
+  .row{font-size:12px; color:var(--dim); display:flex; gap:7px; align-items:center;
+       padding:3px 0}
+  .row b{color:var(--ink); font-weight:600}
+  .tag{font-size:10px; letter-spacing:.05em; text-transform:uppercase; font-weight:700;
+       padding:2px 7px; border-radius:4px}
+  .tag.g{background:#20262f; color:var(--faint)}
+  .tag.i{background:var(--amber-bg); color:var(--amber)}
+  .tag.t{background:var(--green-bg); color:var(--green)}
+  .tag.h{background:var(--amber-bg); color:var(--amber)}
+  .tag.b{background:#3a2a08; color:#f0b429}
+
+  .tk{background:var(--panel); border:1px solid var(--line); border-radius:8px;
+      padding:10px 12px; margin-bottom:8px; border-left:3px solid var(--green)}
+  .tk.held{border-left-color:var(--amber); opacity:.85}
+  .tk .t{font-size:13px; font-weight:600; margin-bottom:3px}
+  .tk .s{font-size:11.5px; color:var(--dim)}
+  .empty-note{color:var(--faint); font-size:13px; padding:18px; text-align:center;
+              border:1px dashed var(--line); border-radius:9px}
+  .toggle{font-size:11.5px; color:var(--dim); display:flex; align-items:center; gap:6px;
+          cursor:pointer; user-select:none}
+</style>
+
+<header>
+  <div class="top">
+    <h1>Valmo Intake</h1>
+    <span class="chan" id="chan">—</span>
+    <span class="ro">read-only · no write scope</span>
+    <span class="live"><span class="dot" id="dot"></span><span id="status">connecting…</span></span>
+    <label class="toggle"><input type="checkbox" id="redact"> mask PII</label>
+  </div>
+  <div class="tiles" id="tiles"></div>
+</header>
+
+<main>
+  <section>
+    <h2>Live feed — newest first</h2>
+    <div id="feed"><div class="empty-note">waiting for the first poll…</div></div>
+  </section>
+  <aside>
+    <h2>Tickets</h2>
+    <div id="tickets"></div>
+  </aside>
+</main>
+
+<script>
+const seen = new Set();
+let first = true;
+
+const esc = s => (s??"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const mask = s => (s??"")
+  .replace(/(?<![A-Za-z0-9])([6-9]\d{9})(?![A-Za-z0-9])/g, (m)=> "•".repeat(6)+m.slice(-4))
+  .replace(/([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+)/g, (m,a,b)=> a[0]+"***@"+b);
+
+function tiles(s){
+  const T = [["messages",s.messages,""],["gated",s.gated,""],["informational",s.informational,"warn"],
+             ["issues",s.issues,"info"],["tickets to raise",s.tickets,"good"],
+             ["held back",s.held_back,"warn"],["identifiers",s.entities,"info"]];
+  return T.map(([l,n,c])=>`<div class="tile ${c}"><div class="n">${n??0}</div><div class="l">${l}</div></div>`).join("");
+}
+
+function card(m, R){
+  const isNew = !first && !seen.has(m.message_id);
+  seen.add(m.message_id);
+  const body = R ? mask(m.text) : m.text;
+
+  if (m.gated) return `<div class="card gated ${isNew?"new":""}">
+      <div class="row"><span class="tag g">gated</span>
+      <code>${esc(m.gate_rule||"")}</code>
+      <span style="color:var(--faint)">${esc((body||"").slice(0,70))}</span></div></div>`;
+
+  const cls = m.ticket && m.ticket.raise ? "ticket" : (m.informational ? "info" : "");
+  let h = `<div class="card ${cls} ${m.is_reply?"reply":""} ${isNew?"new":""}">
+    <div class="meta"><span class="who">${esc(m.author||"?")}</span><span>${esc(m.time||"")}</span>
+      ${m.is_reply?'<span style="color:var(--faint)">↳ thread reply</span>':""}
+      ${m.permalink?`<a href="${esc(m.permalink)}" target="_blank">slack ↗</a>`:""}</div>
+    <div class="txt ${body?"":"empty"}">${body?esc(body):"(no text — content is in the attachment)"}</div>`;
+
+  const chips = [];
+  m.entities.forEach(e => chips.push(
+    `<span class="chip ${e.kind==="dc_code"?"dc":"ent"}">${esc(e.kind)} ${esc(R?mask(e.value):e.value)}${e.tier?` ·${e.tier}`:""}</span>`));
+  (m.files||[]).forEach(f => chips.push(`<span class="chip file">📎 ${esc(f||"file")}</span>`));
+  (m.reactions||[]).forEach(r => chips.push(`<span class="chip rx">${esc(r)}</span>`));
+  if (chips.length) h += `<div class="chips">${chips.join("")}</div>`;
+
+  if (m.informational) h += `<div class="row"><span class="tag i">informational</span>
+      <code>${esc(m.informational_rule||"")}</code>
+      ${m.borderline?'<span class="tag b">borderline</span>':""}</div>`;
+
+  if (m.issue_id) h += `<div class="row">issue <b class="mono">${esc(m.issue_short)}</b>
+      via <code>${esc(m.grp_rule||"")}</code>
+      <span style="color:var(--faint)">conf ${m.confidence ?? "—"}</span></div>`;
+  else h += `<div class="row"><span style="color:var(--faint)">unassigned → stage 6</span></div>`;
+
+  if (m.ticket) h += m.ticket.raise
+    ? `<div class="row"><span class="tag t">would raise</span><b>${esc(m.ticket.title)}</b>
+       <code style="color:var(--faint)">${esc(m.ticket.ref||"")}</code></div>`
+    : `<div class="row"><span class="tag h">held back</span>
+       <span>${esc((m.ticket.reason||"").split(" —")[0])}</span></div>`;
+
+  return h + "</div>";
+}
+
+async function tick(){
+  let d;
+  try { d = await (await fetch("/api/state",{cache:"no-store"})).json(); }
+  catch(e){ document.getElementById("status").textContent = "server unreachable";
+            document.getElementById("dot").className = "dot err"; return; }
+
+  const p = d.poll||{}, R = document.getElementById("redact").checked;
+  document.getElementById("dot").className = "dot" + (p.status==="error"?" err":"");
+  document.getElementById("status").textContent =
+    p.status==="error" ? ("error: "+(p.error||"").slice(0,60))
+                       : `live · poll #${p.count||0} · ${p.last_at||"—"}`;
+  document.getElementById("chan").textContent = p.channel ? "#"+(p.channel_name||p.channel) : "";
+  document.getElementById("tiles").innerHTML = tiles(d.stats||{});
+
+  const feed = d.feed||[];
+  document.getElementById("feed").innerHTML = feed.length
+    ? feed.map(m=>card(m,R)).join("")
+    : '<div class="empty-note">no messages yet — post something in the channel</div>';
+
+  const tk = d.tickets||[];
+  document.getElementById("tickets").innerHTML = tk.length ? tk.map(t=>`
+    <div class="tk ${t.raise?"":"held"}">
+      <div class="t">${esc(t.title||"")}</div>
+      <div class="s">${t.raise
+        ? `${esc(t.ref||"")} · ${t.replies||0} replies${t.latency!=null?` · first response ${Math.round(t.latency)}s`:""}`
+        : "held back — "+esc((t.reason||"").split(" —")[0])}</div>
+    </div>`).join("") : '<div class="empty-note">none yet</div>';
+
+  first = false;
+}
+document.getElementById("redact").addEventListener("change", tick);
+tick(); setInterval(tick, 2000);
+</script>

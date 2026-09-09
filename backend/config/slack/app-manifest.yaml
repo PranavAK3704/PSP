@@ -48,7 +48,11 @@
 
 display_information:
   name: valmo-intake
-  description: Reads #valmo-firefighters and #valmo-lm-ams to draft support tickets. Read-only.
+  # QUOTED, and it has to be. An unquoted YAML scalar treats " #" as the start of a comment,
+  # so `Reads #valmo-firefighters and ...` silently truncates to "Reads" — which is exactly
+  # what Slack displayed on the first paste of this file. Every channel name here starts with
+  # a hash, so this line can never be unquoted.
+  description: "Reads #valmo-firefighters and #valmo-lm-ams to draft support tickets. Read-only."
   background_color: "#2c2d30"
 
 features:

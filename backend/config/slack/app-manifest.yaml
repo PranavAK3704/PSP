@@ -1,0 +1,80 @@
+# Slack app manifest for the intake pipeline.
+#
+# Paste at api.slack.com/apps -> Create New App -> From a manifest -> YAML.
+# Kept in the repo so the app's configuration is reviewable and reproducible rather than a
+# sequence of clicks somebody did once.
+#
+# ── WHY EACH SCOPE ───────────────────────────────────────────────────────────────────────────
+#   channels:history   #valmo-firefighters is PUBLIC
+#   groups:history     #valmo-lm-ams is PRIVATE (verified against the live workspace)
+#   channels:read      conversations.info -> channel_name, a schema v1.1 key
+#   groups:read        the same, for the private channel
+#   users:read         author_name
+#   users:read.email   author_email — a SEPARATE scope from users:read
+#   files:read         attachments[] and url_private
+#   reactions:read     reactions[]
+#
+# files:read and reactions:read are worth noting: `attachments` and `reactions` came back
+# structurally empty across the whole 467-record export, which was put down to the exporting
+# tool being unable to read them. A missing scope produces exactly that symptom — empty arrays
+# rather than an error — so test those two fields first. If that was the cause, the export is
+# recoverable by re-running rather than lost.
+#
+# ── BOT, NOT USER TOKEN ──────────────────────────────────────────────────────────────────────
+# A user token (xoxp) acts as the person who installed it: it dies when they leave or change
+# teams, and it can read everything they can read. A bot is a scoped account that sees two
+# channels and survives staff changes. It also cannot poll-only — Socket Mode needs a bot.
+#
+# The cost is one human action per channel: /invite @valmo-intake. Without it the bot reads
+# nothing from a private channel and receives no message.groups events.
+#
+# ── SOCKET MODE, NOT A WEBHOOK ───────────────────────────────────────────────────────────────
+# socket_mode_enabled means events arrive over an OUTBOUND websocket. No public endpoint to
+# expose and no HMAC signature verification to implement — which matters because
+# PRODUCTION_DELTA.md still lists WhatsApp-webhook HMAC verification as pending, so there is no
+# in-repo precedent to copy.
+#
+# ── WHAT THIS MANIFEST CANNOT DO ─────────────────────────────────────────────────────────────
+#   1. Generate the app-level token. Basic Information -> App-Level Tokens ->
+#      Generate Token and Scopes -> scope `connections:write` -> gives the xapp-… token.
+#   2. Install the app. Install App -> Install to Workspace -> gives the xoxb-… bot token.
+#   3. Invite the bot to the channels.
+#
+# Tokens go to backend/data/slack_bot_token.txt and slack_app_token.txt at mode 600 — both
+# already covered by .gitignore (backend/data/*.txt). Never commit either.
+#
+# NOTE: adding a scope later forces a REINSTALL, which is a second admin approval where the
+# workspace gates app installs. Get the full list in on the first pass.
+
+display_information:
+  name: valmo-intake
+  description: Reads #valmo-firefighters and #valmo-lm-ams to draft support tickets. Read-only.
+  background_color: "#2c2d30"
+
+features:
+  bot_user:
+    display_name: valmo-intake
+    always_online: false
+
+oauth_config:
+  scopes:
+    bot:
+      - channels:history
+      - groups:history
+      - channels:read
+      - groups:read
+      - users:read
+      - users:read.email
+      - files:read
+      - reactions:read
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.channels
+      - message.groups
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

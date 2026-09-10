@@ -46,6 +46,8 @@ _MARKUP = re.compile(r"<@[UW][A-Z0-9]+(?:\|[^>]*)?>|<!(?:channel|here|everyone)>
 #: Everything that is not a letter, digit or space. Emoji fall out here, and so does the
 #: punctuation that turns "ok." into something an `exact` rule would otherwise miss.
 _NON_PROSE = re.compile(r"[^\w\s]|_", re.UNICODE)
+#: Only ? . ! and whitespace — a follow-up ping, handled by the evidence stage as an orphan.
+_QUESTION_ONLY = re.compile(r"^[?!.\s]+$")
 
 
 def load_rules(path: Path = CONFIG) -> dict:
@@ -111,7 +113,13 @@ def classify(text: str, subtype: str | None, has_media: bool, rules: dict) -> di
             if rule.get("mention_only") and is_mention_only(raw):
                 out.update(gated=True, gate_rule=name)
                 break
-            if rule.get("emoji_only") and raw.strip() and not norm and not has_media:
+            # A message that is ONLY question marks is a follow-up ping, not emoji noise.
+            # It normalises to "" like an emoji does, so emoji_only used to claim it and the
+            # report said `emoji_only` — a wrong answer to "what did the filter throw away".
+            # Letting it through means evidence classifies it as `orphan`, which is what a
+            # bare "???" actually is: the real mess, needing a human, not junk.
+            if (rule.get("emoji_only") and raw.strip() and not norm and not has_media
+                    and not _QUESTION_ONLY.match(raw.strip())):
                 out.update(gated=True, gate_rule=name)
                 break
             vocab = rule.get("all_words_in")

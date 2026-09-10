@@ -38,7 +38,8 @@ if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
 from app.intake import (  # noqa: E402
-    dedupe, emit, extract, group, loadstage, noise, qualify, register, slack_source, store,
+    dedupe, emit, evidence, extract, group, loadstage, noise, qualify, register, slack_source,
+    store,
 )
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -63,6 +64,9 @@ def _snapshot(con) -> dict:
         "LEFT JOIN assignments a ON a.run_id=? AND a.channel_id=m.channel_id "
         "     AND a.message_id=m.message_id "
         "ORDER BY m.ts_epoch DESC", (RUN_ID, RUN_ID)).fetchall()
+
+    ev = {r["message_id"]: dict(r) for r in con.execute(
+        "SELECT message_id, decision, score, reasons FROM evidence WHERE run_id=?", (RUN_ID,))}
 
     ents: dict[str, list] = {}
     for e in con.execute("SELECT channel_id, message_id, kind, value, tier FROM entities "
@@ -91,6 +95,9 @@ def _snapshot(con) -> dict:
             "subtype": r["subtype"],
             "gated": bool(r["gated"]),
             "gate_rule": r["gate_rule"],
+            "evidence": ev.get(r["message_id"], {}).get("decision"),
+            "evidence_score": ev.get(r["message_id"], {}).get("score"),
+            "evidence_why": ev.get(r["message_id"], {}).get("reasons"),
             "informational": bool(r["informational"]),
             "informational_rule": r["informational_rule"],
             "borderline": bool(r["informational_borderline"]),
@@ -115,6 +122,8 @@ def _snapshot(con) -> dict:
         "stats": {
             "messages": n,
             "gated": sum(1 for f in feed if f["gated"]),
+            "not_an_issue": sum(1 for f in feed if f["evidence"] == "not_an_issue"),
+            "orphans": sum(1 for f in feed if f["evidence"] == "orphan"),
             "informational": sum(1 for f in feed if f["informational"]),
             "issues": len(drafts),
             "tickets": sum(1 for t in tickets if t["raise"]),
@@ -134,6 +143,9 @@ def poll_once(channel: str, raw_dir: Path, reader) -> dict:
         loadstage.load(raw_dir, run_id=RUN_ID, con=con, skip_validate=True)
         noise.run(RUN_ID, con=con)
         extract.run(RUN_ID, con=con)
+        # AFTER extract (identifiers are its strongest signal) and BEFORE group (it decides
+        # what may anchor an issue). Without this the demo shows the pre-fix behaviour.
+        evidence.run(RUN_ID, con=con)
         qualify.run(RUN_ID, con=con)
         group.run(RUN_ID, con=con)
         register.run(RUN_ID, con=con)

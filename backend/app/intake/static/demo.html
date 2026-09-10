@@ -130,7 +130,9 @@ const mask = s => (s??"")
   .replace(/([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+)/g, (m,a,b)=> a[0]+"***@"+b);
 
 function tiles(s){
-  const T = [["messages",s.messages,""],["gated",s.gated,""],["informational",s.informational,"warn"],
+  const T = [["messages",s.messages,""],["gated",s.gated,""],
+             ["not an issue",s.not_an_issue,""],["orphans",s.orphans,"warn"],
+             ["informational",s.informational,"warn"],
              ["issues",s.issues,"info"],["tickets to raise",s.tickets,"good"],
              ["held back",s.held_back,"warn"],["identifiers",s.entities,"info"]];
   return T.map(([l,n,c])=>`<div class="tile ${c}"><div class="n">${n??0}</div><div class="l">${l}</div></div>`).join("");
@@ -146,6 +148,12 @@ function card(m, R){
       <code>${esc(m.gate_rule||"")}</code>
       <span style="color:var(--faint)">${esc((body||"").slice(0,70))}</span></div></div>`;
 
+  if (m.evidence === "not_an_issue") return `<div class="card gated ${isNew?"new":""}">
+      <div class="row"><span class="tag g">not an issue</span>
+      <span style="color:var(--faint)">${esc((body||"").slice(0,60))}</span>
+      <code style="margin-left:auto">score ${m.evidence_score ?? 0}</code></div>
+      <div class="row" style="padding-left:2px"><code style="color:var(--faint);font-size:11px">${esc(m.evidence_why||"")}</code></div></div>`;
+
   const cls = m.ticket && m.ticket.raise ? "ticket" : (m.informational ? "info" : "");
   let h = `<div class="card ${cls} ${m.is_reply?"reply":""} ${isNew?"new":""}">
     <div class="meta"><span class="who">${esc(m.author||"?")}</span><span>${esc(m.time||"")}</span>
@@ -159,6 +167,12 @@ function card(m, R){
   (m.files||[]).forEach(f => chips.push(`<span class="chip file">📎 ${esc(f||"file")}</span>`));
   (m.reactions||[]).forEach(r => chips.push(`<span class="chip rx">${esc(r)}</span>`));
   if (chips.length) h += `<div class="chips">${chips.join("")}</div>`;
+
+  if (m.evidence === "orphan") h += `<div class="row"><span class="tag b">orphan</span>
+      <span>no positive evidence — the context is in a message we never linked</span>
+      <code style="color:var(--faint)">${esc(m.evidence_why||"")}</code></div>`;
+  if (m.evidence === "weak") h += `<div class="row"><span class="tag h">weak</span>
+      <span>kept for review</span><code style="color:var(--faint)">score ${m.evidence_score}</code></div>`;
 
   if (m.informational) h += `<div class="row"><span class="tag i">informational</span>
       <code>${esc(m.informational_rule||"")}</code>

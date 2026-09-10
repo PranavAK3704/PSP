@@ -135,8 +135,8 @@ def _snapshot(con) -> dict:
     }
 
 
-def poll_once(channel: str, raw_dir: Path, reader) -> dict:
-    recs = reader.fetch(channel)
+def poll_once(channel: str, raw_dir: Path, reader, oldest: str | None = None) -> dict:
+    recs = reader.fetch(channel, oldest=oldest)
     slack_source.write_ndjson(recs, raw_dir)
     con = store.connect()
     try:
@@ -156,11 +156,11 @@ def poll_once(channel: str, raw_dir: Path, reader) -> dict:
         con.close()
 
 
-def poller(channel: str, raw_dir: Path, every: float) -> None:
+def poller(channel: str, raw_dir: Path, every: float, oldest: str | None = None) -> None:
     reader = slack_source.SlackReader(pause=0.15)
     while True:
         try:
-            snap = poll_once(channel, raw_dir, reader)
+            snap = poll_once(channel, raw_dir, reader, oldest)
             with _lock:
                 _state.update(snap)
                 _state["poll"] = {
@@ -204,14 +204,27 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=8099)
     ap.add_argument("--every", type=float, default=5.0, help="seconds between Slack polls")
     ap.add_argument("--raw", default=str(_BACKEND / "data" / "intake" / "live"))
+    ap.add_argument("--since-now", action="store_true",
+                    help="only read messages posted from launch onward. The app has no write "
+                         "scope so it cannot delete channel history — this is how a demo gets "
+                         "a genuinely empty feed without touching Slack.")
+    ap.add_argument("--oldest", default=None, help="unix ts to read from")
     a = ap.parse_args()
 
+    oldest = a.oldest or (f"{time.time():.6f}" if a.since_now else None)
     raw = Path(a.raw)
-    threading.Thread(target=poller, args=(a.channel, raw, a.every), daemon=True).start()
+    if a.since_now:
+        # Stale NDJSON from an earlier run would be re-loaded on the first poll and the feed
+        # would not be empty after all.
+        for f in raw.glob("*.ndjson"):
+            f.unlink()
+    threading.Thread(target=poller, args=(a.channel, raw, a.every, oldest),
+                     daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)   # LOOPBACK ONLY
     print(f"\n  intake live view   http://127.0.0.1:{a.port}")
     print(f"  channel            {a.channel}")
-    print(f"  polling every      {a.every}s   (read-only; this app has no write scope)\n")
+    print(f"  polling every      {a.every}s   (read-only; this app has no write scope)")
+    print(f"  reading from       {'launch time — feed starts empty' if oldest else 'all history'}\n")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

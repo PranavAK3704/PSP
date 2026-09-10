@@ -57,3 +57,16 @@ backend/data/concern_log.orphaned-traces-8.json
 # best evidence. Regenerate with scripts/build_tickets_summary.py, which refuses to write
 # anything that looks like row data rather than a count.
 !backend/data/tickets_summary.json
+
+# Live Slack pulls contain real user ids, emails and message text. The pipeline writes them
+# here so validate.js can gate them exactly as it gates an export — but they are never
+# committed. Synthetic fixtures under data/intake/fixtures/ are, and are safe by construction.
+backend/data/intake/live/
+backend/data/intake/raw/
+
+# The derived disposition corpus carries the same partner text as its source,
+# backend/data/kapture_audits.json — which .gitignore:30 already keeps out of the repo.
+# Committing the derivative would leak exactly what the source rule exists to withhold.
+# scripts/build_corpus_from_audits.py regenerates it in seconds, so nothing is lost.
+backend/data/intake/corpus/dispositions.json
+backend/data/intake/corpus/dispositions_holdout.json

@@ -29,8 +29,8 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 from app.intake import (  # noqa: E402
-    dedupe, emit, evaluate, extract, group, loadstage, noise, qualify, register, report,
-    slack_source, store,
+    dedupe, emit, evaluate, evidence, extract, group, loadstage, noise, qualify, register,
+    report, slack_source, store,
 )
 
 DEFAULT_RAW = BACKEND / "data" / "intake" / "raw"
@@ -66,6 +66,12 @@ def cmd_gate(args) -> int:
 
 def cmd_extract(args) -> int:
     _show("extract", extract.run(_run_id(args)))
+    return 0
+
+
+def cmd_evidence(args) -> int:
+    """Positive-evidence scoring — the tier that decides whether a message is an issue AT ALL."""
+    _show("evidence", evidence.run(_run_id(args)))
     return 0
 
 
@@ -109,13 +115,16 @@ def cmd_explain(args) -> int:
         rows = con.execute(
             "SELECT m.channel_id, m.message_id, m.text, m.subtype, m.has_media, m.thread_ref, "
             "       f.gated, f.gate_rule, f.informational, f.informational_rule, "
-            "       f.informational_borderline, a.issue_id, a.rule AS grp_rule, a.confidence "
+            "       f.informational_borderline, a.issue_id, a.rule AS grp_rule, a.confidence, "
+            "       e.decision AS ev_decision, e.score AS ev_score, e.reasons AS ev_reasons "
             "FROM messages m "
             "LEFT JOIN message_flags f ON f.run_id=? AND f.channel_id=m.channel_id "
             "     AND f.message_id=m.message_id "
             "LEFT JOIN assignments a ON a.run_id=? AND a.channel_id=m.channel_id "
             "     AND a.message_id=m.message_id "
-            "ORDER BY m.ts_epoch", (rid, rid)).fetchall()
+            "LEFT JOIN evidence e ON e.run_id=? AND e.channel_id=m.channel_id "
+            "     AND e.message_id=m.message_id "
+            "ORDER BY m.ts_epoch", (rid, rid, rid)).fetchall()
         if not rows:
             print(f"no messages for run_id {rid!r}", file=sys.stderr)
             return 2
@@ -140,6 +149,12 @@ def cmd_explain(args) -> int:
                 continue
             if r["gate_rule"]:                      # the kept-on-purpose case
                 print(f"     kept        {r['gate_rule']}")
+            if r["ev_decision"] in ("not_an_issue", "orphan", "weak"):
+                label = {"not_an_issue": "NOT AN ISSUE", "orphan": "ORPHAN",
+                         "weak": "WEAK"}[r["ev_decision"]]
+                print(f"     {label:<11} score={r['ev_score']}  {r['ev_reasons']}")
+                if r["ev_decision"] == "not_an_issue":
+                    continue
             if r["informational"]:
                 mark = " BORDERLINE" if r["informational_borderline"] else ""
                 print(f"     INFO        {r['informational_rule']}{mark}   -> flagged, not a ticket")
@@ -206,6 +221,9 @@ def cmd_run_all(args) -> int:
     _show("1 load", loadstage.load(args.raw, run_id=rid, skip_validate=args.skip_validate))
     _show("3 gate", noise.run(rid))
     _show("4 extract", extract.run(rid))
+    # Evidence runs AFTER extract because identifiers are its strongest signal, and BEFORE
+    # grouping because it decides what is allowed to anchor an issue.
+    _show("4b evidence", evidence.run(rid))
     _show("2 qualify", qualify.run(rid))
     _show("5 group", group.run(rid, join_weak=args.join_weak))
     _show("7 register", register.run(rid))
@@ -244,6 +262,8 @@ def build_parser() -> argparse.ArgumentParser:
              False),
             ("gate", cmd_gate, "noise gate + informational classifier", False),
             ("extract", cmd_extract, "entities, DC codes tier A and tier B", False),
+            ("evidence", cmd_evidence,
+             "is this a partner/ops issue at all? (the play-arena gate)", False),
             ("group", cmd_group, "assign messages to issues", False),
             ("adjudicate", cmd_adjudicate, "stage 6 (Claude) — not implemented", False),
             ("register", cmd_register, "one row per issue", False),

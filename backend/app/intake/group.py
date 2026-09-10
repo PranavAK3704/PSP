@@ -82,6 +82,25 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
                 scope_sql = " AND m.channel_id IN (%s)" % ",".join("?" * len(qualified))
                 scope_args = sorted(qualified)
 
+        # POSITIVE EVIDENCE gates which messages may ANCHOR an issue. A message that names
+        # nothing we operate does not become a ticket just because no rejection rule matched it
+        # — that default is what turned "can we go to play arena?" into one.
+        #
+        # `issue` and `weak` may anchor. `orphan` may not, but is NOT discarded: it lands
+        # unassigned and goes to adjudication, because a bare "any update ??" is the case a
+        # human most needs to see. `not_an_issue` is excluded entirely.
+        #
+        # If the evidence stage has not run there is nothing to enforce and every message may
+        # anchor — an ungated run is visibly ungated rather than silently empty, the same
+        # posture the qualification gate takes.
+        ev_scored = con.execute(
+            "SELECT COUNT(*) FROM evidence WHERE run_id = ?", (run_id,)).fetchone()[0]
+        ev = {}
+        if ev_scored:
+            ev = {(r["channel_id"], r["message_id"]): r["decision"] for r in con.execute(
+                "SELECT channel_id, message_id, decision FROM evidence WHERE run_id = ?",
+                (run_id,))}
+
         msgs = con.execute(
             "SELECT m.channel_id, m.message_id, m.ts_epoch, m.thread_ref, m.author_id "
             "FROM messages m LEFT JOIN message_flags f "
@@ -89,6 +108,9 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
             " AND f.run_id = ? "
             "WHERE COALESCE(f.gated, 0) = 0" + scope_sql +
             " ORDER BY m.ts_epoch", (run_id, *scope_args)).fetchall()
+        if ev:
+            msgs = [m for m in msgs
+                    if ev.get((m["channel_id"], m["message_id"]), "issue") != "not_an_issue"]
 
         tokens: dict[tuple[str, str], set[tuple[str, str]]] = {}
         for r in con.execute(
@@ -149,6 +171,10 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
                     # stage 6 decides where it belongs, because guessing here would either
                     # invent an issue out of an "any update ??" or bolt it onto the wrong one.
                     rule, reason = "unassigned", "reply whose parent is gated or not in corpus"
+                elif ev.get(key) == "orphan":
+                    # No evidence and no parent — the context lives in a message we never
+                    # linked. Handing it to stage 6 is right; inventing an issue for it is not.
+                    rule, reason = "unassigned", "bare follow-up with no positive evidence"
                 else:
                     issue_id = _issue_id(*key)
                     rule = "new_issue"
@@ -181,6 +207,7 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
         stats = {
             "messages": len(msgs),
             "channels_in_scope": sorted(qualified) if scored else "qualify not run",
+            "excluded_no_evidence": sum(1 for v in ev.values() if v == "not_an_issue"),
             "excluded_by_qualification": con.execute(
                 "SELECT COUNT(*) FROM messages WHERE channel_id IN "
                 "(SELECT channel_id FROM channel_qualification WHERE run_id=? AND in_scope=0)",

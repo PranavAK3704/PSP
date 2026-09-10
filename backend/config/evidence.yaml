@@ -1,0 +1,92 @@
+# Stage: POSITIVE EVIDENCE — "is this a partner/ops issue at all?"
+#
+# ── WHY THIS EXISTS ──────────────────────────────────────────────────────────────────────────
+# Someone posted "can we go to play arena?" in a monitored channel and the pipeline raised a
+# ticket. Not a missing noise rule — an architectural default. Every gate before this one is
+# NEGATIVE: it enumerates things to reject (joins, acks, emoji, weather). Anything that matches
+# no rejection rule was treated as an issue. You cannot enumerate every off-topic sentence a
+# human might type, so the default has to be inverted: a message becomes an issue only when
+# something POSITIVE says so.
+#
+# ── THE RULE THAT DOES THE WORK ──────────────────────────────────────────────────────────────
+# Grammar alone is NEVER evidence. "can we go to play arena?" is a well-formed request — it has
+# request grammar, a question mark, a first-person plural. So does "can we get the payout
+# released?". The difference is not the grammar, it is that one of them is about a THING WE
+# OPERATE. So:
+#
+#     evidence requires at least one of { an identifier, an ops noun }.
+#     Grammar and urgency only MULTIPLY evidence that already exists; they never create it.
+#
+# That single rule is what makes this deterministic instead of a vocabulary arms race.
+#
+# ── THE RISK, STATED ─────────────────────────────────────────────────────────────────────────
+# This is the one tier where a real issue can die silently. So every rejection is written to the
+# `evidence` table with its score and its components — `intake explain` prints them, and the
+# rejections are meant to be sampled weekly and the threshold tuned against that sample. A
+# threshold set by intuition and never audited is how this fails.
+
+thresholds:
+  # Score at or above this is an issue. Below `weak` it is rejected outright; between the two it
+  # is kept but flagged for review, because the cost of dropping a real issue is higher than the
+  # cost of a human glancing at a borderline one.
+  issue: 1.0
+  weak: 0.5
+
+weights:
+  identifier: 1.0        # a DC code, mobile, waybill, Kapture id or pilot id. Decisive on its own.
+  ops_noun: 0.6          # names something we operate
+  problem: 0.5           # something is wrong
+  # 0.4 so that ops_noun (0.6) + request (0.4) lands exactly on the 1.0 issue threshold.
+  # "can we get the payout released?" is a real request about a real thing and must qualify;
+  # it scored 0.6 and came out `weak` until this was measured and corrected.
+  request: 0.4           # asking for an action — only ever a multiplier, never a source
+  urgency: 0.15          # escalation markers
+
+# ── THINGS WE OPERATE ─────────────────────────────────────────────────────────────────────────
+# Nouns from the two channels' actual subject matter. Hinglish included because that is what
+# people type. Matched on word boundaries, case-insensitively.
+ops_nouns:
+  [payout, payment, paisa, salary, vetan, invoice, bill, gst, credit note, debit, deduction,
+   load, shipment, parcel, order, bag, consignment, waybill, awb, manifest,
+   vehicle, gaadi, truck, trip, linehaul, line haul, route, dispatch, pickup, delivery,
+   hub, dc, lmdc, fmh, warehouse, godown, centre, center, facility, gate, dock,
+   panel, app, portal, dashboard, login, otp, password, account, id,
+   pilot, fe, rider, driver, captain, partner, executive, manpower,
+   scan, inscan, outscan, sorting, closure, pendency, rto, rvp, cod, qc, hardstop,
+   shortage, loss, reversal, revocation, claim, ticket, escalation, sla, tat,
+   onboarding, activation, deactivation, kyc, document, bank, upi, ifsc]
+
+# ── SOMETHING IS WRONG ────────────────────────────────────────────────────────────────────────
+problem_markers:
+  [not working, nahi, nhi, not received, not reflecting, not generated, not updated, missing,
+   pending, delayed, late, stuck, held, blocked, failed, failing, error, issue, problem, wrong,
+   incorrect, mismatch, down, unable, cannot, can not, "can't", didn't, doesnt, "doesn't",
+   band, ruka, atka, galat, kam, nikal, gadbad, dikkat, pareshan, samasya,
+   breach, short, shortfall, deducted, rejected, denied, expired, crash, hang, slow]
+
+# ── ASKING FOR SOMETHING ──────────────────────────────────────────────────────────────────────
+# Present in "can we go to play arena?" too — which is exactly why it cannot create evidence.
+request_markers:
+  [please, pls, kindly, request, requesting, need, chahiye, karo, kar do, dijiye, karwa do,
+   can we, can you, could you, would you, kya aap, release, released, do the needful, arrange,
+   check, verify, update, resolve, release, approve, share, provide, help, support,
+   kab, when, why, kyun, kaise, how, kitna, status, revert, reply]
+
+# ── BARE FOLLOW-UPS: NOT an issue, and NOT noise either ───────────────────────────────────────
+# "any update ??" carries no identifier and no ops noun, so it scores zero — and dropping it
+# would be wrong. The brief calls untreaded follow-ups "the real mess": an orphan is exactly the
+# case a human needs to see, because the context lives in a message the pipeline never linked.
+# These get their own outcome (`orphan`) and route to the review queue rather than the bin.
+followup_markers:
+  [any update, anyupdate, update please, kya hua, kuch hua, koi update, gentle reminder,
+   reminder, following up, follow up, awaiting, waiting, still waiting, kab tak, kab hoga,
+   pending hai, need update, status please, revert please, 3rd time,
+   second time, dusri baar, teesri baar]
+# NOTE: a bare "?" is deliberately NOT in that list. It was, and it made every question an
+# orphan — "can we go to play arena?" included. A lone question mark is only a follow-up when
+# it is essentially the WHOLE message, which is handled in code as a punctuation-only test,
+# not as a substring match.
+
+urgency_markers:
+  [urgent, asap, immediately, escalate, escalation, critical, priority, "@channel", "@here",
+   turant, jaldi, abhi, emergency, stuck since, since morning, 3rd time, again]

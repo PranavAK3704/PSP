@@ -51,6 +51,7 @@ SCHEMA_VERSION = 1
 STAGE_TABLES = {
     "qualify":    "channel_qualification",
     "gate":       "message_flags",
+    "evidence":   "evidence",
     "extract":    "entities",
     "group":      "assignments",
     "adjudicate": "adjudications",
@@ -137,6 +138,23 @@ CREATE TABLE IF NOT EXISTS message_flags (
   informational_borderline INTEGER,
   PRIMARY KEY (run_id, channel_id, message_id)
 );
+
+-- ── positive evidence: "is this a partner/ops issue at all?" ────────────────────────────────
+-- THE tier where a real issue can die silently, so EVERY decision is stored — including the
+-- rejections — with its score and the components that fired. That is what makes the threshold
+-- auditable instead of a number somebody once felt was about right.
+CREATE TABLE IF NOT EXISTS evidence (
+  run_id       TEXT NOT NULL,
+  channel_id   TEXT NOT NULL,
+  message_id   TEXT NOT NULL,
+  decision     TEXT,      -- issue | weak | orphan | not_an_issue | reply
+  score        REAL,
+  reasons      TEXT,      -- every component that fired, human-readable
+  ops_hits     TEXT,
+  problem_hits TEXT,
+  PRIMARY KEY (run_id, channel_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS ix_evidence_decision ON evidence(run_id, decision);
 
 -- ── stage 4: entity extraction ──────────────────────────────────────────────────────────────
 -- One row per (message, kind, value). `tier` is 'A' for label-anchored DC codes and 'B' for

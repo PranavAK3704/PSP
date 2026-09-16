@@ -117,6 +117,30 @@ that a reader might otherwise reverse by accident.
   ("a hub is a facility, not a person"); `build_valmo_db.py`'s `_is_pii_col()` says yes for
   `entity_id`. Intake follows the data plane.
 
+## Portability and the human loop (2026-09-16)
+
+- **`source_system` is half the idempotency key**, so a schema v2 record must declare it and
+  must never default. An unlabelled record from a new surface would mint a Slack-shaped key and
+  the retry guarantee would stop holding with nothing failing.
+- **Slack-only validator checks are kept FOR SLACK, not deleted.** Each caught a real bug, so
+  v2 dispatches them on `source_system` in `SURFACES` rather than relaxing them corpus-wide. A
+  surface with no rules is rejected, never measured against Slack's timestamp format.
+- **`channel_id` means THE CONTAINER** — Slack channel, WhatsApp group, email thread. Not
+  renamed: the portability problem was the hard-coded Slack *formats*, not the word.
+- **`validate.js`'s per-record loop is at module top level, so `continue` — never `return`.** A
+  `return` exits the whole module: no summary, no errors, exit 0, and one bad record silently
+  passes the entire corpus.
+- **Envelope fields are not content.** `fetched_at` changes on every pull, so comparing it made
+  a re-pull report all 56 fixture messages as conflicts and buried real edits.
+- **Human confirmations are the only data here nothing can regenerate.** They live in
+  `data/intake/labels/`, outside every generated file, because `build_exemplars.py` overwrites
+  its output and a label written there would vanish on the next rebuild with nothing erroring.
+- **`gold_weight` is what makes the NOVEL queue more than theatre.** Matching sums the top-k per
+  disposition, so one fresh human label loses on volume to a class holding 80 silver exemplars.
+  With no confirmations it multiplies by 1.0 and cannot move today's numbers.
+- **Every store path resolves at call time, not as a default argument.** A default bound at
+  import cannot be redirected, which let a test write a real label into the real store.
+
 ## Still open
 
 - The real 490-record export, and `docs/message-schema-v1.md`.

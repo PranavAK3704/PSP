@@ -51,7 +51,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Protocol
 
-from . import store
+from . import checks, store
 
 #: Entity kinds that make an issue actionable by someone who was not in the conversation.
 ACTIONABLE = ("dc_code", "kapture_id", "waybill", "mobile", "pilot_id", "email")
@@ -74,7 +74,8 @@ class TicketDraft:
     raiser: str | None
     dc_code: str | None
     intent: str | None
-    entity_tokens: dict = field(default_factory=dict)
+    entity_tokens: dict = field(default_factory=dict)   # {kind: [{value, valid, ...}]}
+    flags: list = field(default_factory=list)
     kapture_ticket_ids: list[str] = field(default_factory=list)
     reply_count: int = 0
     first_response_latency_s: float | None = None
@@ -162,8 +163,12 @@ def make_description(text: str, permalink: str | None, reply_count: int,
 
 def draft_for(issue: dict, anchor_text: str, *, source_system: str = "slack",
               require_identifier: bool = False,
-              occurrences: list | None = None) -> TicketDraft:
+              occurrences: list | None = None,
+              registry: set[str] | None = None,
+              denylist: set[str] | None = None,
+              known_dispositions: set[str] | None = None) -> TicketDraft:
     tokens = {k: v for k, v in json.loads(issue.get("entity_tokens_json") or "{}").items() if v}
+    typed = checks.typed_entities(tokens, registry or set(), denylist or set())
     kapture = json.loads(issue.get("kapture_ticket_ids_json") or "[]")
 
     suppressed, reason = False, None
@@ -195,7 +200,12 @@ def draft_for(issue: dict, anchor_text: str, *, source_system: str = "slack",
         raiser=issue.get("raiser_name") or issue.get("raiser_id"),
         dc_code=issue.get("dc_code"),
         intent=issue.get("intent"),
-        entity_tokens=tokens,
+        entity_tokens=typed,
+        flags=checks.run_checks(
+            {"disposition": issue.get("intent"),
+             "reply_count": issue.get("reply_count"),
+             "first_response_latency_s": issue.get("first_response_latency_s")},
+            typed, known_dispositions),
         kapture_ticket_ids=kapture,
         reply_count=issue.get("reply_count") or 0,
         first_response_latency_s=issue.get("first_response_latency_s"),
@@ -275,13 +285,23 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
                                     if registered else
                                     "stage 7 (register) has not been run for it"))}
 
+        # Loaded once, not per draft: the registry is 11,723 lines.
+        from . import extract as _istage
+        registry = _istage.load_code_list(_istage.DC_CODES)
+        denylist = _istage.load_code_list(_istage.DC_DENYLIST)
+        known_dispositions = {r[0] for r in con.execute(
+            "SELECT DISTINCT intent FROM issues WHERE run_id=? AND intent IS NOT NULL",
+            (run_id,))} or None
+
         rows, by_reason, keys = [], {}, set()
         created = 0
         for r in issues:
             issue = dict(r)
             d = draft_for(issue, issue.pop("anchor_text"),
                           require_identifier=require_identifier,
-                          occurrences=occurrences_for(issue["issue_id"]))
+                          occurrences=occurrences_for(issue["issue_id"]),
+                          registry=registry, denylist=denylist,
+                          known_dispositions=known_dispositions)
             keys.add(d.idempotency_key)
             ref = None
             if not d.suppressed:
@@ -299,7 +319,7 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
                 getattr(sink, "name", type(sink).__name__), ref,
                 datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 d.occurrence_count, json.dumps(d.occurrences),
-                d.first_raised_at, d.last_raised_at))
+                d.first_raised_at, d.last_raised_at, json.dumps(d.flags)))
 
         con.executemany(
             "INSERT OR REPLACE INTO ticket_drafts (run_id, issue_id, idempotency_key, "
@@ -307,7 +327,8 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
             "intent, entity_tokens_json, kapture_ticket_ids_json, reply_count, "
             "first_response_latency_s, state, duplicate_of, suppressed, suppressed_reason, "
             "sink, external_ref, emitted_at, occurrence_count, occurrences_json, "
-            "first_raised_at, last_raised_at) VALUES (" + ",".join("?" * 26) + ")", rows)
+            "first_raised_at, last_raised_at, flags_json) "
+            "VALUES (" + ",".join("?" * 27) + ")", rows)
         con.commit()
 
         stats = {
@@ -318,6 +339,7 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
             "distinct_idempotency_keys": len(keys),
             "repeat_issues": sum(1 for r in rows if (r[22] or 1) > 1),
             "max_occurrences": max([(r[22] or 1) for r in rows], default=0),
+            "flagged": sum(1 for r in rows if json.loads(r[26] or "[]")),
             "sink": getattr(sink, "name", type(sink).__name__),
             "tickets_actually_created": 0,
             "_note": "Phase 1 creates nothing. The dry-run sink writes drafts to the store and "

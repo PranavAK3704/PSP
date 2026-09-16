@@ -320,6 +320,9 @@ CREATE TABLE IF NOT EXISTS ticket_drafts (
   occurrences_json  TEXT,
   first_raised_at   TEXT,
   last_raised_at    TEXT,
+  -- Every failed validation check, as a flag. A ticket should never claim more than it can
+  -- prove, and a check that fails silently is worse than one that never ran.
+  flags_json        TEXT,
   sink              TEXT,
   external_ref      TEXT,
   emitted_at        TEXT,

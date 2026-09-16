@@ -276,3 +276,55 @@ def test_person_tokens_join_over_months_and_shipments_do_not(pipeline_cfg=None):
     assert w["mobile"] >= 180 and w["pilot_id"] >= 180, "a person does not change"
     assert w["waybill"] <= 30, "a shipment is done"
     assert "dc_code" not in w, "a DC is a place, not an incident — it must not join at all"
+
+
+# ── structured payload and validation ───────────────────────────────────────────────────────
+def test_entities_are_typed_records_not_bare_strings(emitted):
+    """A weak downstream consumer must not have to parse prose or guess a format."""
+    import json as _json
+    con, _ = emitted
+    row = con.execute("SELECT entity_tokens_json FROM ticket_drafts WHERE run_id='r1' "
+                      "AND entity_tokens_json LIKE '%dc_code%' LIMIT 1").fetchone()
+    ents = _json.loads(row["entity_tokens_json"])
+    rec = ents["dc_code"][0]
+    assert isinstance(rec, dict)
+    assert {"value", "valid", "in_registry", "denylisted"} <= set(rec)
+
+
+def test_a_failed_check_becomes_a_flag_not_a_silent_pass(emitted):
+    con, _ = emitted
+    flagged = con.execute("SELECT COUNT(*) FROM ticket_drafts WHERE run_id='r1' "
+                          "AND flags_json != '[]'").fetchone()[0]
+    assert flagged > 0, "on this corpus at least one ticket must fail a check"
+
+
+def test_an_unknown_dc_code_is_flagged_but_kept():
+    """The registry is a derived seed missing 5 of 25 observed codes, so absence means
+    'cannot confirm', not 'wrong'. Dropping the value would lose real information."""
+    from app.intake import checks
+    ents = checks.typed_entities({"dc_code": ["ZZ9"]}, {"NQS"}, set())
+    assert ents["dc_code"][0]["value"] == "ZZ9", "the value survives"
+    assert ents["dc_code"][0]["in_registry"] is False
+    assert any(f.startswith("dc_code_not_in_registry") for f in checks.run_checks({}, ents))
+
+
+def test_kapture_existence_is_None_not_False():
+    """There is no Kapture API here and tickets.db is a stale dump, so 'not in the dump' does
+    not mean 'not a real ticket'. False would be a confident wrong answer."""
+    from app.intake import checks
+    ents = checks.typed_entities({"kapture_id": ["4788325630026"]}, set(), set())
+    assert ents["kapture_id"][0]["exists"] is None
+
+
+def test_a_disposition_missing_its_required_identifier_is_flagged():
+    from app.intake import checks
+    ents = checks.typed_entities({"dc_code": ["NQS"]}, {"NQS"}, set())
+    flags = checks.run_checks({"disposition": "shortage_loss"}, ents)
+    assert "missing_required_waybill_for_shortage_loss" in flags
+
+
+def test_novel_always_asks_for_a_human():
+    from app.intake import checks
+    flags = checks.run_checks({"disposition": "NOVEL"},
+                              checks.typed_entities({"mobile": ["9900012345"]}, set(), set()))
+    assert "disposition_novel_needs_human" in flags

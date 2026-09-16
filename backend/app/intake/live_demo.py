@@ -38,8 +38,8 @@ if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
 from app.intake import (  # noqa: E402
-    dedupe, emit, evidence, extract, group, loadstage, noise, qualify, register, slack_source,
-    store,
+    classify, dedupe, emit, evidence, extract, group, loadstage, noise, qualify, register,
+    slack_source, store,
 )
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -149,6 +149,7 @@ def poll_once(channel: str, raw_dir: Path, reader, oldest: str | None = None) ->
         qualify.run(RUN_ID, con=con)
         group.run(RUN_ID, con=con)
         register.run(RUN_ID, con=con)
+        classify.run(RUN_ID, con=con)
         dedupe.run(RUN_ID, con=con)
         emit.run(RUN_ID, con=con)
         return _snapshot(con)

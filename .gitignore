@@ -70,3 +70,4 @@ backend/data/intake/raw/
 # scripts/build_corpus_from_audits.py regenerates it in seconds, so nothing is lost.
 backend/data/intake/corpus/dispositions.json
 backend/data/intake/corpus/dispositions_holdout.json
+backend/data/intake/corpus/exemplars.json

@@ -29,8 +29,8 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 from app.intake import (  # noqa: E402
-    dedupe, emit, evaluate, evidence, extract, group, loadstage, noise, qualify, register,
-    report, slack_source, store,
+    classify, dedupe, emit, evaluate, evidence, extract, group, loadstage, noise, qualify,
+    register, report, slack_source, store,
 )
 
 DEFAULT_RAW = BACKEND / "data" / "intake" / "raw"
@@ -82,6 +82,12 @@ def cmd_group(args) -> int:
 
 def cmd_register(args) -> int:
     _show("register", register.run(_run_id(args)))
+    return 0
+
+
+def cmd_classify(args) -> int:
+    """Assign a disposition to each issue by nearest labelled exemplar, or NOVEL."""
+    _show("classify", classify.run(_run_id(args)))
     return 0
 
 
@@ -227,6 +233,8 @@ def cmd_run_all(args) -> int:
     _show("2 qualify", qualify.run(rid))
     _show("5 group", group.run(rid, join_weak=args.join_weak))
     _show("7 register", register.run(rid))
+    # After register (it labels ISSUES, not messages) and before emit (the ticket carries it).
+    _show("7b classify", classify.run(rid))
     _show("8 dedupe", dedupe.run(rid))
     _show("10 emit", emit.run(rid, require_identifier=args.require_identifier))
     if args.out:
@@ -267,6 +275,8 @@ def build_parser() -> argparse.ArgumentParser:
             ("group", cmd_group, "assign messages to issues", False),
             ("adjudicate", cmd_adjudicate, "stage 6 (Claude) — not implemented", False),
             ("register", cmd_register, "one row per issue", False),
+            ("classify", cmd_classify,
+             "disposition by nearest labelled exemplar, or NOVEL", False),
             ("dedupe", cmd_dedupe, "cross-channel duplicates", False),
             ("emit", cmd_emit,
              "draft a ticket per issue — creates NOTHING, dry-run sink only", False),

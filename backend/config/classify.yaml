@@ -1,0 +1,23 @@
+# Disposition matching — nearest labelled exemplar, or NOVEL.
+#
+# Both thresholds below decide when the matcher REFUSES to answer. That refusal is the feature:
+# a confident wrong label is invisible downstream and quietly mis-routes a ticket, while a NOVEL
+# goes to a human and becomes a new exemplar. Tune these against held-out data with
+# scripts/score_classifier.py — never against intuition.
+
+# Absolute BM25 floor. Below this the best match is not similar enough to anything seen before.
+#
+# MEASURED: on this corpus it does not bind. Sweeping it from 1.0 to 8.0 changes coverage,
+# precision and NOVEL recall by nothing at all — BM25 scores here are large enough that the
+# floor is never the reason a match is refused. The MARGIN test below does all the work. It is
+# kept because a sparser exemplar set (a new disposition with two examples) will produce small
+# scores where a floor is the right guard, but do not tune it expecting movement.
+min_score: 3.0
+
+# Minimum separation between the best disposition and the runner-up, as a share of their
+# combined score. Below this the two are too close to call and the answer is NOVEL.
+min_margin: 0.15
+
+# How many nearest exemplars vote. Aggregating by disposition means three moderate exemplars of
+# one class beat a single strong outlier of another — which is what a pure top-1 would get wrong.
+top_k: 5

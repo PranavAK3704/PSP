@@ -71,3 +71,6 @@ backend/data/intake/raw/
 backend/data/intake/corpus/dispositions.json
 backend/data/intake/corpus/dispositions_holdout.json
 backend/data/intake/corpus/exemplars.json
+backend/data/intake/corpus/embeddings.npz
+backend/data/intake/corpus/embedding_index.json
+backend/data/intake/corpus/probe.pkl

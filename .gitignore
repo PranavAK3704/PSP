@@ -74,3 +74,9 @@ backend/data/intake/corpus/exemplars.json
 backend/data/intake/corpus/embeddings.npz
 backend/data/intake/corpus/embedding_index.json
 backend/data/intake/corpus/probe.pkl
+
+# The file sink's output. A created ticket carries the partner's own message text in its title
+# and description, so it inherits the live-pull rule above — a ticket register is not less
+# sensitive than the messages it was built from. The sheet sink writes to Google instead, and
+# the URL it posts to is a deployment credential already covered by backend/data/*.txt.
+backend/data/intake/tickets.jsonl

@@ -30,7 +30,7 @@ if str(BACKEND) not in sys.path:
 
 from app.intake import (  # noqa: E402
     classify, dedupe, emit, evaluate, evidence, extract, group, loadstage, noise, qualify,
-    register, report, slack_source, store,
+    register, report, sinks, slack_source, store,
 )
 
 DEFAULT_RAW = BACKEND / "data" / "intake" / "raw"
@@ -188,8 +188,21 @@ def cmd_explain(args) -> int:
 
 
 def cmd_emit(args) -> int:
-    """Draft a ticket per issue. Creates nothing: the only sink in phase 1 is the dry run."""
-    _show("emit", emit.run(_run_id(args), require_identifier=args.require_identifier))
+    """Draft a ticket per issue, and create it if a real sink is named.
+
+    --sink defaults to `dry`. Creating tickets somewhere real is always an EXPLICIT act: the
+    difference between a draft and a ticket is a promise to whoever raised it.
+    """
+    sink = sinks.build(args.sink)
+    if args.sink not in ("dry", "dry_run"):
+        print(f"\n  !! sink={args.sink} — this CREATES tickets. Ctrl-C now if unintended.\n",
+              file=sys.stderr)
+    r = emit.run(_run_id(args), sink=sink,
+                 require_identifier=args.require_identifier)
+    for attr in ("created", "already_existed"):
+        if hasattr(sink, attr):
+            r[f"sink_{attr}"] = getattr(sink, attr)
+    _show("emit", r)
     return 0
 
 
@@ -236,7 +249,11 @@ def cmd_run_all(args) -> int:
     # After register (it labels ISSUES, not messages) and before emit (the ticket carries it).
     _show("7b classify", classify.run(rid))
     _show("8 dedupe", dedupe.run(rid))
-    _show("10 emit", emit.run(rid, require_identifier=args.require_identifier))
+    _sink = sinks.build(args.sink)
+    if args.sink not in ("dry", "dry_run"):
+        print(f"\n  !! sink={args.sink} — this CREATES tickets.\n", file=sys.stderr)
+    _show("10 emit", emit.run(rid, sink=_sink,
+                              require_identifier=args.require_identifier))
     if args.out:
         _show("9 report", report.run(rid, args.out, redact_pii=not args.no_redact))
     cmd_explain(argparse.Namespace(run_id=rid))
@@ -244,8 +261,11 @@ def cmd_run_all(args) -> int:
     if r.get("CAVEAT"):
         print(f"\n!! {r['CAVEAT']}\n")
     _show("evaluate", r)
-    print(f"\nrun_id {rid} — stage 6 (adjudicate) was NOT run, so zero API calls were made, "
-          f"and no ticket was created: the only sink in phase 1 is the dry run.")
+    made = getattr(_sink, "created", 0)
+    print(f"\nrun_id {rid} — stage 6 (adjudicate) was NOT run, so zero API calls were made. "
+          + (f"Sink={args.sink}: {made} ticket(s) CREATED."
+             if args.sink not in ("dry", "dry_run")
+             else "No ticket was created — sink=dry."))
     return 0
 
 
@@ -298,6 +318,9 @@ def build_parser() -> argparse.ArgumentParser:
                            help="unix ts to read from. A backfill and a poll are the same call "
                                 "with a different cursor")
         if name in ("emit", "run-all"):
+            s.add_argument("--sink", default="dry",
+                           help="dry (default, creates nothing) | sheet (Apps Script) | file. "
+                                "Anything but `dry` CREATES tickets.")
             s.add_argument("--require-identifier", action="store_true",
                            help="hold back issues with no DC code, mobile, waybill or ticket "
                                 "id — nobody outside the conversation can act on those. Off by "

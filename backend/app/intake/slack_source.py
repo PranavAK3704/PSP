@@ -1,4 +1,4 @@
-"""Read a Slack channel live and emit schema v1.1 NDJSON. READ ONLY.
+"""Read a Slack channel live and emit schema v2 NDJSON. READ ONLY.
 
 ── WHY THIS WRITES NDJSON INSTEAD OF GOING STRAIGHT TO SQLITE ────────────────────────────────
 The live path and the export path converge on the SAME artefact, so everything downstream is
@@ -35,6 +35,8 @@ from pathlib import Path
 
 import requests
 
+from . import sources
+
 API = "https://slack.com/api"
 IST = timezone(timedelta(hours=5, minutes=30))
 _BACKEND = Path(__file__).resolve().parents[2]
@@ -56,7 +58,14 @@ def read_token(name: str = "slack_bot_token.txt") -> str:
 
 
 class SlackReader:
-    """A thin, read-only client. Every method here is a GET; there is no send()."""
+    """A thin, read-only client. Every method here is a GET; there is no send().
+
+    Implements `sources.Source`. `container_name` is the protocol's name for what Slack calls a
+    channel — see sources.py for why the schema keeps the Slack-flavoured field names.
+    """
+
+    #: Goes into every record and into the idempotency key, so it must never change for Slack.
+    system = "slack"
 
     def __init__(self, token: str | None = None, *, pause: float = 1.2):
         self.token = token or read_token()
@@ -88,6 +97,11 @@ class SlackReader:
     def channel_name(self, channel_id: str) -> str | None:
         return self._get("conversations.info", channel=channel_id)["channel"].get("name")
 
+    #: The protocol's spelling. Same call — a second surface says `container`, Slack says
+    #: `channel`, and callers that already say `channel_name` keep working.
+    def container_name(self, container_id: str) -> str | None:
+        return self.channel_name(container_id)
+
     def user(self, uid: str | None) -> dict:
         if not uid:
             return {}
@@ -115,8 +129,11 @@ class SlackReader:
                           "size": f.get("size"), "url_private": f.get("url_private")})
 
         return {
-            "schema_version": "1.1",
+            "schema_version": "2",
             "source": "slack:conversations.history+replies",
+            # Half the idempotency key. Declared on every record rather than defaulted, so a
+            # second surface cannot mint Slack-shaped keys by omission.
+            "source_system": self.system,
             "workspace_id": workspace_id,
             "channel_id": channel_id,
             "channel_name": channel_name,
@@ -147,7 +164,7 @@ class SlackReader:
 
     def fetch(self, channel_id: str, *, oldest: str | None = None,
               limit: int = 200, max_pages: int = 20) -> list[dict]:
-        """Top-level messages plus every thread reply, as schema v1.1 records."""
+        """Top-level messages plus every thread reply, as schema v2 records."""
         workspace_id = self._get("auth.test")["team_id"]
         cname = self.channel_name(channel_id)
         fetched_at = ist_stamp(time.time())
@@ -197,3 +214,8 @@ def write_ndjson(records: list[dict], out_dir: str | Path) -> dict[str, int]:
         (out_dir / f"{day}.ndjson").write_text(
             "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
     return {d: len(v) for d, v in sorted(buckets.items())}
+
+
+# Registered at import so `sources.build("slack")` works without the caller knowing this module
+# exists. A second surface adds one line like this and changes nothing else.
+sources.register("slack", SlackReader)

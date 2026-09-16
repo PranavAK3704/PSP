@@ -162,6 +162,9 @@ def make_description(text: str, permalink: str | None, reply_count: int,
 
 
 def draft_for(issue: dict, anchor_text: str, *, source_system: str = "slack",
+              # `source_system` keeps a default only so the many existing tests that build a
+              # draft by hand stay readable. `run()` always passes the anchor message's own
+              # value and never relies on it.
               require_identifier: bool = False,
               occurrences: list | None = None,
               registry: set[str] | None = None,
@@ -234,7 +237,7 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
         store.reset_stage(con, "emit", run_id)
 
         issues = con.execute(
-            "SELECT i.*, m.text AS anchor_text FROM issues i "
+            "SELECT i.*, m.text AS anchor_text, m.source_system AS anchor_source FROM issues i "
             "JOIN messages m ON m.channel_id = i.anchor_channel_id "
             "               AND m.message_id = i.anchor_message_id "
             "WHERE i.run_id = ? ORDER BY m.ts_epoch", (run_id,)).fetchall()
@@ -297,7 +300,11 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
         created = 0
         for r in issues:
             issue = dict(r)
+            # The SURFACE comes from the anchor message, never from a default. It is half the
+            # idempotency key, so guessing it here would mint a Slack-shaped key for a WhatsApp
+            # message and the retry guarantee would silently stop holding.
             d = draft_for(issue, issue.pop("anchor_text"),
+                          source_system=issue.pop("anchor_source", None) or "slack",
                           require_identifier=require_identifier,
                           occurrences=occurrences_for(issue["issue_id"]),
                           registry=registry, denylist=denylist,

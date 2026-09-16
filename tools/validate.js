@@ -9,7 +9,22 @@
  * Run this before any file is handed over. If it fails, the file is not a
  * deliverable.
  *
- * Accepts schema_version "1" (25 keys) and "1.1" (25 + has_media).
+ * Accepts schema_version "1" (25 keys), "1.1" (25 + has_media), and "2" (1.1 + source_system).
+ *
+ * ── WHY v2 EXISTS ─────────────────────────────────────────────────────────────────────────
+ * v1.1 does not describe a message; it describes a SLACK message. Three rules below are pure
+ * Slack and would reject a valid WhatsApp or email record:
+ *
+ *   · message_id must look like 1788511676.054669
+ *   · ts_epoch must equal parseFloat(message_id)
+ *   · permalink must be on slack.com, with a tail matching the message_id
+ *
+ * They are not incidental — they are the checks that caught real bugs (a float-cast primary
+ * key, a truncated ts). So v2 keeps every one of them FOR SLACK and dispatches on a new
+ * required field, `source_system`, rather than weakening them for everybody.
+ *
+ * A new surface adds one entry to SURFACES. If it is missing, its records are rejected with a
+ * message that says so, instead of being measured against Slack's timestamp format.
  */
 
 const fs = require('fs');
@@ -18,10 +33,11 @@ const path = require('path');
 const IST_OFFSET_MS = 5.5 * 3600 * 1000;
 const TOL = 1e-6;
 
-const V11 = JSON.parse(fs.readFileSync(
+const V2 = JSON.parse(fs.readFileSync(
   process.argv.includes('--schema')
     ? process.argv[process.argv.indexOf('--schema') + 1]
     : path.join(__dirname, 'schema.json'), 'utf8')).keys;
+const V11 = V2.filter((k) => k !== 'source_system');
 const V1 = V11.filter((k) => k !== 'has_media');
 
 const dir = process.argv[2];
@@ -33,9 +49,42 @@ const err = (f, l, m) => errors.push(`${f}:${l}  ${m}`);
 const warn = (m) => warnings.push(m);
 
 // ---- helpers ----------------------------------------------------------
-const MID = /^\d{10}\.\d{6}$/;
+// ts_iso is NOT surface-specific — it is a timezone decision, and every surface reporting IST
+// to the second is the point. It stays global.
 const ISO_IST = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+05:30$/;
-const PERMALINK = /^https:\/\/[a-z0-9-]+\.slack\.com\/archives\/[A-Z0-9]+\/p\d{16}$/;
+
+/**
+ * Per-surface format rules. Everything Slack-shaped lives here and nowhere else.
+ *
+ *   messageId    shape of the primary key
+ *   epochFromId  derive ts_epoch from message_id, or null when the id does not encode a time.
+ *                Slack's does, and checking it caught a Math.floor() truncation. Email's
+ *                Message-ID does not, so that check is skipped rather than faked.
+ *   permalink    accepted link shape, or null to accept any https URL
+ *   permalinkTail verify the link points at THIS message, or null when it cannot be derived
+ */
+const SURFACES = {
+  slack: {
+    messageId: /^\d{10}\.\d{6}$/,
+    epochFromId: (id) => parseFloat(id),
+    permalink: /^https:\/\/[a-z0-9-]+\.slack\.com\/archives\/[A-Z0-9]+\/p\d{16}$/,
+    permalinkTail: (link, id) => link.split('/p')[1] === id.replace('.', ''),
+  },
+  whatsapp: {
+    // wamid.<base64ish>, the id the Cloud API returns and the only stable handle on a message.
+    messageId: /^wamid\.[A-Za-z0-9+/=_-]{8,}$/,
+    epochFromId: null,          // the id carries no timestamp; ts_epoch is reported separately
+    permalink: null,            // WhatsApp has no per-message web link
+    permalinkTail: null,
+  },
+  email: {
+    // RFC 5322 Message-ID, angle brackets stripped. Globally unique and assigned by the sender.
+    messageId: /^[^\s<>@]+@[^\s<>@]+$/,
+    epochFromId: null,          // Date: is a separate header
+    permalink: null,
+    permalinkTail: null,
+  },
+};
 
 function istParts(tsStr) {
   const n = Number(tsStr);
@@ -81,8 +130,26 @@ let joinCount = 0, mentionMarkupCount = 0, mediaCount = 0;
 
 for (const { rec, file: f, line: ln, dayFromName } of all) {
   const sv = rec.schema_version;
-  const expect = sv === '1' ? V1 : V11;
-  if (sv !== '1' && sv !== '1.1') err(f, ln, `schema_version must be "1" or "1.1", got ${JSON.stringify(sv)}`);
+  const expect = sv === '1' ? V1 : (sv === '2' ? V2 : V11);
+  if (sv !== '1' && sv !== '1.1' && sv !== '2') {
+    err(f, ln, `schema_version must be "1", "1.1" or "2", got ${JSON.stringify(sv)}`);
+  }
+
+  // v1/v1.1 predate source_system and only ever carried Slack, so that is what they mean.
+  // v2 must SAY. Defaulting a v2 record to slack would let an unlabelled WhatsApp message
+  // through with a Slack-shaped idempotency key, and the retry guarantee would stop holding
+  // without anything failing.
+  const sys = sv === '2' ? rec.source_system : 'slack';
+  if (sv === '2' && !SURFACES[sys]) {
+    err(f, ln, `source_system ${JSON.stringify(sys)} has no format rules — add it to SURFACES ` +
+               `in this file (known: ${Object.keys(SURFACES).join(', ')})`);
+    // `continue`, NOT `return` — this loop runs at MODULE TOP LEVEL, so a `return` here exits
+    // the whole module: no summary, no error list, exit 0. One unlabelled record would silently
+    // pass the entire corpus and the gate would go quiet, which is far worse than anything it
+    // was meant to catch. (It did exactly that; the test below now pins it.)
+    continue;   // every check below needs the rules; measuring it against Slack's would mislead
+  }
+  const S = SURFACES[sys] || SURFACES.slack;
 
   // 1. exact key set
   const got = Object.keys(rec);
@@ -97,25 +164,32 @@ for (const { rec, file: f, line: ln, dayFromName } of all) {
     err(f, ln, `message_id must be a string, got ${typeof mid} (${JSON.stringify(mid)}) — float cast destroys the key`);
     continue;
   }
-  if (!MID.test(mid)) err(f, ln, `message_id "${mid}" does not match ^\\d{10}\\.\\d{6}$`);
+  if (!S.messageId.test(mid)) {
+    err(f, ln, `message_id "${mid}" does not match the ${sys} form ${S.messageId}`);
+  }
 
   // 3. uniqueness on (channel_id, message_id)
   const key = `${rec.channel_id}\u0000${mid}`;
   if (byKey.has(key)) err(f, ln, `duplicate (channel_id, message_id) — first seen at ${byKey.get(key)}`);
   else byKey.set(key, `${f}:${ln}`);
 
-  // 4. ts_epoch full precision, no truncation
+  // 4. ts_epoch full precision, no truncation.
+  // Only checkable where the id encodes the time. Slack's does, and this check caught a real
+  // Math.floor() truncation; email's Message-ID does not, so it is skipped rather than faked.
   if (typeof rec.ts_epoch !== 'number') {
     err(f, ln, `ts_epoch must be a number, got ${typeof rec.ts_epoch}`);
-  } else {
-    const drift = Math.abs(rec.ts_epoch - parseFloat(mid));
+  } else if (S.epochFromId) {
+    const drift = Math.abs(rec.ts_epoch - S.epochFromId(mid));
     if (drift > TOL) err(f, ln, `ts_epoch drift ${drift.toFixed(9)} vs message_id — Math.floor() truncation?`);
+  } else if (!Number.isFinite(rec.ts_epoch) || rec.ts_epoch <= 0) {
+    err(f, ln, `ts_epoch must be a positive epoch — ${sys} ids carry no time, so this field is ` +
+               `the only record of when the message was sent`);
   }
 
   // 5. ts_iso: ISO 8601 with +05:30, consistent with message_id
   // 6. record sits in the right day file
   // Both derive from message_id, so they are skipped when the key is unparseable.
-  const parts = istParts(mid);
+  const parts = istParts(S.epochFromId ? mid : String(rec.ts_epoch));
   if (!parts) {
     err(f, ln, 'message_id unparseable as a timestamp — ts_iso and day-placement checks skipped');
   } else {
@@ -170,12 +244,18 @@ for (const { rec, file: f, line: ln, dayFromName } of all) {
   if (!(rec.subtype === null || typeof rec.subtype === 'string')) err(f, ln, 'subtype must be null or a string');
   if (rec.subtype === 'channel_join' || rec.subtype === 'channel_leave') joinCount++;
 
-  // 10. permalink
-  if (rec.permalink !== null && !PERMALINK.test(String(rec.permalink))) {
-    err(f, ln, `permalink malformed: ${JSON.stringify(rec.permalink)}`);
+  // 10. permalink. A surface with no per-message web link (WhatsApp, email) accepts null or
+  // any https URL; one with a deterministic link must produce it and point it at THIS message.
+  if (rec.permalink !== null && typeof rec.permalink !== 'string') {
+    err(f, ln, `permalink must be null or a string`);
   } else if (typeof rec.permalink === 'string') {
-    const tail = rec.permalink.split('/p')[1];
-    if (tail !== mid.replace('.', '')) err(f, ln, `permalink ts ${tail} disagrees with message_id ${mid}`);
+    if (S.permalink && !S.permalink.test(rec.permalink)) {
+      err(f, ln, `permalink malformed for ${sys}: ${JSON.stringify(rec.permalink)}`);
+    } else if (!S.permalink && !/^https:\/\//.test(rec.permalink)) {
+      err(f, ln, `permalink must be an https URL: ${JSON.stringify(rec.permalink)}`);
+    } else if (S.permalinkTail && !S.permalinkTail(rec.permalink, mid)) {
+      err(f, ln, `permalink does not point at message_id ${mid}`);
+    }
   }
 
   // 11. markup preservation signal

@@ -112,7 +112,12 @@ def _row(rec: dict, src_file: str, loaded_at: str) -> tuple:
         return json.dumps(rec.get(key) or [], sort_keys=True, separators=(",", ":"))
 
     return (
-        rec["channel_id"], mid, rec.get("schema_version"), rec.get("source"),
+        rec["channel_id"], mid, rec.get("schema_version"),
+        # v1/v1.1 predate the field and only ever carried Slack, so defaulting is correct for
+        # them. A v2 record MUST declare it — validate.js rejects one that does not, so an
+        # unlabelled WhatsApp record cannot reach here and silently become a Slack ticket.
+        rec.get("source_system") or "slack",
+        rec.get("source"),
         rec.get("workspace_id"), rec.get("channel_name"),
         float(rec["ts_epoch"]), rec["ts_iso"],
         rec.get("author_id"), rec.get("author_name"), rec.get("author_email"),
@@ -128,16 +133,30 @@ def _row(rec: dict, src_file: str, loaded_at: str) -> tuple:
 
 
 _COLS = [
-    "channel_id", "message_id", "schema_version", "source", "workspace_id", "channel_name",
+    "channel_id", "message_id", "schema_version", "source_system", "source",
+    "workspace_id", "channel_name",
     "ts_epoch", "ts_iso", "author_id", "author_name", "author_email", "author_is_bot",
     "text", "subtype", "thread_ref", "is_thread_parent", "reply_count",
     "mentions_json", "channel_mention", "subteam_mentions_json",
     "attachments_json", "has_media", "reactions_json",
     "permalink", "edited_ts", "fetched_at", "src_file", "loaded_at",
 ]
-#: Everything except the PK and the two load-provenance columns — the fields a re-export could
-#: legitimately change, and therefore the ones the conflict check compares.
-_CONTENT_COLS = [c for c in _COLS if c not in ("channel_id", "message_id", "src_file", "loaded_at")]
+#: The fields whose disagreement across two exports is a real DATA problem, and therefore the
+#: ones the conflict check compares.
+#:
+#: The exclusions are not laziness — they describe the ENVELOPE, not the message:
+#:   channel_id/message_id  the key itself
+#:   src_file/loaded_at     where and when WE wrote it
+#:   fetched_at             when WE asked Slack. Changes on EVERY pull by definition.
+#:   schema_version/source  the format and route we recorded it in, not what was said
+#:
+#: `fetched_at` was the expensive one. With it included, a re-pull reported every message in the
+#: corpus as a conflict — 56 of 56 on the fixtures — so on a five-second poll the count sat
+#: permanently at corpus size and a genuine conflict, an edited message, was invisible in the
+#: noise. `edited_ts` and `text` are still compared, so a real edit still surfaces.
+_ENVELOPE = ("channel_id", "message_id", "src_file", "loaded_at",
+             "fetched_at", "schema_version", "source")
+_CONTENT_COLS = [c for c in _COLS if c not in _ENVELOPE]
 
 
 def read_ndjson(raw_dir: Path) -> list[tuple[dict, str]]:

@@ -1,9 +1,10 @@
 {
-  "schema_version": "1.1",
-  "note": "v1.1 = v1's 25 keys + has_media. Key order below is canonical; conform() emits in this order.",
+  "schema_version": "2",
+  "note": "v2 = v1.1's 26 keys + source_system. v1.1 = v1's 25 + has_media. Key order below is canonical; conform() emits in this order. `channel_id` means THE CONTAINER \u2014 a Slack channel, a WhatsApp group, an email thread; see app/intake/sources.py for why the field names stay Slack-flavoured.",
   "keys": [
     "schema_version",
     "source",
+    "source_system",
     "workspace_id",
     "channel_id",
     "channel_name",

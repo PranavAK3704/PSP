@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS messages (
   channel_id            TEXT NOT NULL,
   message_id            TEXT NOT NULL,
   schema_version        TEXT,
+  -- WHICH SURFACE this came from: slack | whatsapp | email. Half the idempotency key, so a
+  -- WhatsApp message and a Slack message that happen to share a container and message id are
+  -- still two different tickets. v1.1 records predate the field and load as 'slack'.
+  source_system         TEXT NOT NULL DEFAULT 'slack',
   source                TEXT,
   workspace_id          TEXT,
   channel_name          TEXT,

@@ -23,7 +23,9 @@ Last updated: **2026-09-10**
 | Tier 2 BM25 exemplar matcher over the 1,814 corpus | First real disposition accuracy number | next | 2026-09-10 |
 | Structured ticket payload + pre-emit validation | Machine-consumable output | next | 2026-09-10 |
 | `evaluate`: per-tier escape rate, NOVEL rate, coverage | The KPIs you manage this by | next | 2026-09-10 |
-| Schema v2 + `Source` protocol | Second surface. **Ten Slack-shaped assumptions, eight load-bearing** | next | 2026-09-10 |
+| **Write the WhatsApp reader** | Second surface goes live. Validator rules and markup are done; needs a Business API account, a webhook endpoint and the queue — there is no polling equivalent to Slack's | next | 2026-09-16 |
+| **Write the email reader** | Third surface. Validator rules and quoted-history stripping are done | next | 2026-09-16 |
+| Feed "not an issue" confirmations back into the evidence gate | Closes the negative half of the loop; they are collected but inert today | next | 2026-09-16 |
 | Fix dedupe's O(n²) — 5.21s at 3,500 issues | Any backfill | before backfill | 2026-09-10 |
 | Real-time: Socket Mode, queue, settle delay | Production traffic | after demo | 2026-09-10 |
 | **Remove the demo LLM path** | — | conditional: delete when the local index exists and Tier 2/3 beat threshold on held-out data | 2026-09-10 |
@@ -33,6 +35,7 @@ Last updated: **2026-09-10**
 
 | Item | Evidence | Landed |
 |---|---|---|
+| **Schema v2 + `Source` protocol** | Slack, WhatsApp and email records validate in one corpus; every Slack-only check kept *for Slack* and dispatched on `source_system`. See [adding-a-surface.md](adding-a-surface.md) | 2026-09-16 |
 | **NOVEL queue + human confirm → exemplar** | The loop closes end to end: 8 NOVEL issues → a human answers one over the real endpoint → 7, and that issue carries the human's label via BM25 with **zero model calls**. Held-out score unchanged at 65.2%/82.4% | 2026-09-16 |
 | **Ticket sink that creates real tickets** | Google Sheet via Apps Script. Idempotent **sheet-side**: 20 created, re-run creates 0 under a different run id. `--sink` defaults to dry | 2026-09-16 |
 | **Positive-evidence gate** — the play-arena fix | `can we go to play arena?` → `NOT AN ISSUE score=0.0`. **Zero of 84 real corpus tickets rejected.** 154 tests | 2026-09-10 |

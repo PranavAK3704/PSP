@@ -275,6 +275,42 @@ def build_0901():
     }
 
 
+# ── THE SEVEN-TICKETS CASE ───────────────────────────────────────────────────────────────────
+# The story the whole project is justified by: one hub raised the same unpaid-field-executive
+# problem repeatedly over five months, got the same canned reply each time, and nothing ever
+# counted it. Every raising is worded differently, so text matching cannot link them -- what
+# links them is the FE's mobile number, which does not change.
+#
+# This is unreachable under a uniform 7-day join window: five months apart, each raising looks
+# brand new. config/grouping.yaml gives person-identifying tokens a 180-day window precisely
+# for this, and `occurrence_count` is what turns it into evidence a human can act on.
+UNPAID_FE = [
+    "Sir humare ek FE ka payment nahi aaya hai pichle mahine ka. Mobile 9900073318, DC Code: NQS",
+    "Reminder - 9900073318 wale FE ka pending payment abhi tak nahi aaya, 2 mahine ho gaye",
+    "Ye FE 9900073318 ka issue solve nahi hua aaj tak. Har baar ticket band kar dete ho",
+    "4th time raising - FE mobile 9900073318 payment pending since May. DC Code: NQS. Escalating",
+]
+
+
+def build_unpaid_fe():
+    """One issue, four raisings, spread across five months."""
+    base = datetime(2026, 4, 12, 11, 20, 0, tzinfo=IST).timestamp()
+    recs = []
+    for i, text in enumerate(UNPAID_FE):
+        ts = base + i * 38 * 24 * 3600 + 0.400000 * (i + 1)   # ~38 days apart
+        recs.append(_rec(AMS, ts, "U09HH8QKZ43", text, is_parent=False))
+    return recs, {
+        "_what": "One unpaid field executive, raised four times over five months, worded "
+                 "differently every time. Linked only by the FE's mobile number.",
+        "_why": "Under a uniform 7-day window each raising looks new and the recurrence signal "
+                "-- the whole point -- is destroyed. Person tokens join over 180 days.",
+        "_linking_token": "mobile 9900073318",
+        "_expected_occurrence_count": len(UNPAID_FE),
+        "_span_days": round((recs[-1]["ts_epoch"] - recs[0]["ts_epoch"]) / 86400),
+        "_anchors": [r["message_id"] for r in recs],
+    }
+
+
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
 
@@ -285,6 +321,11 @@ def main() -> int:
     written.update(write_by_day(r0829))
     (OUT / "expected_same_hub.json").write_text(json.dumps(e0829, indent=2) + "\n",
                                                 encoding="utf-8")
+
+    rfe, efe = build_unpaid_fe()
+    written.update(write_by_day(rfe))
+    (OUT / "expected_recurrence.json").write_text(json.dumps(efe, indent=2) + "\n",
+                                                  encoding="utf-8")
 
     r0901, e0901 = build_0901()
     written.update(write_by_day(r0901))

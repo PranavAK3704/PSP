@@ -114,7 +114,9 @@ def _snapshot(con) -> dict:
 
     tickets = [{"title": d["title"], "dc": d["dc_code"], "raise": not d["suppressed"],
                 "reason": d["suppressed_reason"], "ref": d["external_ref"],
-                "replies": d["reply_count"], "latency": d["first_response_latency_s"]}
+                "replies": d["reply_count"], "latency": d["first_response_latency_s"],
+                "disposition": d["intent"], "occurrences": d["occurrence_count"] or 1,
+                "first_raised": d["first_raised_at"], "last_raised": d["last_raised_at"]}
                for d in sorted(drafts.values(), key=lambda x: (x["suppressed"], x["title"] or ""))]
 
     n = len(feed)
@@ -129,6 +131,8 @@ def _snapshot(con) -> dict:
             "tickets": sum(1 for t in tickets if t["raise"]),
             "held_back": sum(1 for t in tickets if not t["raise"]),
             "entities": sum(len(f["entities"]) for f in feed),
+            "repeat_issues": sum(1 for t in tickets if (t["occurrences"] or 1) > 1),
+            "novel": sum(1 for t in tickets if t["disposition"] == "NOVEL"),
         },
         "feed": feed,
         "tickets": tickets,

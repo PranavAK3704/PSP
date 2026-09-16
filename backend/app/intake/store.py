@@ -311,6 +311,15 @@ CREATE TABLE IF NOT EXISTS ticket_drafts (
   duplicate_of      TEXT,
   suppressed        INTEGER,
   suppressed_reason TEXT,
+  -- RECURRENCE. The motivating story is a hub that raised seven tickets over five months for
+  -- one unpaid field executive and got the same canned reply each time. The VALUE is the
+  -- number seven -- suppressing occurrences 2..7 destroys exactly the signal the project
+  -- exists to capture. So the canonical ticket carries the count and every occurrence's
+  -- source, and the later raisings are marked `counted_into` rather than `duplicate`.
+  occurrence_count  INTEGER,
+  occurrences_json  TEXT,
+  first_raised_at   TEXT,
+  last_raised_at    TEXT,
   sink              TEXT,
   external_ref      TEXT,
   emitted_at        TEXT,

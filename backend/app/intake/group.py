@@ -50,7 +50,15 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
     con = con or store.connect()
     try:
         cfg = load_config(config_path)
-        window = float(cfg.get("window_days", 7)) * 86400
+        default_window = float(cfg.get("window_days", 7)) * 86400
+        # Per-kind windows. A person does not change; a shipment is done in a fortnight.
+        windows = {k: float(v) * 86400 for k, v in (cfg.get("windows") or {}).items()}
+
+        def window_for(kinds: set[str]) -> float:
+            """The LONGEST window among the matching tokens — the strongest identifier wins.
+            A message carrying both a waybill (14d) and a mobile (180d) is still about that
+            person five months later."""
+            return max((windows.get(k, default_window) for k in kinds), default=default_window)
         strong = list(cfg.get("join_on") or [])
         weak = list(cfg.get("join_on_weak") or []) if join_weak else []
         conf = cfg.get("confidence") or {}
@@ -152,7 +160,8 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
                     best = None
                     for iid, itoks in issue_tokens.items():
                         shared = cand & itoks
-                        if shared and abs(m["ts_epoch"] - issue_ts[iid]) <= window:
+                        win = window_for({k for k, _ in shared})
+                        if shared and abs(m["ts_epoch"] - issue_ts[iid]) <= win:
                             # most recent wins — the nearest open issue, not the oldest
                             if best is None or issue_ts[iid] > issue_ts[best[0]]:
                                 best = (iid, shared)
@@ -161,7 +170,8 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
                         rule = f"entity_join_{label}"
                         confidence = float(conf.get(cname, 0.5))
                         reason = ("shares " + ", ".join(f"{k}={v}" for k, v in sorted(shared))
-                                  + f" with {issue_id} within {cfg.get('window_days', 7)}d")
+                                  + f" with {issue_id} within "
+                                  + f"{window_for({k for k, _ in shared}) / 86400:.0f}d")
                         break
 
             # ── 3. a new issue, or unassigned ───────────────────────────────────────────────

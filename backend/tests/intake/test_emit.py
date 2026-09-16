@@ -223,3 +223,56 @@ def test_an_unregistered_run_warns_instead_of_returning_a_bland_zero(emitted):
     r = emit.run("no-such-run", con=con)
     assert r["issues"] == 0
     assert "register" in r["_warning"]
+
+
+# ── recurrence: count, never discard ────────────────────────────────────────────────────────
+def test_the_same_issue_raised_repeatedly_is_counted_not_suppressed(emitted):
+    """THE motivating case: one hub raised the same unpaid-FE problem four times over five
+    months, worded differently each time, linked only by the FE's mobile. The VALUE is the
+    number four — suppressing raisings 2..4 destroys exactly the signal this exists to capture."""
+    import json as _json
+    con, _ = emitted
+    row = con.execute(
+        "SELECT title, occurrence_count, occurrences_json, first_raised_at, last_raised_at "
+        "FROM ticket_drafts WHERE run_id='r1' ORDER BY occurrence_count DESC LIMIT 1").fetchone()
+    assert row["occurrence_count"] >= 4, "the five-month recurrence must be counted"
+    occ = _json.loads(row["occurrences_json"])
+    assert len(occ) == row["occurrence_count"]
+    assert row["first_raised_at"] < row["last_raised_at"], "a real span, not one instant"
+    # months apart, not days — the whole point of the per-kind window
+    from datetime import datetime
+    span = (datetime.fromisoformat(row["last_raised_at"])
+            - datetime.fromisoformat(row["first_raised_at"])).days
+    assert span > 90, f"expected a multi-month span, got {span} days"
+
+
+def test_a_repeat_raising_says_counted_into_not_duplicate(emitted):
+    """Wording matters: 'duplicate' reads as thrown away. Nothing is thrown away."""
+    con, _ = emitted
+    row = con.execute(
+        "SELECT suppressed_reason FROM ticket_drafts WHERE run_id='r1' "
+        "AND suppressed=1 AND suppressed_reason LIKE 'counted_into%'").fetchone()
+    assert row is not None
+    assert "nothing is discarded" in row["suppressed_reason"]
+
+
+def test_every_occurrence_carries_its_own_source(emitted):
+    """A count nobody can verify is not evidence. Each raising keeps its channel, timestamp
+    and permalink so a human can open every one."""
+    import json as _json
+    con, _ = emitted
+    for r in con.execute("SELECT occurrences_json FROM ticket_drafts WHERE run_id='r1' "
+                         "AND occurrence_count>1"):
+        for o in _json.loads(r["occurrences_json"]):
+            assert o.get("source_id") and o.get("at")
+
+
+def test_person_tokens_join_over_months_and_shipments_do_not(pipeline_cfg=None):
+    """The per-kind window is the mechanism. A mobile identifies a person and does not change;
+    a waybill identifies one shipment and is resolved."""
+    from app.intake import group as _g
+    cfg = _g.load_config()
+    w = cfg["windows"]
+    assert w["mobile"] >= 180 and w["pilot_id"] >= 180, "a person does not change"
+    assert w["waybill"] <= 30, "a shipment is done"
+    assert "dc_code" not in w, "a DC is a place, not an incident — it must not join at all"

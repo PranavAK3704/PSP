@@ -82,6 +82,10 @@ class TicketDraft:
     duplicate_of: str | None = None
     suppressed: bool = False
     suppressed_reason: str | None = None
+    occurrence_count: int = 1
+    occurrences: list = field(default_factory=list)
+    first_raised_at: str | None = None
+    last_raised_at: str | None = None
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -157,7 +161,8 @@ def make_description(text: str, permalink: str | None, reply_count: int,
 
 
 def draft_for(issue: dict, anchor_text: str, *, source_system: str = "slack",
-              require_identifier: bool = False) -> TicketDraft:
+              require_identifier: bool = False,
+              occurrences: list | None = None) -> TicketDraft:
     tokens = {k: v for k, v in json.loads(issue.get("entity_tokens_json") or "{}").items() if v}
     kapture = json.loads(issue.get("kapture_ticket_ids_json") or "[]")
 
@@ -167,10 +172,12 @@ def draft_for(issue: dict, anchor_text: str, *, source_system: str = "slack",
             "informational — a weather or operational callout, deliberate comms rather than an "
             "issue. Raising it produces a register nobody trusts.")
     elif issue.get("duplicate_of"):
+        # COUNTED, not discarded. The twin's ticket carries occurrence_count, and this row
+        # says so explicitly -- "duplicate" reads as thrown away, which is what the earlier
+        # wording implied and what the recurrence signal cannot afford.
         suppressed, reason = True, (
-            f"duplicate of {issue['duplicate_of']} — the same issue raised in another channel. "
-            f"The twin carries the ticket; this side stays linked so closure is visible from "
-            f"both.")
+            f"counted_into {issue['duplicate_of']} — the same issue raised again. That "
+            f"ticket's occurrence_count includes this one; nothing is discarded.")
     elif require_identifier and not any(tokens.get(k) for k in ACTIONABLE):
         suppressed, reason = True, (
             "no actionable identifier — no DC code, mobile, waybill or ticket id, so nobody who "
@@ -196,6 +203,10 @@ def draft_for(issue: dict, anchor_text: str, *, source_system: str = "slack",
         duplicate_of=issue.get("duplicate_of"),
         suppressed=suppressed,
         suppressed_reason=reason,
+        occurrence_count=max(1, len(occurrences or [])),
+        occurrences=occurrences or [],
+        first_raised_at=(occurrences or [{}])[0].get("at") if occurrences else None,
+        last_raised_at=(occurrences or [{}])[-1].get("at") if occurrences else None,
     )
 
 
@@ -218,6 +229,37 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
             "               AND m.message_id = i.anchor_message_id "
             "WHERE i.run_id = ? ORDER BY m.ts_epoch", (run_id,)).fetchall()
 
+        # ── OCCURRENCES ─────────────────────────────────────────────────────────────────────
+        # An occurrence is a distinct RAISING of an issue, and it arrives two ways:
+        #   1. a separate issue that dedupe linked back here (cross-channel, or re-raised)
+        #   2. another top-level message that entity-join absorbed into this issue -- which is
+        #      the five-months-apart case, now reachable because person-identifying tokens
+        #      join over 180 days rather than 7
+        # Both are the same event to a human: "they raised this again". Counting only the
+        # first would under-report exactly the pattern the register exists to expose.
+        linked: dict[str, list[str]] = {}
+        for r in con.execute("SELECT issue_id, duplicate_of FROM duplicates WHERE run_id = ?",
+                             (run_id,)):
+            linked.setdefault(r["duplicate_of"], []).append(r["issue_id"])
+
+        raisings: dict[str, list[dict]] = {}
+        for r in con.execute(
+                "SELECT a.issue_id, m.channel_id, m.message_id, m.ts_iso, m.permalink, "
+                "       m.channel_name "
+                "FROM assignments a JOIN messages m USING(channel_id, message_id) "
+                "WHERE a.run_id = ? AND a.issue_id IS NOT NULL AND m.thread_ref IS NULL "
+                "ORDER BY m.ts_epoch", (run_id,)):
+            raisings.setdefault(r["issue_id"], []).append(
+                {"channel": r["channel_name"], "source_id":
+                 f"{r['channel_id']}/{r['message_id']}", "at": r["ts_iso"],
+                 "permalink": r["permalink"]})
+
+        def occurrences_for(issue_id: str) -> list[dict]:
+            out = list(raisings.get(issue_id, []))
+            for dup in linked.get(issue_id, []):
+                out.extend(raisings.get(dup, []))
+            return sorted(out, key=lambda o: o["at"] or "")
+
         if not issues:
             # A silent zero here reads exactly like "nothing qualified", which is a different
             # and much less alarming statement than "stage 7 has not run for this run_id".
@@ -238,7 +280,8 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
         for r in issues:
             issue = dict(r)
             d = draft_for(issue, issue.pop("anchor_text"),
-                          require_identifier=require_identifier)
+                          require_identifier=require_identifier,
+                          occurrences=occurrences_for(issue["issue_id"]))
             keys.add(d.idempotency_key)
             ref = None
             if not d.suppressed:
@@ -254,14 +297,17 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
                 json.dumps(d.kapture_ticket_ids), d.reply_count, d.first_response_latency_s,
                 d.state, d.duplicate_of, 1 if d.suppressed else 0, d.suppressed_reason,
                 getattr(sink, "name", type(sink).__name__), ref,
-                datetime.now(timezone.utc).isoformat(timespec="seconds")))
+                datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                d.occurrence_count, json.dumps(d.occurrences),
+                d.first_raised_at, d.last_raised_at))
 
         con.executemany(
             "INSERT OR REPLACE INTO ticket_drafts (run_id, issue_id, idempotency_key, "
             "source_system, source_id, source_permalink, title, description, raiser, dc_code, "
             "intent, entity_tokens_json, kapture_ticket_ids_json, reply_count, "
             "first_response_latency_s, state, duplicate_of, suppressed, suppressed_reason, "
-            "sink, external_ref, emitted_at) VALUES (" + ",".join("?" * 22) + ")", rows)
+            "sink, external_ref, emitted_at, occurrence_count, occurrences_json, "
+            "first_raised_at, last_raised_at) VALUES (" + ",".join("?" * 26) + ")", rows)
         con.commit()
 
         stats = {
@@ -270,6 +316,8 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
             "suppressed": len(issues) - created,
             "suppressed_by_reason": by_reason,
             "distinct_idempotency_keys": len(keys),
+            "repeat_issues": sum(1 for r in rows if (r[22] or 1) > 1),
+            "max_occurrences": max([(r[22] or 1) for r in rows], default=0),
             "sink": getattr(sink, "name", type(sink).__name__),
             "tickets_actually_created": 0,
             "_note": "Phase 1 creates nothing. The dry-run sink writes drafts to the store and "

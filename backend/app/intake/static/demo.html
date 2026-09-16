@@ -134,7 +134,8 @@ function tiles(s){
              ["not an issue",s.not_an_issue,""],["orphans",s.orphans,"warn"],
              ["informational",s.informational,"warn"],
              ["issues",s.issues,"info"],["tickets to raise",s.tickets,"good"],
-             ["held back",s.held_back,"warn"],["identifiers",s.entities,"info"]];
+             ["held back",s.held_back,"warn"],["repeat issues",s.repeat_issues,"warn"],
+             ["novel",s.novel,"info"],["identifiers",s.entities,"info"]];
   return T.map(([l,n,c])=>`<div class="tile ${c}"><div class="n">${n??0}</div><div class="l">${l}</div></div>`).join("");
 }
 
@@ -215,9 +216,15 @@ async function tick(){
   document.getElementById("tickets").innerHTML = tk.length ? tk.map(t=>`
     <div class="tk ${t.raise?"":"held"}">
       <div class="t">${esc(t.title||"")}</div>
-      <div class="s">${t.raise
-        ? `${esc(t.ref||"")} · ${t.replies||0} replies${t.latency!=null?` · first response ${Math.round(t.latency)}s`:""}`
-        : "held back — "+esc((t.reason||"").split(" —")[0])}</div>
+      <div class="s">
+        ${t.disposition?`<span class="chip ${t.disposition==="NOVEL"?"rx":"dc"}" style="margin-right:6px">${esc(t.disposition)}</span>`:""}
+        ${(t.occurrences||1)>1
+          ? `<span class="tag b" style="margin-right:6px">raised ${t.occurrences}×</span>`
+          + `<span style="color:var(--dim)">${esc((t.first_raised||"").slice(0,10))} → ${esc((t.last_raised||"").slice(0,10))}</span><br>`
+          : ""}
+        ${t.raise
+          ? `${esc(t.ref||"")} · ${t.replies||0} replies${t.latency!=null?` · first response ${Math.round(t.latency)}s`:""}`
+          : "held back — "+esc((t.reason||"").split(" —")[0])}</div>
     </div>`).join("") : '<div class="empty-note">none yet</div>';
 
   first = false;

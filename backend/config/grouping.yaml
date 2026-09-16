@@ -18,7 +18,26 @@
 # person. `dc_code` can be enabled, and `evaluate` scores both settings so the cost of the
 # choice is a measured number rather than an argument.
 
+# Default window when a token kind has no entry in `windows` below.
 window_days: 7
+
+# ── PER-KIND WINDOWS: how long a shared token still means "the same issue" ───────────────────
+# A single uniform window was wrong in both directions. The case this exists for is a hub that
+# raised seven tickets over FIVE MONTHS for one unpaid field executive — under a 7-day window
+# every one of those looks like a brand-new issue and the recurrence signal, which is the whole
+# point, is destroyed.
+#
+# The right window depends on what the token IDENTIFIES:
+#   a PERSON does not change      -> months
+#   a SHIPMENT is resolved        -> days
+#   a TICKET is a record          -> long, it IS the issue
+#   a PLACE is not an incident    -> never join on it (see join_on_weak)
+windows:
+  kapture_id: 180     # a ticket number IS the issue; sharing one is near-proof
+  mobile:     180     # a person. The seven-tickets-for-one-FE case lives here
+  pilot_id:   180     # a person
+  email:      180     # a person
+  waybill:      14    # one shipment, resolved and done
 
 join_on:
   # Tokens that identify ONE incident. Sharing one is strong evidence of the same issue.

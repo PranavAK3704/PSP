@@ -27,7 +27,7 @@ import sqlite3
 from pathlib import Path
 
 from . import extract as istage
-from . import group, store
+from . import group, labels, store
 
 GOLDEN = Path(__file__).resolve().parents[2] / "data" / "intake" / "golden" / "labels.csv"
 
@@ -171,6 +171,77 @@ def _cost(con: sqlite3.Connection, run_id: str) -> dict:
             "estimated_cost_usd": round(spend[0], 4), "cache_entries": cached}
 
 
+def _funnel(con: sqlite3.Connection, run_id: str) -> dict:
+    """Where volume actually goes, tier by tier, and what escapes each one.
+
+    ESCAPE RATE here means: of the items that ENTERED a tier, the share that tier did not
+    resolve, and which therefore fell through to the next one. It is the number that decides
+    whether an expensive tier is worth building — a tier only has to handle what escapes the
+    cheap tiers above it, and every tier above stage 6 costs nothing to run.
+
+    Read it top-down. The last row is the only one that costs a person's time.
+    """
+    q = lambda s, *a: con.execute(s, a).fetchone()[0]  # noqa: E731
+
+    msgs = q("SELECT COUNT(*) FROM messages")
+    gated = q("SELECT COUNT(*) FROM message_flags WHERE run_id=? AND gated=1", run_id)
+    after_gate = msgs - gated
+
+    # The evidence gate only ever sees what the noise gate let through.
+    ev = {r[0]: r[1] for r in con.execute(
+        "SELECT decision, COUNT(*) FROM evidence WHERE run_id=? GROUP BY decision", (run_id,))}
+    not_issue = ev.get("not_an_issue", 0)
+    held = ev.get("weak", 0) + ev.get("orphan", 0)
+    after_evidence = after_gate - not_issue - held
+
+    issues = q("SELECT COUNT(*) FROM issues WHERE run_id=?", run_id)
+    novel = q("SELECT COUNT(*) FROM issues WHERE run_id=? AND intent='NOVEL'", run_id)
+    unclassified = q("SELECT COUNT(*) FROM issues WHERE run_id=? AND intent IS NULL", run_id)
+    answered = issues - novel - unclassified
+
+    # How many of the NOVEL ones a person has already answered. The queue is keyed on the text,
+    # so this survives a re-run producing new issue ids.
+    confirmed_ids = set(labels.load())
+    still_asking = 0
+    for r in con.execute(
+            "SELECT m.text FROM issues i JOIN messages m "
+            "ON m.channel_id=i.anchor_channel_id AND m.message_id=i.anchor_message_id "
+            "WHERE i.run_id=? AND i.intent='NOVEL'", (run_id,)):
+        still_asking += labels.text_id(r[0] or "") not in confirmed_ids
+
+    pct = lambda n, d: None if not d else round(n / d, 4)  # noqa: E731
+    return {
+        "_what": "Escape rate = share of what ENTERED a tier that the tier did not resolve. "
+                 "Every tier below costs $0 to run; only the last row costs a person's time.",
+        "tiers": [
+            {"tier": "0 noise gate (structural)", "in": msgs, "resolved": gated,
+             "escaped": after_gate, "escape_rate": pct(after_gate, msgs), "cost_usd": 0.0},
+            {"tier": "0b evidence (is this an issue at all)", "in": after_gate,
+             "resolved": not_issue, "held_for_review": held, "escaped": after_evidence,
+             "escape_rate": pct(after_evidence, after_gate), "cost_usd": 0.0},
+            # Not a filter — a COLLAPSE. Nothing is discarded here; several messages become one
+            # issue. Shown because otherwise the count drops between rows with no explanation
+            # and it reads like silent loss.
+            {"tier": "1 grouping (messages -> issues)", "in": after_evidence,
+             "collapsed_into": issues, "escaped": issues,
+             "escape_rate": pct(issues, after_evidence), "cost_usd": 0.0,
+             "_note": "a collapse, not a filter — nothing is dropped here"},
+            {"tier": "2 BM25 disposition", "in": issues, "resolved": answered,
+             "escaped": novel + unclassified,
+             "escape_rate": pct(novel + unclassified, issues), "cost_usd": 0.0},
+            {"tier": "human (the NOVEL queue)", "in": novel, "resolved": novel - still_asking,
+             "escaped": still_asking, "escape_rate": pct(still_asking, novel),
+             "cost_usd": 0.0, "_note": "costs attention, not money"},
+        ],
+        "disposition_coverage": pct(answered, issues),
+        "novel_rate": pct(novel, issues),
+        "classifier_off": unclassified > 0 and answered == 0,
+        "awaiting_a_human": still_asking,
+        "messages_per_issue": None if not issues else round(after_evidence / issues, 2),
+        "share_of_messages_that_became_an_issue": pct(issues, msgs),
+    }
+
+
 def run(run_id: str, *, con: sqlite3.Connection | None = None,
         golden_path: Path = GOLDEN, config_path: Path = group.CONFIG) -> dict:
     """Score a completed run. Re-groups internally to price the entity-join-only setting."""
@@ -211,6 +282,7 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
         return {
             "CAVEAT": caveat,
             "THE_NUMBER_grouping_without_stage_6": headline,
+            "funnel": _funnel(con, run_id),
             "dc_extraction": _dc_extraction(con, run_id),
             "intent": _intent(con, run_id, golden),
             "cost": _cost(con, run_id),

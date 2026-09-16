@@ -38,8 +38,8 @@ if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
 from app.intake import (  # noqa: E402
-    classify, dedupe, emit, evidence, extract, group, loadstage, noise, qualify, register,
-    slack_source, store,
+    classify, dedupe, emit, evidence, extract, group, labels, loadstage, noise, qualify,
+    register, slack_source, store,
 )
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -76,6 +76,35 @@ def _snapshot(con) -> dict:
 
     drafts = {d["issue_id"]: dict(d) for d in con.execute(
         "SELECT * FROM ticket_drafts WHERE run_id=?", (RUN_ID,))}
+
+    # The NOVEL queue: issues the matcher refused to classify. This is the half of the loop that
+    # makes the taxonomy grow — a refusal is a question addressed to a human, and answering it
+    # turns the message into an exemplar so the next one like it is classified for free.
+    confirmed = labels.load()
+    novel_q = []
+    for iid, d in drafts.items():
+        if d["intent"] != "NOVEL":
+            continue
+        row = con.execute(
+            "SELECT m.text, m.permalink, m.author_name, m.author_id, m.ts_iso FROM issues i "
+            "JOIN messages m ON m.channel_id=i.anchor_channel_id "
+            "               AND m.message_id=i.anchor_message_id "
+            "WHERE i.run_id=? AND i.issue_id=?", (RUN_ID, iid)).fetchone()
+        if not row:
+            continue
+        prev = confirmed.get(labels.text_id(row["text"] or ""))
+        novel_q.append({
+            "issue_id": iid, "text": row["text"] or "", "permalink": row["permalink"],
+            "author": row["author_name"] or row["author_id"], "time": (row["ts_iso"] or "")[11:16],
+            "title": d["title"], "dc": d["dc_code"],
+            "occurrences": d["occurrence_count"] or 1,
+            # Already answered? Shown so a re-run does not ask the same question twice — the
+            # label is keyed on the TEXT, so it survives a new issue_id for the same wording.
+            "confirmed": None if not prev else {
+                "decision": prev["decision"], "disposition": prev["disposition"],
+                "by": prev["confirmed_by"], "at": prev["confirmed_at"]},
+        })
+    novel_q.sort(key=lambda x: (x["confirmed"] is not None, -(x["occurrences"] or 1)))
 
     feed = []
     for r in rows:
@@ -133,9 +162,15 @@ def _snapshot(con) -> dict:
             "entities": sum(len(f["entities"]) for f in feed),
             "repeat_issues": sum(1 for t in tickets if (t["occurrences"] or 1) > 1),
             "novel": sum(1 for t in tickets if t["disposition"] == "NOVEL"),
+            "novel_pending": sum(1 for q in novel_q if not q["confirmed"]),
+            "confirmations": len(confirmed),
         },
         "feed": feed,
         "tickets": tickets,
+        "novel_queue": novel_q,
+        # The classes a human can pick from. Read off the live index rather than a hardcoded
+        # list, so a disposition confirmed into existence yesterday is offered today.
+        "dispositions": (lambda m: m.dispositions if m else [])(classify.load_matcher()),
     }
 
 
@@ -183,6 +218,58 @@ def poller(channel: str, raw_dir: Path, every: float, oldest: str | None = None)
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):                                          # quiet
         pass
+
+    def _json(self, obj, code=200):
+        body = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):                                                  # noqa: N802
+        """Record a human decision about a NOVEL item.
+
+        Binding to loopback keeps other machines out, but it does NOT keep other WEB PAGES out:
+        anything the browser is showing can POST to 127.0.0.1. Two cheap guards, both of which a
+        cross-origin page fails:
+
+        - a custom header, which makes the request non-simple so the browser must preflight it
+        - an Origin check, since our own page sends same-origin or none
+
+        Nothing here can reach Slack — the only effect is a line appended to a local file.
+        """
+        if not self.path.startswith("/api/confirm"):
+            return self._json({"ok": False, "error": "not_found"}, 404)
+        if self.headers.get("X-Intake-Confirm") != "1":
+            return self._json({"ok": False, "error": "missing_confirm_header"}, 403)
+        origin = self.headers.get("Origin")
+        if origin and not origin.startswith(("http://127.0.0.1", "http://localhost")):
+            return self._json({"ok": False, "error": "cross_origin_refused"}, 403)
+
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(n) or b"{}")
+        except (ValueError, json.JSONDecodeError):
+            return self._json({"ok": False, "error": "bad_json"}, 400)
+
+        try:
+            row = labels.confirm(
+                body.get("text") or "",
+                body.get("decision") or "label",
+                disposition=(body.get("disposition") or None),
+                confirmed_by=body.get("confirmed_by") or "dashboard",
+                source_id=body.get("issue_id"),
+                permalink=body.get("permalink"),
+                note=body.get("note"),
+            )
+        except labels.LabelError as e:
+            # The message is written for a person to read and act on, so pass it through.
+            return self._json({"ok": False, "error": str(e)}, 400)
+
+        return self._json({"ok": True, "confirmation": row, "stats": labels.stats(),
+                           "_next": "scripts/build_exemplars.py folds this into the index"})
 
     def do_GET(self):                                                   # noqa: N802
         if self.path.startswith("/api/state"):

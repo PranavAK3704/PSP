@@ -36,8 +36,12 @@ from scripts._harness import FAILED, check, head  # noqa: E402
 # The .db cannot be contained by contain() — see the module docstring.
 _TMP = tempfile.mkdtemp(prefix="intake-harness-")
 os.environ["INTAKE_DB"] = str(Path(_TMP) / "intake.db")
+# Human confirmations are the one thing in this pipeline nothing can regenerate, so a harness
+# writing into the real file is worse than a stray row in a rebuildable table. Redirected for
+# the same reason as the .db and checked below.
+os.environ["INTAKE_LABELS"] = str(Path(_TMP) / "confirmations.jsonl")
 
-from app.intake import loadstage, store  # noqa: E402
+from app.intake import labels, loadstage, store  # noqa: E402
 
 FIXTURES = ROOT / "data" / "intake" / "fixtures"
 
@@ -76,6 +80,10 @@ def main() -> int:
     check("$INTAKE_DB points into a tmpdir", str(store.db_path()).startswith(tempfile.gettempdir()),
           str(store.db_path()))
     check("the real store is not the target", store.db_path() != real)
+    check("$INTAKE_LABELS points into a tmpdir",
+          str(labels.STORE).startswith(tempfile.gettempdir()), str(labels.STORE))
+    check("the real confirmations file is not the target",
+          labels.STORE != ROOT / "data" / "intake" / "labels" / "confirmations.jsonl")
 
     head("schema")
     con = store.connect()

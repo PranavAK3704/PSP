@@ -89,6 +89,49 @@ reported separately.
 
 `data/intake/raw/` is empty and waits for the real export.
 
+## The creep loop — how the taxonomy grows without a model
+
+When the matcher will not commit, it says `NOVEL` rather than guessing. That refusal is a
+question addressed to a person, and answering it is what makes coverage climb.
+
+```
+  message -> classify -> NOVEL -> dashboard queue -> a human names the class
+                                                            |
+       next message worded like it <- rebuild index <- gold exemplar
+```
+
+Work the queue in the dashboard's right-hand panel, then build the index:
+
+```bash
+python -m app.intake.cli labels            # what has been confirmed, and whether the index is current
+python scripts/build_exemplars.py          # folds confirmations in — this is what takes effect
+```
+
+Four things are worth knowing about it.
+
+**Confirming does not change anything by itself.** The exemplar index is a built artifact. Until
+`build_exemplars.py` runs, a confirmation is recorded and inert — which is why
+`cli.py labels` prints the gap between what is confirmed and what is live.
+
+**A human label outranks the machine's.** Corpus labels are *silver*: assigned by the engine's
+own classifier, which calls a model. Confirmations are *gold*. Gold wins twice — silver rows for
+a disposition are dropped once gold exists for it, and `gold_weight` in `config/classify.yaml`
+makes a gold exemplar count for more at match time. The second part is not decoration: matching
+sums the top-k neighbours per disposition, so without it one fresh confirmation loses on volume
+to a class holding eighty silver exemplars, and the queue becomes theatre. With no confirmations
+recorded, the multiplier is 1.0 and every held-out verdict is identical — it cannot regress
+today's numbers.
+
+**"Not an issue" is collected, not yet used.** The noise gate is rule-based, so a negative
+example has nowhere to go the way a positive one becomes an exemplar. They are stored because
+they are the scarce thing — real off-topic partner messages, of which the corpus has four.
+
+**The confirmations are the one thing here nothing can regenerate.** Corpus, index and registry
+all rebuild from a script in seconds. A human's attention does not. They live in
+`data/intake/labels/`, outside every generated file, append-only so a correction supersedes
+without erasing, and gitignored because they carry partner wording — use
+`cli.py labels --export --no-text` to move them off this machine.
+
 ## Known gaps
 
 - **The real corpus is not here.** The 490-record export does not exist on this machine. Every

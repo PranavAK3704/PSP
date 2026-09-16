@@ -76,6 +76,7 @@ class Matcher:
         self.min_score = float(cfg.get("min_score", 3.0))
         self.margin = float(cfg.get("min_margin", 0.15))
         self.top_k = int(cfg.get("top_k", 5))
+        self.gold_weight = float(cfg.get("gold_weight", 3.0))
 
         self.docs = []
         for e in exemplars:
@@ -115,9 +116,16 @@ class Matcher:
                         key=lambda x: -x[0])[:self.top_k]
         # Aggregate neighbours by disposition: one strong exemplar should not beat three
         # moderate ones from the same class, which is what a pure top-1 would do.
+        #
+        # But that sum is also why a human confirmation needs extra weight. A disposition with 80
+        # silver exemplars can fill four of five slots while a just-confirmed class holds one, so
+        # without `gold_weight` the person's label loses to the machine's labels on volume and
+        # the NOVEL queue becomes theatre. With no confirmations recorded every doc is silver and
+        # the multiplier is 1.0, so this changes nothing until someone has actually confirmed.
         agg: dict[str, float] = {}
         for s, d in scored:
-            agg[d["disposition"]] = agg.get(d["disposition"], 0.0) + s
+            w = self.gold_weight if d["provenance"] == "gold" else 1.0
+            agg[d["disposition"]] = agg.get(d["disposition"], 0.0) + s * w
         ranked = sorted(agg.items(), key=lambda kv: -kv[1])
 
         best, best_score = ranked[0]

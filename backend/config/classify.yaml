@@ -21,3 +21,25 @@ min_margin: 0.15
 # How many nearest exemplars vote. Aggregating by disposition means three moderate exemplars of
 # one class beat a single strong outlier of another — which is what a pure top-1 would get wrong.
 top_k: 5
+
+# How much more a HUMAN-confirmed exemplar counts than a machine-assigned one.
+#
+# Without this the creep loop does not work, and the reason is structural. Aggregation SUMS the
+# top-k neighbours per disposition, so a disposition holding 81 silver exemplars can fill four
+# of five slots while a just-confirmed class holds one. The human's label loses to the machine's
+# labels on volume — and the queue becomes theatre: you label something, and the next identical
+# message is still NOVEL.
+#
+# Gold is also simply better evidence. Silver came from the engine's own classifier
+# (audit/runner.py calls a model); gold came from a person looking at the message. Counting them
+# equally treats the cheap label and the expensive one as the same thing.
+#
+# MEASURED: with no confirmations recorded every exemplar is silver, so this multiplies
+# everything by 1.0 and held-out precision, coverage and NOVEL rate are unchanged to the digit.
+# It cannot regress today's numbers; it only takes effect once a human has confirmed something.
+# Re-score with scripts/score_classifier.py once gold rows exist.
+#
+# 3.0 means roughly "one human label is worth three machine labels" — chosen so a single
+# confirmation can win against a partially-matching established class, without letting one
+# confirmation overrule a class that genuinely agrees across several exemplars.
+gold_weight: 3.0

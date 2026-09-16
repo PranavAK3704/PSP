@@ -29,8 +29,8 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 from app.intake import (  # noqa: E402
-    classify, dedupe, emit, evaluate, evidence, extract, group, loadstage, noise, qualify,
-    register, report, sinks, slack_source, store,
+    classify, dedupe, emit, evaluate, evidence, extract, group, labels, loadstage, noise,
+    qualify, register, report, sinks, slack_source, store,
 )
 
 DEFAULT_RAW = BACKEND / "data" / "intake" / "raw"
@@ -234,6 +234,41 @@ def cmd_adjudicate(args) -> int:
     return 2
 
 
+def cmd_labels(args) -> int:
+    """What humans have confirmed, and whether the index has caught up yet.
+
+    Worth its own command because confirming in the dashboard does NOT change classification on
+    its own — the exemplar index is a built artifact. Someone who confirms twenty items and sees
+    no difference should be able to find out why without reading the source.
+    """
+    if args.export:
+        dest = Path(args.export)
+        n = labels.export_confirmations(dest, include_text=not args.no_text)
+        print(f"wrote {n} confirmation(s) to {dest}"
+              + ("  (text omitted)" if args.no_text else ""))
+        return 0
+
+    s = labels.stats()
+    print(f"\n  store        {labels.STORE}")
+    print(f"  confirmed    {s['confirmations']}  "
+          f"({s['labelled']} labelled, {s['not_an_issue']} not-an-issue)")
+    print(f"  by           {', '.join(s['confirmers']) or '—'}")
+    for d, n in s["by_disposition"].items():
+        print(f"      {d:<28} {n:>4}")
+
+    # The gap that actually matters: a confirmation only changes behaviour once it is built in.
+    m = classify.load_matcher()
+    in_index = sum(1 for d in (m.docs if m else []) if d["provenance"] == "gold")
+    if s["labelled"] and in_index < s["labelled"]:
+        print(f"\n  !! {s['labelled']} labelled but only {in_index} gold exemplars in the index."
+              f"\n     Run: python scripts/build_exemplars.py")
+    elif s["labelled"]:
+        print(f"\n  index is current — {in_index} gold exemplars live")
+    else:
+        print("\n  nothing confirmed yet — the dashboard's NOVEL queue is where this fills up")
+    return 0
+
+
 def cmd_run_all(args) -> int:
     rid = _run_id(args)
     print(f"run_id: {rid}   store: {store.db_path()}")
@@ -302,11 +337,18 @@ def build_parser() -> argparse.ArgumentParser:
              "draft a ticket per issue — creates NOTHING, dry-run sink only", False),
             ("report", cmd_report, "write the xlsx", False),
             ("evaluate", cmd_evaluate, "score against golden labels", False),
+            ("labels", cmd_labels,
+             "what humans confirmed, and whether the index has caught up", False),
             ("run-all", cmd_run_all, "every implemented stage, in order", True)]:
         s = add(name, fn, h)
         # Also on every subparser, so `run-all --run-id demo` works. On the top level alone it
         # would have to PRECEDE the subcommand, which reads like a typo when it fails.
         s.add_argument("--run-id", help="reuse a run id to re-run one stage over existing rows")
+        if name == "labels":
+            s.add_argument("--export", help="write confirmations to a file so they can leave "
+                                            "this machine (they are gitignored)")
+            s.add_argument("--no-text", action="store_true",
+                           help="omit the partner wording from the export")
         if raw:
             s.add_argument("--raw", default=str(DEFAULT_RAW),
                            help="day-partitioned NDJSON directory (default: data/intake/raw)")

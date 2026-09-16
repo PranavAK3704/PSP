@@ -92,6 +92,24 @@
   .tk.held{border-left-color:var(--amber); opacity:.85}
   .tk .t{font-size:13px; font-weight:600; margin-bottom:3px}
   .tk .s{font-size:11.5px; color:var(--dim)}
+  .nv{background:var(--panel); border:1px solid var(--line); border-radius:8px;
+      padding:10px 12px; margin-bottom:8px; border-left:3px solid var(--violet)}
+  .nv.done{border-left-color:var(--green); opacity:.7}
+  .nv .q{font-size:13px; line-height:1.45; margin:2px 0 8px; white-space:pre-wrap;
+         word-break:break-word}
+  .nv .ctl{display:flex; gap:6px; flex-wrap:wrap; align-items:center}
+  .nv select, .nv input{background:var(--panel2); color:var(--ink);
+      border:1px solid var(--line); border-radius:6px; padding:5px 7px; font:inherit;
+      font-size:12px; max-width:190px}
+  .nv button{background:var(--blue-bg); color:var(--blue); border:1px solid #1f4b7a;
+      border-radius:6px; padding:5px 11px; font:inherit; font-size:12px; cursor:pointer}
+  .nv button:hover{background:#12294a}
+  .nv button.no{background:#20262f; color:var(--dim); border-color:var(--line)}
+  .nv button.no:hover{color:var(--ink)}
+  .nv .done-note{font-size:11.5px; color:var(--green)}
+  .nv .err{font-size:11.5px; color:var(--red); margin-top:6px}
+  .who-in{background:var(--panel2); color:var(--ink); border:1px solid var(--line);
+      border-radius:6px; padding:3px 7px; font:inherit; font-size:11.5px; width:110px}
   .empty-note{color:var(--faint); font-size:13px; padding:18px; text-align:center;
               border:1px dashed var(--line); border-radius:9px}
   .toggle{font-size:11.5px; color:var(--dim); display:flex; align-items:center; gap:6px;
@@ -105,6 +123,7 @@
     <span class="ro">read-only · no write scope</span>
     <span class="live"><span class="dot" id="dot"></span><span id="status">connecting…</span></span>
     <label class="toggle"><input type="checkbox" id="redact"> mask PII</label>
+    <label class="toggle">you: <input class="who-in" id="who" placeholder="your name"></label>
   </div>
   <div class="tiles" id="tiles"></div>
 </header>
@@ -115,7 +134,9 @@
     <div id="feed"><div class="empty-note">waiting for the first poll…</div></div>
   </section>
   <aside>
-    <h2>Tickets</h2>
+    <h2>Needs a human — the matcher refused to guess</h2>
+    <div id="novel"></div>
+    <h2 style="margin-top:22px">Tickets</h2>
     <div id="tickets"></div>
   </aside>
 </main>
@@ -135,7 +156,8 @@ function tiles(s){
              ["informational",s.informational,"warn"],
              ["issues",s.issues,"info"],["tickets to raise",s.tickets,"good"],
              ["held back",s.held_back,"warn"],["repeat issues",s.repeat_issues,"warn"],
-             ["novel",s.novel,"info"],["identifiers",s.entities,"info"]];
+             ["novel",s.novel,"info"],["awaiting a human",s.novel_pending,"warn"],
+             ["confirmed",s.confirmations,"good"],["identifiers",s.entities,"info"]];
   return T.map(([l,n,c])=>`<div class="tile ${c}"><div class="n">${n??0}</div><div class="l">${l}</div></div>`).join("");
 }
 
@@ -193,6 +215,113 @@ function card(m, R){
   return h + "</div>";
 }
 
+// ── The NOVEL queue ──────────────────────────────────────────────────────────────────────
+// A refusal is a question. Answering it writes a gold exemplar, and the next message worded
+// like this one is classified instead of asked about again.
+let DISPOSITIONS = [];
+
+const who = document.getElementById("who");
+who.value = localStorage.getItem("intake_who") || "";
+who.addEventListener("change", ()=> localStorage.setItem("intake_who", who.value.trim()));
+
+// The page repaints every 2s. Repainting a panel someone is typing into would wipe what they
+// typed, so the queue holds still while it has focus — and one render is skipped after a
+// submit so the answer does not flicker before the next poll catches up.
+function queueBusy(){
+  const q = document.getElementById("novel");
+  return q.contains(document.activeElement) &&
+         ["SELECT","INPUT","BUTTON"].includes(document.activeElement.tagName);
+}
+
+function novelCard(it, R){
+  const body = R ? mask(it.text) : it.text;
+  if (it.confirmed){
+    const c = it.confirmed;
+    const what = c.decision === "not_an_issue" ? "not an issue" : esc(c.disposition);
+    return `<div class="nv done">
+      <div class="row"><span class="tag t">answered</span>
+        <span>${esc(it.author||"")}</span><span>${esc(it.time||"")}</span></div>
+      <div class="q">${esc((body||"").slice(0,220))}</div>
+      <div class="done-note">${what} · ${esc(c.by||"")} · takes effect on the next index build</div>
+    </div>`;
+  }
+  const opts = DISPOSITIONS.map(d=>`<option value="${esc(d)}">${esc(d)}</option>`).join("");
+  return `<div class="nv" data-id="${esc(it.issue_id)}">
+    <div class="row">
+      ${(it.occurrences||1)>1?`<span class="tag h">raised ${it.occurrences}×</span>`:""}
+      <span>${esc(it.author||"")}</span><span>${esc(it.time||"")}</span>
+      ${it.permalink?`<a href="${esc(it.permalink)}" target="_blank"
+         style="margin-left:auto;color:var(--faint);font-size:11px">open in Slack</a>`:""}
+    </div>
+    <div class="q">${esc((body||"").slice(0,220))}</div>
+    <div class="ctl">
+      <select class="pick">
+        <option value="">— pick a class —</option>${opts}
+        <option value="__new__">+ new class…</option>
+      </select>
+      <input class="newname" placeholder="new class name" style="display:none">
+      <button class="yes">confirm</button>
+      <button class="no">not an issue</button>
+    </div>
+    <div class="err" style="display:none"></div>
+  </div>`;
+}
+
+async function send(el, payload){
+  const err = el.querySelector(".err");
+  el.querySelectorAll("button,select,input").forEach(b=>b.disabled = true);
+  try {
+    const r = await fetch("/api/confirm", {
+      method: "POST",
+      // Makes the request non-simple, so a cross-origin page cannot send it without a
+      // preflight the server refuses. See do_POST.
+      headers: {"Content-Type":"application/json", "X-Intake-Confirm":"1"},
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || "refused");
+    skipNext = true;
+    el.classList.add("done");
+    el.querySelector(".ctl").innerHTML =
+      `<span class="done-note">recorded — runs scripts/build_exemplars.py to take effect</span>`;
+  } catch(e){
+    err.style.display = "";
+    err.textContent = String(e.message||e);
+    el.querySelectorAll("button,select,input").forEach(b=>b.disabled = false);
+  }
+}
+
+document.getElementById("novel").addEventListener("change", (ev)=>{
+  if (!ev.target.classList.contains("pick")) return;
+  const el = ev.target.closest(".nv");
+  el.querySelector(".newname").style.display = ev.target.value === "__new__" ? "" : "none";
+});
+
+document.getElementById("novel").addEventListener("click", async (ev)=>{
+  const el = ev.target.closest(".nv");
+  if (!el) return;
+  const it = (LAST_QUEUE||[]).find(x=>x.issue_id === el.dataset.id);
+  if (!it) return;
+  const by = (who.value||"").trim();
+  const fail = (m)=>{ const e = el.querySelector(".err"); e.style.display=""; e.textContent=m; };
+
+  if (ev.target.classList.contains("no")){
+    if (!by) return fail("put your name in the box at the top — an unattributed label cannot be questioned");
+    return send(el, {text: it.text, decision: "not_an_issue", confirmed_by: by,
+                     issue_id: it.issue_id, permalink: it.permalink});
+  }
+  if (ev.target.classList.contains("yes")){
+    if (!by) return fail("put your name in the box at the top — an unattributed label cannot be questioned");
+    const sel = el.querySelector(".pick").value;
+    const disp = sel === "__new__" ? (el.querySelector(".newname").value||"").trim() : sel;
+    if (!disp) return fail("pick a class, or name a new one");
+    return send(el, {text: it.text, decision: "label", disposition: disp, confirmed_by: by,
+                     issue_id: it.issue_id, permalink: it.permalink});
+  }
+});
+
+let LAST_QUEUE = [], skipNext = false;
+
 async function tick(){
   let d;
   try { d = await (await fetch("/api/state",{cache:"no-store"})).json(); }
@@ -226,6 +355,15 @@ async function tick(){
           ? `${esc(t.ref||"")} · ${t.replies||0} replies${t.latency!=null?` · first response ${Math.round(t.latency)}s`:""}`
           : "held back — "+esc((t.reason||"").split(" —")[0])}</div>
     </div>`).join("") : '<div class="empty-note">none yet</div>';
+
+  DISPOSITIONS = d.dispositions || DISPOSITIONS;
+  LAST_QUEUE = d.novel_queue || [];
+  if (skipNext) { skipNext = false; }
+  else if (!queueBusy()) {
+    document.getElementById("novel").innerHTML = LAST_QUEUE.length
+      ? LAST_QUEUE.map(it=>novelCard(it,R)).join("")
+      : '<div class="empty-note">nothing unclassified — every issue matched a known class</div>';
+  }
 
   first = false;
 }

@@ -223,3 +223,34 @@ def test_without_qualification_nothing_is_filtered(pipeline):
         "SELECT COUNT(*) FROM assignments WHERE run_id='r1' AND channel_id='C0AKEL49PEF'"
     ).fetchone()[0]
     assert leaked > 0
+
+
+def test_a_tiny_sample_cannot_overrule_an_in_scope_declaration(pipeline):
+    """FOUND LIVE. A test channel with 5 substantive messages scored a 0.0% identifier rate,
+    the gate excluded it, and a correctly-classified issue had nowhere to go — the tickets
+    panel stayed empty while the feed showed `ev=issue`.
+
+    An identifier rate over a handful of messages is noise. Below the minimum sample the human
+    declaration stands, or every newly-added channel is killed before it has said anything."""
+    from app.intake import qualify
+
+    con = pipeline
+    # Keep only a handful of messages in an in-scope channel, none carrying an identifier.
+    con.execute("DELETE FROM entities WHERE run_id='r1'")
+    con.execute("DELETE FROM messages WHERE channel_id != 'C08T6NLL77H'")
+    keep = [r["message_id"] for r in con.execute(
+        "SELECT message_id FROM messages WHERE thread_ref IS NULL LIMIT 4")]
+    con.execute("DELETE FROM messages WHERE message_id NOT IN (%s)"
+                % ",".join("?" * len(keep)), keep)
+    con.commit()
+
+    q = qualify.run("r1", con=con)
+    ch = q["channels"]["valmo-lm-ams"]
+    assert ch["identifier_rate"] == 0.0
+    assert ch["in_scope"] is True, "a 4-message sample must not overrule the declaration"
+    assert "insufficient_sample" in ch["reason"]
+
+    # and the practical consequence: issues still get created
+    group.run("r1", con=con)
+    assert con.execute("SELECT COUNT(*) FROM assignments WHERE run_id='r1' "
+                       "AND issue_id IS NOT NULL").fetchone()[0] > 0

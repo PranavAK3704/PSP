@@ -51,7 +51,9 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
     con = con or store.connect()
     try:
         cfg = load_config(config_path)
-        threshold = float((cfg.get("thresholds") or {}).get("identifier_rate", 0.30))
+        thr = cfg.get("thresholds") or {}
+        threshold = float(thr.get("identifier_rate", 0.30))
+        min_sample = int(thr.get("min_sample", 30))
         declared = {c["id"]: c for c in (cfg.get("channels") or [])}
         sample_n = int((cfg.get("thresholds") or {}).get("sample_size", 30))
 
@@ -105,11 +107,19 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
                 reason = (f"not declared in {config_path.name}: identifier rate "
                           f"{id_rate:.1%} on {len(top)} substantive top-level messages "
                           f"(threshold {threshold:.0%}). Add it explicitly to opt in.")
+            elif in_scope and len(top) < min_sample:
+                # Not enough evidence to overrule a human. An identifier rate over a handful of
+                # messages is noise, and excluding on it silently drops every real issue in the
+                # channel — which is exactly what happened the first time this ran live.
+                reason = (f"{decl.get('reason', '')} — insufficient_sample: only {len(top)} "
+                          f"substantive top-level messages, below the {min_sample} needed to "
+                          f"judge an identifier rate. The declaration stands "
+                          f"(rate so far {id_rate:.1%})")
             elif in_scope and id_rate < threshold:
                 in_scope = False
                 reason = (f"declared in scope BUT identifier rate {id_rate:.1%} is below the "
-                          f"{threshold:.0%} threshold on {len(top)} messages — the gate "
-                          f"overrides the declaration")
+                          f"{threshold:.0%} threshold on {len(top)} messages "
+                          f"(>= {min_sample} sampled) — the gate overrides the declaration")
             else:
                 reason = (f"{decl.get('reason', '(no reason given)')} — identifier rate "
                           f"{id_rate:.1%} on {len(top)} substantive top-level messages")
@@ -141,7 +151,7 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
              datetime.now(timezone.utc).isoformat(timespec="seconds"),
              len(rows), sum(r[13] for r in rows), 1 if sampler else 0, str(config_path)))
         con.commit()
-        return {"channels": report, "threshold": threshold,
+        return {"channels": report, "threshold": threshold, "min_sample": min_sample,
                 "in_scope": [k for k, v in report.items() if v["in_scope"]],
                 "excluded": {k: v["reason"] for k, v in report.items() if not v["in_scope"]},
                 "sampled_issue_share_available": sampler is not None}

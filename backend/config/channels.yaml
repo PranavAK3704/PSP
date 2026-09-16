@@ -11,6 +11,17 @@ thresholds:
   # Substantive top-level messages carrying at least one identifier (DC code, Kapture id,
   # waybill, mobile, pilot id, email). firefighters measures ~56%; pilot_support_ams ~11%.
   identifier_rate: 0.30
+  # MINIMUM SAMPLE before the gate may override an explicit in_scope declaration.
+  #
+  # Found in a live demo: a test channel with 5 substantive messages -- "hi", "goodmorning",
+  # "can we go play arena" and one real issue -- scored a 0.0% identifier rate, so the gate
+  # excluded the channel and NOTHING became an issue. The message classified correctly as an
+  # issue and then had nowhere to go.
+  #
+  # An identifier rate computed over 5 messages is noise. Below this count the declaration
+  # stands and the gate reports `insufficient_sample` rather than excluding -- otherwise every
+  # newly-added channel is killed before it has said anything.
+  min_sample: 30
   # How many top-level messages the sampled Claude estimate reads. Sampled, not exhaustive:
   # it is a sanity check on a channel, not a per-message label.
   sample_size: 30

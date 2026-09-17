@@ -58,6 +58,33 @@ a ticket per conversation, derived from the flow of the conversation — does no
 
 ---
 
+## The language problem — measured, and it changes the architecture
+
+Lexical matching does not degrade gracefully across scripts. It falls off a cliff.
+
+| Group | Precision | Coverage | |
+|---|---|---|---|
+| English | **88.1%** | 81.6% | works |
+| Hinglish (Latin script) | **72.2%** | 94.7% | degrades — 16 points |
+| Devanagari | **score 0.0** | — | **fails completely** |
+
+`मेरा पेमेंट नहीं आया` scores **0.00** and is always NOVEL. BM25 matches tokens; there are 5
+Devanagari messages in 1,814, so a Devanagari message matches nothing at all. Same for vocabulary
+the corpus has never seen — `gaadi kharab ho gayi` (vehicle broken down) also scores 0.00.
+
+**And the corpus is the wrong population for this question.** It is 90.5% English because it
+comes from *Kapture email tickets*. Slack skews more Hinglish; **WhatsApp will skew far more**,
+with Devanagari and voice-note transcripts. We have **11 real Slack messages and zero WhatsApp
+messages** to measure on — so the honest position is that the numbers above are a *floor* on the
+problem, not a measurement of it.
+
+**Conclusion: the deterministic tier cannot be the only tier once WhatsApp is live.** It stays as
+the cheap first pass — it is free, explainable and handles the English bulk — with a model tier
+behind it for what it refuses. That is an escape path, not a replacement, which is why it is
+affordable (see item 8).
+
+---
+
 ## Blocked on you
 
 ### 1. Decide the money taxonomy ⭐ highest value
@@ -138,21 +165,67 @@ and you have the human cost — and the ceiling on what any paid tier could save
 
 ## Mine to build
 
-### 8. Feed "not an issue" confirmations back into the evidence gate
+### 8. LLM escape tier — the answer to Hinglish and Devanagari ⭐ needs your go-ahead
+**Blocks: any surface that is not English-dominant**
+
+The deterministic tier handles what it can for free and *refuses* the rest. Only the refusals
+reach a model, which is what makes this cheap. Priced from the real funnel (56 messages → 23
+issues, 8 refused), with an on-disk cache so a repeated message costs nothing:
+
+| Volume | Escape | Opus 5 | Sonnet 5 | Haiku 4.5 |
+|---|---|---|---|---|
+| 100k msgs/mo | 20% | $41/mo | $17/mo | $8/mo |
+| 1M msgs/mo | 20% | $413/mo | $165/mo | $83/mo |
+| 1M msgs/mo | 35% (today's rate) | $723/mo | $289/mo | $145/mo |
+
+Halve every figure with the Batch API where latency allows. **At 1M messages/month the most
+capable model costs ~$413/mo** — against a support operation of this size, that is not a real
+constraint, and the escape rate falls as exemplars grow.
+
+Recommendation: **start on Opus 5**, because the escape path only sees what the cheap tier
+already failed — that is exactly where capability matters. Measure, then step down to Haiku if
+quality holds. The key already exists in `backend/.env`.
+
+Guards that must ship with it: a hard `max_spend_usd` with its own ledger (**not**
+`llm_spend.json` — that is the deployment's $45 chat budget), the on-disk cache so a re-run costs
+nothing, and `intent_source` on every row so model-labelled tickets stay separable from
+deterministic ones.
+
+### 9. Catch the issues the gate wrongly killed ⭐ the biggest hole
+**Blocks: trusting the gate at all**
+
+Today the loop only learns in one direction. A NOVEL goes to a human and comes back as an
+exemplar. But **a real issue killed by the noise gate is seen by nobody, ever** — it does not
+appear in a queue, a count, or a report. That is the failure mode that matters most, because it
+is silent.
+
+Three mechanisms, cheapest first:
+
+1. **Behavioural re-verification, free and deterministic.** A gated message that then gets a
+   thread with replies, or a reaction, was probably an issue. We already store `reply_count` and
+   thread structure — so the pipeline can re-open its own decision on evidence that arrived
+   *later*, with no human and no model. This is the "re-verify it over and over" mechanism.
+2. **A sampled rejection queue.** Every rejection already carries its score and components.
+   Surface N per week next to the NOVEL queue; a human clicking "this was an issue" both raises
+   the ticket and records a negative example.
+3. **Feed those negatives into the gate.** The counterpart to the NOVEL loop, closing the
+   negative half. Today they are collected but inert.
+
+### 10. Feed "not an issue" confirmations back into the evidence gate
 Collected today but inert — the gate is rule-based, so a negative has nowhere to go. ~1 day.
 
-### 9. Fix dedupe's O(n²)
+### 11. Fix dedupe's O(n²)
 Measured **5.21s at 3,500 issues**, grows with the square. Needed before any backfill. ~half a day.
 
-### 10. Real-time hardening: Socket Mode, a queue, settle delay
+### 12. Real-time hardening: Socket Mode, a queue, settle delay
 The 5s poll is fine for a demo, not for traffic. A burst must not drop messages, a crash must not
 lose them, and you cannot dedupe a cross-post that has not arrived yet — the MX1 pair was 47s
 apart. ~2 days.
 
-### 11. `chmod 600 backend/.env`
+### 13. `chmod 600 backend/.env`
 Currently 644 while the token files are 600. Two minutes.
 
-### 12. Remove the demo LLM path
+### 14. Remove the demo LLM path
 Conditional — delete once the local index exists and the deterministic tiers clear threshold on
 held-out data.
 

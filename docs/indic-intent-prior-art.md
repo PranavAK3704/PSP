@@ -108,6 +108,33 @@ does not rule out a frozen model you hold on disk.
 
 ---
 
+## The implementation detail that would have cost us most of the gain
+
+Cross-lingual similarity is **systematically lower** than same-language similarity, measured on
+our own corpus with an index containing zero Hinglish:
+
+| Query → index | Median top-1 cosine | p25 |
+|---|---|---|
+| English → English | 0.759 | 0.716 |
+| **Hinglish/Devanagari → English** | **0.663** | 0.610 |
+
+A single global floor tuned on English (0.75) therefore **silently rejects most cross-lingual
+matches** — it looks like "the encoder does not help on Hinglish" when it is really "the encoder
+was never allowed to answer".
+
+Measured on 79 real Hinglish/Devanagari messages against an English-only index — exactly the
+WhatsApp situation:
+
+| Semantic floor | Precision | Coverage | Correct per 100 |
+|---|---|---|---|
+| BM25 only — today | 71.6% | 84.8% | 60.8 |
+| hybrid, floor 0.75 (English-tuned) | 72.5% | 87.3% | 63.3 |
+| **hybrid, floor 0.50 (script-aware)** | **73.4%** | **100%** | **73.4** |
+
+**+12.6 correct labels per 100 Hinglish messages**, and higher precision, purely from letting the
+floor depend on the script of the incoming message. The tier must carry **two calibrated floors,
+not one.**
+
 ## What this changes in the plan
 
 Nothing about the direction, two things about the detail:

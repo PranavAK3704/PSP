@@ -200,23 +200,86 @@ def _eval_real_loss(row: dict, policy: dict, awb: str, pend: dict | None = None,
          if reversal_signal else "NONE — no in-scan and attribution unchanged", "passed": reversal_signal},
     ]
 
-    # 1) Not attributed to the partner at all (0% / Meesho leg) → nothing was debited.
-    if pct in ("0%", "", None) or amount in (0, None) or (row.get("leg") or "").lower() == "meesho":
+    # ── 1) Nothing was debited ───────────────────────────────────────────────────────────────
+    #
+    # A NULL PRICE IS NOT A ZERO PRICE, and conflating them produced a self-contradiction. The
+    # condition was `amount in (0, None)`, so a row with `loss_percentage='100%'` and an empty
+    # `price` (e.g. VLR082422741909, role "LM FE (Pickup)") was answered with "loss 100% … so no
+    # debit was raised" — in one sentence. Unknown is not nothing: an unpriced row falls through
+    # to the escalation branch, where a human can read the record.
+    zero_attribution = (pct in ("0%", "", None)
+                        or (row.get("leg") or "").lower() == "meesho"
+                        or amount == 0)
+    if zero_attribution:
+        # THE ADJUDICATOR'S OWN WORDS, when the QC ledger cleared this shipment. `_normalize_qc`
+        # has been recording `_qc_verdict` ("No defect found", "Box item - no debit") and
+        # `_qc_debitable_role` with the comment "so the reply can quote the reason rather than
+        # paraphrase a code" — and nothing read them. 214,078 of 252,187 QC rows say No Debit, and
+        # every one of those captains got the generic upstream-attribution line instead of the
+        # actual finding, which is both less true and less reassuring.
+        qc_verdict = (row.get("_qc_verdict") or "").strip()
+        if row.get("_qc_no_debit") and qc_verdict:
+            reason = (f"QC record par verdict hai: **{qc_verdict}** — isliye AWB {awb} par aap par "
+                      f"koi debit nahi laga. Aapki taraf se kuch pending nahi hai.")
+            checks = checks + [{"id": "qc_adjudication", "description": "Secondary QC adjudication",
+                                "result": f"NO DEBIT — {qc_verdict}", "passed": True}]
+        else:
+            reason = (f"On record this {reason_l1} loss was attributed to Meesho/upstream "
+                      f"(loss {pct or '0%'}), so no debit was raised on your account for AWB "
+                      f"{awb} — there is nothing to reverse.")
         return {"action": "respond", "disposition": disp, "amount_inr": amount, "awb": awb, "confidence": 0.9,
-                "reason": f"On record this {reason_l1} loss was attributed to Meesho/upstream (loss {pct or '0%'}), "
-                          f"so no debit was raised on your account for AWB {awb} — there is nothing to reverse.",
+                "reason": reason,
                 "evidence_trail": ev, "checks_run": checks, "evidence_present": present, "policy": policy,
                 # No `debited`: nothing was taken, so no reversal or evidence follow-up applies.
                 "followup_facts": dict(fu_facts)}
 
-    # 2) Already revoked on record.
-    if action_kind == "inform" or reason_l1 == "debit_revoked":
+    # ── 2) Genuinely revoked on record ───────────────────────────────────────────────────────
+    if reason_l1 == "debit_revoked":
         return {"action": "respond", "disposition": disp, "amount_inr": amount, "awb": awb, "confidence": 0.9,
                 "reason": f"Good news — the ₹{amount} debit on AWB {awb} is already marked REVOKED/reversed on record. "
                           f"Nothing is pending from your side.",
                 "evidence_trail": ev, "checks_run": checks, "evidence_present": present, "policy": policy,
                 # No `debited`: already revoked on record.
                 "followup_facts": dict(fu_facts)}
+
+    # ── 2b) The policy says INFORM — and the debit is LIVE ───────────────────────────────────
+    #
+    # THIS BRANCH USED TO SAY THE OPPOSITE, and it was the worst defect in the file.
+    #
+    # The condition was `action_kind == "inform" or reason_l1 == "debit_revoked"`, and both arms
+    # returned "already marked REVOKED/reversed on record. Nothing is pending from your side."
+    # But `inform` does not mean "inform them it was reversed" — it means the outcome is decided
+    # and there is nothing to raise. For the two biggest shortage sub-states the decided outcome
+    # is that the captain PAYS:
+    #
+    #     shortage - evidence not received   84,586 rows, 100% debited
+    #     shortage - evidence invalid        75,463 rows, 100% debited
+    #     ─────────────────────────────────────────────────────────────
+    #                                       160,049 rows, every one debited
+    #
+    # Measured before the fix: AWB VL0082826330217, ₹469 taken, evidence never received —
+    # "Good news — the ₹469 debit … is already marked REVOKED/reversed. Nothing is pending from
+    # your side." A false statement about money, to the person it was taken from.
+    #
+    # Note branch 1 has already returned for every zero-attribution row, so ANYTHING reaching
+    # here has a live debit by construction. That is what makes this branch safe to invert.
+    #
+    # It compounded: with no `debited` fact the follow-up graph withheld `s_evidence` and
+    # `s_can_reverse`, so the captain who most needs the CCTV / 72h / Kapture route was the one
+    # who could not be offered it. Setting `debited` is half the fix.
+    if action_kind == "inform":
+        why = _INFORM_WHY.get(reason_l1) or (row.get("_shortage_reason_raw") or reason_l1)
+        return {"action": "respond", "disposition": disp, "amount_inr": amount, "awb": awb, "confidence": 0.9,
+                "reason": f"AWB {awb} par ₹{amount} ka debit **abhi bhi laga hua hai** — yeh reverse "
+                          f"nahi hua hai. Record mein wajah: {why}. Main khud ise reverse nahi kar "
+                          f"sakta, lekin aage kya kiya ja sakta hai woh main bata sakta hoon.",
+                "evidence_trail": ev,
+                "checks_run": checks + [{"id": "debit_state", "description": "Current debit state on record",
+                                         "result": f"STANDS — ₹{amount} at {pct}", "passed": False}],
+                "evidence_present": present, "policy": policy,
+                # A real debit stands, so the evidence and reversal follow-ups are legitimate —
+                # and they are the entire reason a captain in this state contacts us.
+                "followup_facts": {**fu_facts, "debited": "yes"}}
 
     # 3) Auto-reversible category WITH a reversal signal, within cap → reverse.
     if action_kind == "raise_for_reversal" and reversal_signal and amount is not None and (cap is None or amount <= cap):
@@ -241,6 +304,22 @@ def _eval_real_loss(row: dict, policy: dict, awb: str, pend: dict | None = None,
             "reason": f"For AWB {awb} ({reason_l1}, ₹{amount}): {note}. I've filed the full loss record to {team} "
                       f"to review — this isn't a dead-end, they'll action it.",
             "evidence_trail": ev, "checks_run": checks, "evidence_present": present, "policy": policy}
+
+
+#: Why a LIVE debit stands, per disposition — in the captain's own register, not a code.
+#
+# Keyed on the refined sub-state that `loss_db._refine_shortage` writes into `reason_l1`, so these
+# are the adjudicator's actual findings rather than a paraphrase of the bucket. Anything not listed
+# falls back to `_shortage_reason_raw`, the verbatim `losses.reason` string — which is worse prose
+# but is still true, and a true raw string beats a smooth wrong sentence.
+_INFORM_WHY = {
+    "shortage_evidence_missing": "shortage ke liye evidence record par receive nahi hui",
+    "shortage_evidence_invalid": "jo evidence mila woh validation mein valid nahi paaya gaya",
+    "shortage_marked_late":      "shortage 24 ghante ke baad mark hui thi",
+    "shortage_pending":          "shortage abhi attribution ke liye pending hai",
+    "shortage_our_delay":        "validation hamari taraf se late hui",
+    "shortage_our_error":        "validation hamare agent se galat hui",
+}
 
 
 def _exec_hardstop(policy: dict, context: dict, entities: dict) -> dict:
@@ -486,9 +565,26 @@ def _exec_load_planning(policy: dict, context: dict, entities: dict) -> dict:
     #: reading, and a follow-up needing a fact that was never read is simply not offered.
     facts: dict = {}
 
+    #: The full sequence, declared up front so an escalation can say what it never got to.
+    #
+    # These checks are DEPENDENCY-ORDERED, not lazily skipped: check 2 evaluates an order
+    # waterfall that only exists if check 1 found the hub's data, and check 3 reads levers off
+    # the same payload. So "run them all anyway" is not available — there is nothing to run them
+    # against. What WAS missing is the distinction between a check that FAILED and one that was
+    # never reachable, which read identically to an L3 agent: both simply absent from the list.
+    _SEQUENCE = ("hub_in_growth_data", "order_waterfall_complete",
+                 "performance_levers_readable", "dominant_loss_stage")
+
     def _out(action, conf, reason):
+        run = {c["id"] for c in checks}
+        unreached = [c for c in _SEQUENCE if c not in run]
+        full = checks + [
+            {"id": c, "description": c.replace("_", " "),
+             "result": f"NOT REACHED — depends on {checks[-1]['id'] if checks else 'earlier checks'}",
+             "passed": None}
+            for c in unreached] if action == "escalate" else checks
         return {"action": action, "disposition": "load_planning", "confidence": conf,
-                "reason": reason, "evidence_trail": ev, "checks_run": checks,
+                "reason": reason, "evidence_trail": ev, "checks_run": full,
                 "evidence_present": present, "policy": policy, "hub": hub,
                 "followup_facts": dict(facts)}
 

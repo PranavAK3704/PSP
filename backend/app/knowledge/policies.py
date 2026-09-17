@@ -126,9 +126,19 @@ _TAXONOMY = {
     # someone wait a day to be told something already written down.
     "shortage_evidence_missing":   ("shortage_evidence_missing",  "Losses & Debits (L2)",           "inform",        None),
     "shortage_evidence_invalid":   ("shortage_evidence_invalid",  "Losses & Debits (L2)",           "inform",        None),
-    # Both parties' evidence agrees the shortage was not the captain's — the strongest reversal
-    # signal in the dataset. Thresholded like the other money actions, so a large amount still
-     # goes to a human, and the trust gate and adversarial verifier still apply on top.
+    # Both parties' evidence agrees the shortage was not the captain's. This was described here as
+    # "the strongest reversal signal in the dataset", and that reading does not survive the data:
+    # MEASURED, all 23,839 rows carry loss_percentage 0% and loss_value 0. The loss was never
+    # attributed to the captain in the first place, so there is nothing to reverse and this action
+    # cannot fire — `_eval_real_loss` branch 1 correctly answers "nothing was debited" instead.
+    #
+    # Left declared rather than quietly downgraded to `inform`, because the declaration is not
+    # wrong about the WORLD (a captain exonerated by both parties' evidence should not pay) — it is
+    # wrong about this SNAPSHOT, where they already do not. `check_dataplane` now reports every
+    # policy whose declared action no row can trigger, so the gap is visible instead of assumed.
+    #
+    # Do NOT "fix" this by reordering the branches so raise_for_reversal wins: that would file a
+    # reversal request for money that was never taken, on 23,839 shipments.
     "shortage_evidence_upheld":    ("shortage_evidence_upheld",   "Losses & Debits (L2)",           "raise_for_reversal", 5000),
     "shortage_our_delay":          ("shortage_our_delay",         "Losses & Debits (L2)",           "inform",        None),
     "shortage_our_error":          ("shortage_our_error",         "Losses & Debits (L2)",           "inform",        None),

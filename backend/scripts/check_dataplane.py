@@ -26,6 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts._contain import contain; contain()   # MUST precede every `app.` import — see _contain.py
+from scripts._harness import FAILED, check, head   # noqa: E402
 
 os.environ.setdefault("PSP_DATA_PROVIDER", "localdb")   # the provider with the most to leak
 
@@ -33,13 +34,6 @@ from app.engine import dataplane, tools                      # noqa: E402
 from app.engine.algo.entities import extract as extract_ents  # noqa: E402
 from app.substrate import captain_context as ctx, loss_db     # noqa: E402
 
-FAILED: list[str] = []
-
-
-def check(label: str, ok: bool, detail: str = "") -> None:
-    print(f"  {'ok  ' if ok else 'FAIL'} {label}" + (f" — {detail}" if detail else ""))
-    if not ok:
-        FAILED.append(label)
 
 
 def main() -> int:
@@ -216,6 +210,86 @@ def main() -> int:
         check(f"action={act} · carries no identifier at all",
               not dataplane.violations(res, set()),
               "the escalation relay line names no awb by design")
+
+    # ── a reply must never contradict the row it was composed from ──────────────────────────
+    #
+    # THE BUG THIS EXISTS FOR: `_eval_real_loss` branch 2 gated on `action_kind == "inform"` and
+    # replied "already marked REVOKED/reversed on record. Nothing is pending from your side."
+    # `inform` does not mean reversed — it means the outcome is decided. For the two largest
+    # shortage sub-states the decided outcome is that the captain PAYS: 84,586 + 75,463 =
+    # 160,049 rows, every one of them debited, each told their money had come back.
+    #
+    # A claim about money that contradicts its own source row should fail a harness, not a demo.
+    head("[8] a reply never contradicts the row it came from")
+    from app.engine import policy_exec as _pe
+    from app.substrate import loss_db as _ldb
+    _CTX = {"captain_id": "20020388788"}
+    # One real AWB per debited sub-state — the exact rows that used to lie.
+    for awb, note in (("VL0082826330217", "shortage, evidence never received, Rs 469"),
+                      ("VLR081540945517", "shortage, evidence invalid, Rs 179"),
+                      ("VL0083129710031", "shortage marked late, Rs 137")):
+        row = _ldb.get_loss_by_awb(awb) or {}
+        val = str(row.get("loss_value") or "0").replace(",", "")
+        debited = (float(val or 0) > 0) and str(row.get("loss_percentage") or "") not in ("0%", "")
+        d = _pe.execute(row.get("reason_l1") or "hardstop_loss", _CTX, {"awb": awb})
+        said = (d.get("reason") or "").lower()
+        # PAST tense only. "should be reversed, and I have raised it for reversal" is the
+        # raise_for_reversal branch making a RECOMMENDATION, which is true and must not trip this.
+        # The defect was a claim of COMPLETION — that the money is already back.
+        claims_reversed = any(w in said for w in (
+            "already marked revoked", "already reversed", "already credited",
+            "credited back", "nothing is pending from your side"))
+        check(f"{awb} — {note}", not (debited and claims_reversed),
+              "row says the debit STANDS; the reply claimed it was reversed" if debited and claims_reversed
+              else f"debited={debited}, action={d.get('action')}")
+        # And the corollary: a live debit must arm the evidence follow-ups, or the captain who
+        # needs the CCTV/72h route is the one who cannot be offered it.
+        # Only when we ANSWERED. An escalated case deliberately arms nothing: `router._refusals`
+        # declines the following turn with "previous turn escalated" rather than talk over a case
+        # already with a human, so follow-up facts there would be state nothing can read.
+        if debited and d.get("action") == "respond":
+            check("   and arms the evidence follow-ups",
+                  (d.get("followup_facts") or {}).get("debited") == "yes",
+                  "a standing debit we answered must offer the evidence route")
+
+    # ── declared actions that no row can trigger ────────────────────────────────────────────
+    #
+    # Reported, NOT failed. A policy may legitimately declare an action for a world state this
+    # snapshot does not contain — `shortage_evidence_upheld` declares raise_for_reversal and all
+    # 23,839 of its rows carry 0% loss, because those captains were never debited. That is the
+    # policy being right about the world and wrong about the data, which is worth SEEING every
+    # run rather than discovering when someone asks why a number is zero.
+    head("[9] declared money actions vs what the data can actually trigger")
+    import sqlite3 as _sq
+    try:
+        _c = _sq.connect("file:data/valmo.db?mode=ro", uri=True)
+        _debited = ("SUM(CASE WHEN CAST(REPLACE(COALESCE(loss_value,'0'),',','') AS REAL) > 0 "
+                    "AND TRIM(COALESCE(loss_percentage,'')) NOT IN ('0%','') THEN 1 ELSE 0 END)")
+        # A shortage SUB-STATE is not a column value — `loss_db._refine_shortage` derives it at
+        # read time from `losses.reason`. Querying reason_l1 for it matches nothing, which would
+        # make this report silently say "0 unreachable" forever. Reverse the same map it uses.
+        from app.substrate.loss_db import _SHORTAGE_SUBSTATE as _SUB
+        _rev = {v: k for k, v in _SUB.items()}
+        from app.knowledge import policies as _pol
+        unreachable = []
+        for _p in _pol.all_policies():
+            if (_p.get("resolution") or {}).get("action") != "raise_for_reversal":
+                continue
+            _d = _p["disposition"]
+            if _d in _rev:
+                n, deb = _c.execute(f"SELECT COUNT(*), {_debited} FROM losses "
+                                    "WHERE LOWER(TRIM(COALESCE(reason,''))) = ?", (_rev[_d],)).fetchone()
+            else:
+                n, deb = _c.execute(f"SELECT COUNT(*), {_debited} FROM losses "
+                                    "WHERE LOWER(TRIM(COALESCE(reason_l1,''))) = ?", (_d,)).fetchone()
+            if n and not (deb or 0):
+                unreachable.append(f"{_d} ({n:,} rows, 0 debited)")
+        for u in unreachable:
+            print(f"       declared raise_for_reversal but unreachable: {u}")
+        print(f"       {len(unreachable)} policy(ies) declare a money action no row can trigger "
+              f"— reported, not failed")
+    except Exception as e:  # noqa: BLE001 — a report must never fail the harness
+        print(f"       (reachability report unavailable: {type(e).__name__})")
 
     print()
     if FAILED:

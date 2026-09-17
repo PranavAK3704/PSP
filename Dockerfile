@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1
 # Valmo Partner Support Platform — PRODUCTION image for Render.
 # ONE image: FastAPI serves the built React SPA at "/" and the API at "/api/*"
-# (same-origin, SSE included). This is unrelated to the archived hackathon nginx
-# flow in _deploy_archive/ — local dev still uses run.sh (Vite on :5190).
+# (same-origin, SSE included). Local dev still uses run.sh (Vite on :5190).
 
 # ---- Stage 1: build the React (Vite) frontend --------------------------------
 FROM node:20-slim AS frontend

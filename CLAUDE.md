@@ -23,7 +23,11 @@ that a reader might otherwise reverse by accident.
 
 - **`intake.db` is local and build-time only.** `*.db` is gitignored and dockerignored, and
   `scripts/push_to_turso.py` recreates tables as all-TEXT with no constraints — which would
-  drop the composite primary key. Nothing in FastAPI imports the intake module.
+  drop the composite primary key. **The pipeline's store is not reachable from the API:**
+  `main.py` mounts `intake_api`, but that router reads `durable_state` only — it never
+  touches `intake/store.py`, `intake/labels.py` or `intake/notify.py`. So `INTAKE_DB`,
+  `INTAKE_LABELS` and the `SMTP_*` vars are build-time only and are deliberately absent
+  from `render.yaml`.
 - **The path comes from `$INTAKE_DB`.** `_contain.py` symlinks directories and `*.db` into the
   harness tmpdir, so a subdirectory does not help; without the override a harness writes
   through to the real store. This is the repo's first writable database.

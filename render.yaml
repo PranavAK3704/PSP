@@ -43,11 +43,43 @@ services:
       # answer with a model what a dictionary answers exactly.
       - key: PSP_PREROUTER_GREETING
         value: "on"
+      # Follow-ups, now live. The line that held them in shadow said "flip once the shadow diffs
+      # have been read" — and nothing read them: the withheld reply goes to trace["shadow_reply"]
+      # and no script ever loaded it back. So shadow was a permanent cost with no product.
+      # Measured: `hardstop kya hai` computed a correct sourced answer and returned None to the
+      # captain, who then paid Rs 4.54 for a worse one. 83 phrasings / 27 sourced nodes in
+      # check_followups.py, with must-not-fire negatives; check_shadow.py now reports the diff.
+      - key: PSP_PREROUTER_FOLLOWUP
+        value: "on"
+      # Glossary — the same nodes, reachable on TURN ONE, which they were not before: tier()
+      # opened with `if not disp: return None`, so a captain's first message never reached any of
+      # them (measured: warm 10/16 process phrasings resolved, cold 0/16). Live because the cold
+      # scope is UNGATED definitions only — true for every captain, no per-captain premise to be
+      # wrong about.
+      - key: PSP_PREROUTER_GLOSSARY
+        value: "on"
       # At-risk shipments: `derived` reads the real loss ledger. Declared rather than left to
       # the code default so a reader of this file can see which source is live — if it ever
       # drops to `seed` the monitor shows FICTIONAL shipments and looks identical to working.
       - key: PSP_RISK_SOURCE
         value: derived
+      # Same argument as PSP_RISK_SOURCE: the code already defaults to `fixture`, but a default
+      # is invisible. Declared so that switching the growth dashboard to a live source is a diff
+      # in this file rather than a var someone added in the dashboard six months ago.
+      - key: PSP_GROWTH_SOURCE
+        value: fixture
+      # THE MONEY GUARD, declared because it is the one value whose silence is dangerous.
+      # `write_mode.mode()` already falls back to `simulated` on anything it does not recognise —
+      # deliberately, so a typo can never be the thing that decides money moves. Writing it here
+      # buys something the default cannot: `live` becomes a reviewable change to a tracked file
+      # instead of an env var quietly added in the Render UI.
+      #
+      # It cannot legitimately be `live` today in any case: LossManagementService exposes no HTTP
+      # endpoint for a reversal (it is a Kafka LossAttributionMessage consumed by its own
+      # scheduler, ADR-0015), and PSP has no producer, no topic credentials and no authority to
+      # publish one. Every reversal the engine reaches is a recommendation.
+      - key: WRITE_MODE
+        value: simulated
       # ── Dashboard-set secrets (never committed) ──
       # ACTIVE provider is `claude` (backend/config/models.yaml), so ANTHROPIC_API_KEY is the
       # one the running app actually needs. Declared here so a blueprint sync can never

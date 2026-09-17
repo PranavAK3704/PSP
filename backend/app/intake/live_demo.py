@@ -148,8 +148,44 @@ def _snapshot(con) -> dict:
                 "first_raised": d["first_raised_at"], "last_raised": d["last_raised_at"]}
                for d in sorted(drafts.values(), key=lambda x: (x["suppressed"], x["title"] or ""))]
 
+    # ── LISTENING CHANNELS ──────────────────────────────────────────────────────────────
+    # One row per channel we are reading, with what the pipeline made of it. This is the panel
+    # that answers "where are we listening, and is anything coming in from there" — a channel
+    # that is connected but silent looks identical to one that is broken until you show counts.
+    chan_rows = {}
+    for r in con.execute(
+            "SELECT channel_id, channel_name, COUNT(*) n, MAX(ts_iso) last_at "
+            "FROM messages GROUP BY channel_id, channel_name"):
+        chan_rows[r["channel_id"]] = {
+            "channel_id": r["channel_id"], "name": r["channel_name"] or r["channel_id"],
+            "messages": r["n"], "last_at": (r["last_at"] or "")[11:16], "issues": 0,
+            "tickets": 0, "qualified": None, "reason": None}
+    for r in con.execute(
+            "SELECT anchor_channel_id c, COUNT(*) n FROM issues WHERE run_id=? "
+            "GROUP BY anchor_channel_id", (RUN_ID,)):
+        if r["c"] in chan_rows:
+            chan_rows[r["c"]]["issues"] = r["n"]
+    for iid, d in drafts.items():
+        row = con.execute("SELECT anchor_channel_id c FROM issues WHERE run_id=? AND issue_id=?",
+                          (RUN_ID, iid)).fetchone()
+        if row and row["c"] in chan_rows and not d["suppressed"]:
+            chan_rows[row["c"]]["tickets"] += 1
+    # The qualification gate's verdict, so a channel excluded from ticketing says so out loud
+    # rather than just showing zero.
+    try:
+        for r in con.execute(
+                "SELECT channel_id, in_scope, reason FROM channel_qualification WHERE run_id=?",
+                (RUN_ID,)):
+            if r["channel_id"] in chan_rows:
+                chan_rows[r["channel_id"]]["qualified"] = bool(r["in_scope"])
+                chan_rows[r["channel_id"]]["reason"] = r["reason"]
+    except Exception:                                                     # noqa: BLE001
+        pass                      # qualification has not run yet on a cold start
+    channels = sorted(chan_rows.values(), key=lambda c: -c["messages"])
+
     n = len(feed)
     return {
+        "channels": channels,
         "stats": {
             "messages": n,
             "gated": sum(1 for f in feed if f["gated"]),
@@ -174,9 +210,16 @@ def _snapshot(con) -> dict:
     }
 
 
-def poll_once(channel: str, raw_dir: Path, reader, oldest: str | None = None) -> dict:
-    recs = reader.fetch(channel, oldest=oldest)
-    slack_source.write_ndjson(recs, raw_dir)
+def poll_once(channels: list[str], raw_dir: Path, reader, oldest: str | None = None) -> dict:
+    """Pull EVERY listening channel, then run the pipeline once over all of them together.
+
+    One pipeline pass over the union, not one pass per channel — because cross-channel dedupe
+    only works if both copies are in the same run. The MX1 pair that proved this was posted to
+    two channels 47 seconds apart.
+    """
+    for ch in channels:
+        recs = reader.fetch(ch, oldest=oldest)
+        slack_source.write_ndjson(recs, raw_dir)
     con = store.connect()
     try:
         loadstage.load(raw_dir, run_id=RUN_ID, con=con, skip_validate=True)
@@ -196,17 +239,18 @@ def poll_once(channel: str, raw_dir: Path, reader, oldest: str | None = None) ->
         con.close()
 
 
-def poller(channel: str, raw_dir: Path, every: float, oldest: str | None = None) -> None:
+def poller(channels: list[str], raw_dir: Path, every: float,
+           oldest: str | None = None) -> None:
     reader = slack_source.SlackReader(pause=0.15)
     while True:
         try:
-            snap = poll_once(channel, raw_dir, reader, oldest)
+            snap = poll_once(channels, raw_dir, reader, oldest)
             with _lock:
                 _state.update(snap)
                 _state["poll"] = {
                     "status": "live", "count": _state["poll"]["count"] + 1,
                     "last_at": datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S"),
-                    "error": None, "channel": channel}
+                    "error": None, "channels": channels}
         except Exception as e:                                          # noqa: BLE001
             with _lock:
                 _state["poll"] = {**_state.get("poll", {}), "status": "error",
@@ -292,7 +336,10 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--channel", required=True)
+    ap.add_argument("--channel", required=True, action="append",
+                    help="channel id. Repeat the flag, or comma-separate, to listen on several "
+                         "— they are pulled together and run through ONE pipeline pass so "
+                         "cross-channel dedupe can see both copies.")
     ap.add_argument("--port", type=int, default=8099)
     ap.add_argument("--every", type=float, default=5.0, help="seconds between Slack polls")
     ap.add_argument("--raw", default=str(_BACKEND / "data" / "intake" / "live"))
@@ -303,6 +350,9 @@ def main() -> int:
     ap.add_argument("--oldest", default=None, help="unix ts to read from")
     a = ap.parse_args()
 
+    channels = [c.strip() for spec in a.channel for c in spec.split(",") if c.strip()]
+    if not channels:
+        raise SystemExit("--channel needs at least one channel id")
     oldest = a.oldest or (f"{time.time():.6f}" if a.since_now else None)
     raw = Path(a.raw)
     if a.since_now:
@@ -310,11 +360,11 @@ def main() -> int:
         # would not be empty after all.
         for f in raw.glob("*.ndjson"):
             f.unlink()
-    threading.Thread(target=poller, args=(a.channel, raw, a.every, oldest),
+    threading.Thread(target=poller, args=(channels, raw, a.every, oldest),
                      daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)   # LOOPBACK ONLY
     print(f"\n  intake live view   http://127.0.0.1:{a.port}")
-    print(f"  channel            {a.channel}")
+    print(f"  listening on       {len(channels)} channel(s): {', '.join(channels)}")
     print(f"  polling every      {a.every}s   (read-only; this app has no write scope)")
     print(f"  reading from       {'launch time — feed starts empty' if oldest else 'all history'}\n")
     try:

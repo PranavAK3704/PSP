@@ -92,6 +92,21 @@
   .tk.held{border-left-color:var(--amber); opacity:.85}
   .tk .t{font-size:13px; font-weight:600; margin-bottom:3px}
   .tk .s{font-size:11.5px; color:var(--dim)}
+  .chans{display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:10px;
+         margin-bottom:6px}
+  .ch{background:var(--panel2); border:1px solid var(--line); border-radius:9px;
+      padding:10px 12px; border-left:3px solid var(--green)}
+  .ch.quiet{border-left-color:var(--faint); opacity:.75}
+  .ch.excluded{border-left-color:var(--amber)}
+  .ch .nm{font-weight:600; font-size:13px; display:flex; align-items:center; gap:6px}
+  .ch .nm .pip{width:7px;height:7px;border-radius:50%;background:var(--green);
+               animation:pulse 2s infinite; flex:none}
+  .ch.quiet .nm .pip{background:var(--faint); animation:none}
+  .ch.excluded .nm .pip{background:var(--amber); animation:none}
+  .ch .ln{font-size:11.5px; color:var(--dim); margin-top:5px; display:flex; gap:10px;
+          flex-wrap:wrap}
+  .ch .ln b{color:var(--ink)}
+  .ch .why{font-size:11px; color:var(--amber); margin-top:5px; line-height:1.4}
   .nv{background:var(--panel); border:1px solid var(--line); border-radius:8px;
       padding:10px 12px; margin-bottom:8px; border-left:3px solid var(--violet)}
   .nv.done{border-left-color:var(--green); opacity:.7}
@@ -128,6 +143,11 @@
   <div class="tiles" id="tiles"></div>
 </header>
 
+<section style="padding:16px 22px 0">
+  <h2>Listening on</h2>
+  <div class="chans" id="chans"></div>
+</section>
+
 <main>
   <section>
     <h2>Live feed — newest first</h2>
@@ -159,6 +179,25 @@ function tiles(s){
              ["novel",s.novel,"info"],["awaiting a human",s.novel_pending,"warn"],
              ["confirmed",s.confirmations,"good"],["identifiers",s.entities,"info"]];
   return T.map(([l,n,c])=>`<div class="tile ${c}"><div class="n">${n??0}</div><div class="l">${l}</div></div>`).join("");
+}
+
+function chanCard(c){
+  // A channel that is connected but silent looks identical to one that is broken, unless the
+  // counts are on screen. So every row shows what actually arrived and what came of it.
+  const excluded = c.qualified === false;
+  const quiet = !excluded && !c.messages;
+  const cls = excluded ? "excluded" : (quiet ? "quiet" : "");
+  return `<div class="ch ${cls}">
+    <div class="nm"><span class="pip"></span>#${esc(c.name)}</div>
+    <div class="ln">
+      <span><b>${c.messages||0}</b> messages</span>
+      <span><b>${c.issues||0}</b> issues</span>
+      <span><b>${c.tickets||0}</b> tickets</span>
+      ${c.last_at?`<span style="margin-left:auto">last ${esc(c.last_at)}</span>`:""}
+    </div>
+    ${excluded?`<div class="why">excluded by the qualification gate — ${esc((c.reason||"").slice(0,90))}</div>`:""}
+    ${quiet?`<div class="ln" style="color:var(--faint)">connected, nothing yet</div>`:""}
+  </div>`;
 }
 
 function card(m, R){
@@ -333,7 +372,12 @@ async function tick(){
   document.getElementById("status").textContent =
     p.status==="error" ? ("error: "+(p.error||"").slice(0,60))
                        : `live · poll #${p.count||0} · ${p.last_at||"—"}`;
-  document.getElementById("chan").textContent = p.channel ? "#"+(p.channel_name||p.channel) : "";
+  const chs = d.channels || [];
+  document.getElementById("chan").textContent =
+    chs.length ? (chs.length === 1 ? "#"+chs[0].name : chs.length+" channels") : "";
+  document.getElementById("chans").innerHTML = chs.length
+    ? chs.map(chanCard).join("")
+    : '<div class="empty-note">no channel has reported yet — waiting for the first poll</div>';
   document.getElementById("tiles").innerHTML = tiles(d.stats||{});
 
   const feed = d.feed||[];

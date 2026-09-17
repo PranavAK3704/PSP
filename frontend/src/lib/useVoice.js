@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { select as selectTTS } from "./tts.js";
 
 /* ── Voice, as one hook both surfaces share ────────────────────────────────────────────────────
 
@@ -40,6 +41,30 @@ export const VOICE_LANGS = [
 
 const LANG_KEY = "valmo.voiceLang";
 const READ_KEY = "valmo.readAloud";
+
+/* ── How much of a reply to actually SPEAK ────────────────────────────────────────────────────
+   Measured across 711 real replies on record, and the distribution is bimodal: 294 are ~9 chars
+   ("theek hai" acknowledgements) and 306 are real answers of 200-320 chars. Median 207, p90 328,
+   max 1009. At the ~14 chars/sec this voice runs at, that is a median of 15 seconds, a p90 of 23,
+   and a worst case of SEVENTY-TWO SECONDS of synthesised Hindi with no way to skim.
+
+   Nobody listens to 72 seconds to find out whether their debit was reversed. So the spoken path
+   is not the written one read out: it speaks the opening phrases and then says the rest is on
+   screen. The written reply is untouched and complete — this only bounds the audio.
+
+   Phrase-aligned, not character-truncated: cutting mid-sentence is worse than not speaking, and
+   `phrases()` already splits on sentence punctuation including the Devanagari danda. */
+const SPOKEN_BUDGET = 240;      // ≈17s — just past the median answer, well inside p90
+const SPOKEN_MIN_PARTS = 1;     // always speak at least one whole phrase, even a long one
+
+/* Only Hindi and English are written here on purpose. A wrong sentence in Tamil or Bengali is
+   worse than an English one a captain can still place, and translating these eight is exactly
+   the localisation work the AI services team already owns. Falls back to English, never to a
+   guess. */
+const MORE_BELOW = {
+  "hi-IN": "Poora jawab neeche likha hai.",
+  "en-IN": "The full answer is written below.",
+};
 
 /* ── The domain lexicon, first pass ───────────────────────────────────────────────────────────
    Every engine reads `VL0084554575054` as number soup, "hardstop" as two unrelated words, `LZ5`
@@ -104,8 +129,21 @@ export function useVoice() {
   const [lang, setLangState] = useState(() => {
     try { return localStorage.getItem(LANG_KEY) || "hi-IN"; } catch { return "hi-IN"; }
   });
+  // ── DEFAULTS ON, and the audience is the whole argument ─────────────────────────────────
+  // This read `=== "1"`, i.e. off unless the captain had already found the toggle. That is the
+  // wrong way round for this specific user group. From the partner-support working session:
+  // 100% of DCs prefer Hindi or a regional language, 41% of captains never raise a ticket at
+  // all, and the Karnataka adoption pilot activated 16.3% against the 61% it needed — with the
+  // finding that "willingness wasn't the constraint, access was".
+  //
+  // If reading a Hinglish paragraph is the barrier, then putting the fix behind a control the
+  // captain must first notice, understand and press reproduces that pilot exactly: the help
+  // exists, and the people who need it most do not reach it.
+  //
+  // Absent is therefore ON; only an explicit "0" turns it off, and `setReadAloud` writes that
+  // the moment they press the toggle — so a captain who does not want audio says so once.
   const [readAloud, setReadAloudState] = useState(() => {
-    try { return localStorage.getItem(READ_KEY) === "1"; } catch { return false; }
+    try { return localStorage.getItem(READ_KEY) !== "0"; } catch { return true; }
   });
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
@@ -120,7 +158,9 @@ export function useVoice() {
 
   const supported = typeof window !== "undefined" &&
     !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-  const canSpeak = typeof window !== "undefined" && !!window.speechSynthesis;
+  // Asked of the adapter, not of `window.speechSynthesis` — a vendor engine is available on
+  // platforms where the browser voice is not, and vice versa.
+  const canSpeak = typeof window !== "undefined" && selectTTS().available();
 
   const setLang = useCallback((v) => {
     setLangState(v);
@@ -129,7 +169,7 @@ export function useVoice() {
   const setReadAloud = useCallback((v) => {
     setReadAloudState(v);
     try { localStorage.setItem(READ_KEY, v ? "1" : "0"); } catch { /* private mode */ }
-    if (!v) window.speechSynthesis?.cancel();
+    if (!v) selectTTS().cancel();
   }, []);
 
   /* ── the mic meter. Optional: without it the waveform falls back to a idle shimmer, so a
@@ -170,7 +210,7 @@ export function useVoice() {
   const start = useCallback((onFinal) => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return false;
-    window.speechSynthesis?.cancel();
+    selectTTS().cancel();          // half-duplex: never let our own audio into the mic
     onFinalRef.current = onFinal;
     try { recRef.current?.stop(); } catch { /* noop */ }
     const rec = new SR();
@@ -212,35 +252,42 @@ export function useVoice() {
 
   /** Speak a reply, phrase by phrase, reporting which phrase is live for the karaoke highlight. */
   const speak = useCallback((text, onDone) => {
-    const syn = window.speechSynthesis;
-    if (!syn || !readAloud) { onDone?.(); return; }
-    syn.cancel();
+    if (!readAloud || !selectTTS().available()) { onDone?.(); return; }
     const parts = phrases(text);
     if (!parts.length) { onDone?.(); return; }
     setSpeaking(true);
-    const voices = syn.getVoices?.() || [];
-    const p = lang.toLowerCase();
-    const voice = voices.find((v) => (v.lang || "").toLowerCase() === p)
-      || voices.find((v) => (v.lang || "").toLowerCase().startsWith(p.slice(0, 2)))
-      || null;
-    parts.forEach((part, i) => {
-      const u = new SpeechSynthesisUtterance(speechText(part).slice(0, 400));
-      u.lang = lang;
-      if (voice) u.voice = voice;
+    // Take whole phrases until the budget is spent — see SPOKEN_BUDGET.
+    const spoken = [];
+    let budget = SPOKEN_BUDGET;
+    for (const part of parts) {
+      if (spoken.length >= SPOKEN_MIN_PARTS && budget - part.length < 0) break;
+      spoken.push(part);
+      budget -= part.length;
+    }
+    const truncated = spoken.length < parts.length;
+    const utterances = truncated
+      ? [...spoken, MORE_BELOW[lang] || MORE_BELOW["en-IN"]]
+      : spoken;
+
+    // The LEXICON IS APPLIED HERE, above the seam, so every engine inherits it — AWBs grouped,
+    // hub codes spelled, rupees expanded. An adapter receives finished strings and only has to
+    // turn them into audio.
+    const chunks = utterances.map((part) => speechText(part));
+    const pointerIdx = truncated ? chunks.length - 1 : -1;
+    selectTTS().speak(chunks, {
+      lang,
       // Slower than default. Numbers and amounts are the payload of almost every answer, and
       // default rate runs them together.
-      u.rate = 0.92;
-      u.onstart = () => setSpokenIdx(i);
-      if (i === parts.length - 1) {
-        u.onend = () => { setSpeaking(false); setSpokenIdx(-1); onDone?.(); };
-        u.onerror = () => { setSpeaking(false); setSpokenIdx(-1); onDone?.(); };
-      }
-      syn.speak(u);
+      rate: 0.92,
+      // The pointer sentence is ours, not the answer's, so it must not light up a phrase in the
+      // transcript — the karaoke highlight would land on text that is not being said.
+      onPhraseStart: (i) => setSpokenIdx(i === pointerIdx ? -1 : i),
+      onDone: () => { setSpeaking(false); setSpokenIdx(-1); onDone?.(); },
     });
   }, [lang, readAloud]);
 
   const stopSpeaking = useCallback(() => {
-    window.speechSynthesis?.cancel();
+    selectTTS().cancel();
     setSpeaking(false);
     setSpokenIdx(-1);
   }, []);
@@ -248,7 +295,7 @@ export function useVoice() {
   // Never leave a mic open or an utterance queued behind an unmount.
   useEffect(() => () => {
     try { recRef.current?.stop(); } catch { /* noop */ }
-    window.speechSynthesis?.cancel();
+    selectTTS().cancel();
     try { audioRef.current?.stop?.(); } catch { /* noop */ }
   }, []);
 

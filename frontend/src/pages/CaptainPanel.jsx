@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Send, Mic, MicOff, Cpu, Radio, ThumbsUp, ThumbsDown, Paperclip, X,
-  ChevronRight, Clock, CheckCircle2, MessageSquare, FolderOpen, Trash2 } from "lucide-react";
+import { Send, Mic, MicOff, Cpu, Radio, ThumbsUp, ThumbsDown, Paperclip, X, ChevronRight, Clock,
+         CheckCircle2, MessageSquare, FolderOpen, Trash2 } from "lucide-react";
 
-// Indic voice-input languages (Web Speech API BCP-47 codes). North = Hindi/English;
-// South + Maharashtra need their own — captains are across all regions.
-const VOICE_LANGS = [
-  ["hi-IN", "हिंदी"], ["en-IN", "English"], ["mr-IN", "मराठी"], ["ta-IN", "தமிழ்"],
-  ["te-IN", "తెలుగు"], ["kn-IN", "ಕನ್ನಡ"], ["ml-IN", "മലയാളം"], ["bn-IN", "বাংলা"],
-];
+// Voice constants and the pronunciation lexicon come from the hook that owns them.
+// This file had a byte-identical VOICE_LANGS and its own _speechText that stripped
+// markup ONLY — so the test bench read every AWB as fifteen loose digits, "LZ5" as a
+// word and "RTO" as a syllable, which is precisely what useVoice's SPOKEN lexicon
+// exists to prevent. Sharing it fixes the bench without touching its hands-free loop.
+import { VOICE_LANGS, speechText } from "../lib/useVoice.js";
+import { select as selectTTS } from "../lib/tts.js";
 import Pipeline from "../components/Pipeline.jsx";
 import DecisionCore from "../components/DecisionCore.jsx";
 import { getCaptains, sendSatisfaction, getCaptainCases, chatStream } from "../lib/api.js";
@@ -206,28 +207,25 @@ export default function CaptainPanel() {
 
   // ── Conversation mode (hands-free): listen → auto-send → think → speak → listen ──
   // Half-duplex (mic off while speaking, so the TTS doesn't feed back into the mic).
-  // Tap the orb to interrupt the bot; "End" to leave. STT+TTS are browser-native (Web
-  // Speech API) — swappable for Sarvam/Deepgram+ElevenLabs in production without touching this.
-  function _speechText(t) {
-    return String(t || "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/https?:\/\/\S+/g, " (link) ")
-      .replace(/[#*_`>]/g, "").replace(/\s+/g, " ").trim();
-  }
-  function _pickVoice() {
-    const vs = window.speechSynthesis?.getVoices?.() || [];
-    const p = voiceLang.toLowerCase();
-    return vs.find((v) => (v.lang || "").toLowerCase() === p)
-        || vs.find((v) => (v.lang || "").toLowerCase().startsWith(p.slice(0, 2))) || null;
-  }
+  // Tap the orb to interrupt the bot; "End" to leave. STT is still browser-native (Web Speech
+  // API); TTS is no longer — it goes through lib/tts.js, so swapping in Sarvam or ElevenLabs is
+  // a config change. Speech-to-text has no equivalent seam yet and would need its own.
+  //
+  // Goes through the SAME adapter the captain-facing widget uses (lib/tts.js), so choosing a
+  // voice engine is one decision for the whole product rather than two. Voice selection, the
+  // rate and the utterance queue now live in the adapter; this file no longer names an engine.
+  //
+  // What stays different, and why it is not duplication: the bench speaks UNCONDITIONALLY. It is
+  // a hands-free conversation loop with no read-aloud toggle — the captain-facing widget's
+  // `readAloud` gate would make it silent — and it speaks the whole reply rather than the
+  // widget's budget-bounded opening, because the point of the bench is to hear exactly what was
+  // produced. Both are deliberate; the engine underneath is shared.
   function speak(text, then) {
-    const syn = window.speechSynthesis;
-    if (!syn) { then && then(); return; }
-    syn.cancel();
-    const u = new SpeechSynthesisUtterance(_speechText(text).slice(0, 700));
-    u.lang = voiceLang; const v = _pickVoice(); if (v) u.voice = v;
+    const tts = selectTTS();
+    if (!tts.available()) { then && then(); return; }
     setVstate("speaking");
-    u.onend = () => { if (then && convoRef.current) then(); };
-    u.onerror = () => { if (then && convoRef.current) then(); };
-    syn.speak(u);
+    const done = () => { if (then && convoRef.current) then(); };
+    tts.speak([speechText(text).slice(0, 700)], { lang: voiceLang, onDone: done, onError: done });
   }
   function listen() {
     if (!convoRef.current) return;
@@ -283,7 +281,7 @@ export default function CaptainPanel() {
   function startConvo() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { alert("Conversation mode needs Chrome or Edge (Web Speech API)."); return; }
-    window.speechSynthesis?.getVoices?.();             // warm the voice list
+    selectTTS();                                       // resolve the adapter (warms voices)
     setConvo(true); convoRef.current = true; setVstate("listening"); setHeard("");
     startMicMeter();
     listen();
@@ -291,12 +289,12 @@ export default function CaptainPanel() {
   function stopConvo() {
     convoRef.current = false; setConvo(false); setVstate("idle"); setHeard("");
     try { recRef.current?.stop(); } catch (_) { /* noop */ }
-    window.speechSynthesis?.cancel();
+    selectTTS().cancel();
     stopMicMeter();
   }
   function interruptBot() {   // tap the orb while it's TALKING → cut off + listen; ignore taps mid-think
     if (vstate !== "speaking") return;
-    window.speechSynthesis?.cancel();
+    selectTTS().cancel();
     if (convoRef.current) listen();
   }
   useEffect(() => () => stopConvo(), []);   // clean up on unmount
@@ -670,7 +668,7 @@ export default function CaptainPanel() {
               {vstate === "listening"
                 ? (heard ? `"${heard}"` : <span style={{ color: "var(--text-faint)" }}>Apni problem boliye — Hindi, Hinglish ya English mein.</span>)
                 : vstate === "speaking"
-                  ? _speechText(messages.filter((m) => m.who === "bot").slice(-1)[0]?.text || "").slice(0, 240)
+                  ? speechText(messages.filter((m) => m.who === "bot").slice(-1)[0]?.text || "").slice(0, 240)
                   : ""}
             </div>
             <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 6 }}>

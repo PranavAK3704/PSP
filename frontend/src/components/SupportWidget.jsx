@@ -5,8 +5,8 @@ import { useEffect, useRef, useState } from "react";
 // whole Captain Panel fell into the error boundary — "This panel hit a snag" — rather than
 // failing at build time. `vite build` cannot catch this: an undefined identifier in JSX is
 // perfectly valid JavaScript until it is evaluated.
-import { FolderOpen, Sparkles, MessageSquare, Send, Paperclip, Radar,
-         CheckCircle2, Clock, Mic, Square, Volume2, VolumeX, Keyboard } from "lucide-react";
+import { FolderOpen, Sparkles, Send, CheckCircle2, Clock, Mic, Square, Volume2, VolumeX,
+         Keyboard } from "lucide-react";
 import { chatStream, getCaptainCases } from "../lib/api.js";
 import { useVoice, VOICE_LANGS, phrases } from "../lib/useVoice.js";
 import VoiceBars from "./VoiceBars.jsx";

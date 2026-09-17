@@ -110,6 +110,39 @@ class _DurablePath:
         ok, _ = _fetch(self._name)
         return not ok
 
+    def read_json(self, default):
+        """Parse this store as JSON, or `default` if it is absent or unparseable.
+
+        ── WHY THIS IS A METHOD AND NOT A THIRTEENTH COPY ─────────────────────────────────────
+        Thirteen stores wrote their own `_load()` around exactly this, three of them
+        byte-for-byte identical (`audit/cpd.py`, `knowledge/blueprints.py`,
+        `ledger/concern_log.py`). The module-level `read_json(name, default)` above already had
+        the body, but its docstring scopes it to "stores that use open()/os.path directly", so
+        every `durable_path`-based store re-implemented it instead of calling it.
+
+        Taking the handle rather than the name matters: the stores hold a module-level `_STORE`,
+        and `read_json(name, ...)` would construct a fresh `_DurablePath` per read. That is
+        currently harmless — the instance carries no cache, only `_name` and `_path` — but it
+        would silently become a per-call cost the moment this class caches anything, and the
+        call site would give no hint that it had.
+
+        ── `default` ALSO DECLARES THE EXPECTED TYPE ─────────────────────────────────────────
+        Taken from `audit/calibration.py`, which was the only one of the thirteen to get this
+        right, and had already written down why: "a store that is a list where a dict was
+        expected makes every downstream `.get()` an AttributeError, and a store that parses to
+        an int makes every `for` loop a TypeError. One guard here is worth an isinstance check
+        at every use site — and it is the difference between a panel that reports 'no data' and
+        a panel that takes the request down."
+
+        The three byte-identical `_load()`s this replaced had NO such guard while annotating
+        themselves `-> list[dict]`, so a store holding `{}` returned a dict to a caller about to
+        iterate it. Collapsing them onto one body is what makes that fixable in one place.
+
+        A `None` default cannot express a type, so callers wanting "dict or None" pass `{}` and
+        map the empty case themselves — see `audit/rubric.py`.
+        """
+        return read_json_from(self, default)
+
     def read_text(self, *a, **k) -> str:
         ok, val = _fetch(self._name)
         if ok and val is not None:
@@ -162,6 +195,36 @@ class _DurablePath:
 
 def durable_path(name: str) -> _DurablePath:
     return _DurablePath(name)
+
+
+def read_json_from(path, default):
+    """Parse any store-like as JSON, or `default` if absent, unreadable or the wrong type.
+
+    Duck-typed on `exists()` / `read_text()` rather than typed to `_DurablePath`, and that is
+    load-bearing: `check_calibration.py` swaps the stores for a double implementing exactly those
+    two methods to assert "an unreadable store degrades instead of raising". Binding this to the
+    concrete class broke that test — the double has no `read_json` — which is the useful signal
+    that the duck-typing was a deliberate seam and not an accident.
+
+    ── `default` ALSO DECLARES THE EXPECTED TYPE ─────────────────────────────────────────────
+    From `audit/calibration.py`, the only one of thirteen stores to get this right, and it had
+    already written down why: "a store that is a list where a dict was expected makes every
+    downstream `.get()` an AttributeError, and a store that parses to an int makes every `for`
+    loop a TypeError. One guard here is worth an isinstance check at every use site — and it is
+    the difference between a panel that reports 'no data' and a panel that takes the request
+    down."
+
+    A `None` default cannot express a type, so callers wanting "dict or None" pass `{}` and map
+    the empty case themselves — see `audit/rubric.py`.
+    """
+    try:
+        if path.exists():
+            parsed = json.loads(path.read_text())
+            if isinstance(parsed, type(default)):
+                return parsed
+    except Exception:  # noqa: BLE001 — a store must never take the app down
+        pass
+    return default
 
 
 def read_json(name: str, default):

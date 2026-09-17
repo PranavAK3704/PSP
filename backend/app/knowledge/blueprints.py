@@ -86,12 +86,7 @@ _SEED_LOSSES = {
 
 
 def _load() -> list[dict]:
-    if _STORE.exists():
-        try:
-            return json.loads(_STORE.read_text())
-        except Exception:  # noqa: BLE001
-            return []
-    return []
+    return _STORE.read_json([])
 
 
 def _write(items: list[dict]) -> None:

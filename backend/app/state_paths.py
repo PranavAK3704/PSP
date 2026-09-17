@@ -5,7 +5,7 @@ concern log, cpd) must survive a redeploy. In production (Render) they live on a
 persistent disk mounted at $PSP_STATE_DIR (e.g. /data); locally, PSP_STATE_DIR is
 unset so they default to the current backend/data dir — identical to before.
 
-STATIC corpus (data/knowledge/, data/samples/, valmo*.db, *.txt) is NOT routed
+STATIC corpus (data/knowledge/, valmo*.db, *.txt) is NOT routed
 here — it stays baked with the code / read from Turso in prod.
 """
 from __future__ import annotations

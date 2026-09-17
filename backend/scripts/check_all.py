@@ -40,6 +40,7 @@ HARNESSES = [
     ("check_retrieval",   "SOP retrieval, scored against 40 real captain phrasings"),
     ("check_followups",   "follow-ups answered in scope, and never out of it"),
     ("check_followups_e2e", "the wiring: disposition -> chips -> tap/number, both transports"),
+    ("check_shadow",       "what shadow mode has collected — the diff nothing was reading"),
     # Sets its own $INTAKE_DB: contain() cannot redirect a SQLite file (it SYMLINKS *.db),
     # and the intake store is the first writable database in this repo.
     ("check_intake",       "the Slack intake contract gate, and that loading twice is a no-op"),
@@ -64,7 +65,23 @@ def main() -> int:
             sys.stderr.write(p.stderr)
         ok = p.returncode == 0
         tail = [l for l in p.stdout.strip().splitlines() if l.strip()]
-        results.append((name, ok, tail[-1] if tail else "(no output)"))
+        verdict = tail[-1] if tail else "(no output)"
+        if not ok:
+            # ── SHOW THE REASON, NOT THE LAST THING PRINTED BEFORE IT ────────────────────────
+            # Harnesses fail two different ways. Most append to `FAILED` and print their own
+            # verdict to stdout, so the stdout tail IS the reason. But `check_followups_e2e`
+            # uses 27 bare module-level `assert`s, and an AssertionError goes to STDERR — so its
+            # summary line showed whatever it happened to print last, which was a passing step.
+            #
+            # That cost real time: an intermittent failure in this harness reported itself as
+            # "[firstpass] declined: previous turn escalated" — a normal trace line from a check
+            # that had already passed — and the actual assertion was never visible. It is still
+            # unreproduced (17 consecutive clean batches after two observed failures); when it
+            # next fires, this line is what will name it.
+            err = [l for l in p.stderr.strip().splitlines() if l.strip()]
+            if err:
+                verdict = err[-1]
+        results.append((name, ok, verdict))
 
     print(f"\n{'=' * 78}\nSUMMARY\n{'=' * 78}")
     for name, ok, verdict in results:

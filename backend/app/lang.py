@@ -52,8 +52,13 @@ FUNCTION_WORDS = frozenset({
     "par", "pe", "se", "toh",
     # ── vocatives. A captain addressing you is not naming a topic. ──
     "bhai", "bhaiya", "boss", "bro", "ji", "madam", "mam", "saab", "sahab", "sir",
-    # ── interrogatives. They carry the question's GRAMMAR, never its subject. `followups` keeps
-    #    these separately too, because there it needs them to score without matching; for
-    #    retrieval there is no such distinction and they are simply noise. ──
+    # ── interrogatives. They carry the question's GRAMMAR, never its subject. For retrieval
+    #    they are simply noise. `followups` needs a finer distinction and SUBTRACTS seven of them
+    #    back out (its FRAME_INTERROGATIVES): a follow-up node may carry `kyun` or `kaise` in its
+    #    `frame` to shape a question without naming its subject, and `frame` is inside the
+    #    vocabulary its stopword assertion guards. `kya` is NOT one of the seven — no node frames
+    #    on it — which is why that list is a measured exception set rather than "all
+    #    interrogatives". Anything added here that a graph frames on must be added there too;
+    #    followups' `_selfcheck` fails at import if the two drift. ──
     "kya", "kyun", "kyu", "kaise", "kab", "kahan", "kitna", "kitne", "kaun", "konsa",
 })

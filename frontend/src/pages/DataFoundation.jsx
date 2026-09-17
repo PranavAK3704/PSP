@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Database, Ticket, Receipt, AlertTriangle, Table2 } from "lucide-react";
 import { getDataFoundation } from "../lib/api.js";
+// lib/format.js was created to end exactly this copy-paste ("n0 and inr were copy-pasted
+// between DataFoundation.jsx and GrowthDashboard.jsx" — its own header). GrowthDashboard
+// migrated; this file kept byte-identical locals, so the module's stated reason was still false.
+import { n0, inr } from "../lib/format.js";
 
 // ── Data Foundation ──────────────────────────────────────────────────────────
 // What the platform actually runs on, both databases, CORPUS-LEVEL ONLY.
@@ -16,8 +20,6 @@ import { getDataFoundation } from "../lib/api.js";
 // one proportion so it is a meter. Every row is directly labelled, so colour is never the only
 // encoding — which is also what relieves the validator's contrast warning on the violet step.
 
-const n0 = (v) => Number(v || 0).toLocaleString("en-IN");
-const inr = (v) => "₹" + Number(v || 0).toLocaleString("en-IN");
 
 function Tile({ icon: Icon, label, value, sub }) {
   return (

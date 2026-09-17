@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Send, Sparkles, TriangleAlert, ExternalLink, TrendingUp,
-         TrendingDown, ChevronRight, Database, ThumbsUp, PartyPopper,
-         ArrowDown, Star, Scissors, FolderOpen, CheckCircle2, Clock,
-         Rocket } from "lucide-react";
-import { getGrowthIndex, getGrowth, getCaptainCases, chatStream } from "../lib/api.js";
-import { n0, inr, num } from "../lib/format.js";
+import { BarChart3, TriangleAlert, ExternalLink, TrendingUp, TrendingDown, ChevronRight,
+         Database, ThumbsUp, PartyPopper, ArrowDown, Star, Scissors, Rocket } from "lucide-react";
+import { getGrowthIndex, getGrowth } from "../lib/api.js";
+import { n0, num } from "../lib/format.js";
 import { S, RP, HEADER, LEVERS, WHY, dateRange } from "../growth/strings.js";
 import AtRiskPanel, { SeverityBanner } from "../components/AtRiskPanel.jsx";
 import MonitorDock from "../components/MonitorDock.jsx";

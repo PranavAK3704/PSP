@@ -22,18 +22,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts._contain import contain; contain()   # MUST precede every `app.` import — see _contain.py
+from scripts._harness import FAILED, check, head   # noqa: E402
 
-FAILED: list[str] = []
-
-
-def check(label: str, ok: bool, detail: str = "") -> None:
-    print(f"  {'ok  ' if ok else 'FAIL'} {label}" + (f" — {detail}" if detail else ""))
-    if not ok:
-        FAILED.append(label)
-
-
-def head(n: str) -> None:
-    print(f"\n{'─' * 78}\n{n}\n{'─' * 78}")
 
 
 # Words that must never reach a captain while nothing is written. Present tense / past tense

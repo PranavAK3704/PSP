@@ -32,13 +32,7 @@ def _now() -> str:
 
 
 def _load() -> dict:
-    if _STORE.exists():
-        try:
-            data = json.loads(_STORE.read_text())
-            return data if isinstance(data, dict) else {}
-        except Exception:  # noqa: BLE001
-            return {}
-    return {}
+    return _STORE.read_json({})
 
 
 def _write(store: dict) -> None:

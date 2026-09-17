@@ -36,9 +36,8 @@ overclaim this module exists to avoid. Its Cohen's kappa of 0.052 is worth sayin
 """
 from __future__ import annotations
 
-import json
 
-from ..durable_state import durable_path
+from ..durable_state import durable_path, read_json_from
 from ..ledger import concern_log
 from ..trust.gate import CONFIDENCE_THRESHOLD
 
@@ -63,14 +62,7 @@ def _load(path, default):
     every use site — and it is the difference between a panel that reports "no data" and a
     panel that takes the request down.
     """
-    try:
-        if path.exists():
-            parsed = json.loads(path.read_text())
-            if isinstance(parsed, type(default)):
-                return parsed
-    except Exception:  # noqa: BLE001 — a panel must never take the app down
-        pass
-    return default
+    return read_json_from(path, default)
 
 
 def _labels() -> dict[str, dict]:

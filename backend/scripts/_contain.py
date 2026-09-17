@@ -65,12 +65,33 @@ _REAL = Path(__file__).resolve().parents[1] / "data"
 _PREFIX = "psp-harness-"
 
 
-def contain(label: str = "harness") -> str:
+def contain(label: str = "harness", provider: str = "localdb") -> str:
     """Redirect mutable state to a seeded tmpdir. Returns the dir. Idempotent per process.
 
     `PSP_HARNESS_DIR` is exported so a batch (`check_all.py` spawns one child per harness)
     shares ONE dir: seeding costs ~4 MB of copies once instead of eleven times, and a harness
     that reads what an earlier one wrote still behaves as it does in a single process.
+
+    ── `provider` PINS PSP_DATA_PROVIDER, and it has to ──────────────────────────────────────
+    Which account provider is active decides whether a captain EXISTS, and `_run_turn` checks the
+    captain before anything else — so an unknown one ends the turn with an `error` event and no
+    reply. A harness inheriting that choice from the developer's shell is a harness whose result
+    depends on who ran it.
+
+    It was inherited, and nobody noticed because nothing set it locally: everything got the code
+    default `demo`. The moment `load_env.sh` started exporting `localdb` (which is what
+    render.yaml has always deployed), `check_followups_e2e` began failing on turn one — its
+    captain `VLMO-CPT-4471` is a SEED captain, real under `demo` and absent under `localdb`.
+
+    The dependency is real and per-harness, measured across all fourteen:
+
+        localdb   check_phase1, check_dataplane, check_op, check_risk   (real loss ledger)
+        demo      check_followups_e2e                                   (seed captains)
+        either    the remaining nine
+
+    So each harness declares what it needs. The default is `localdb` because that is what
+    render.yaml deploys — a harness should be wrong in the same direction as production, not in
+    whichever direction the shell happened to be pointing.
     """
     # Reuse ONLY a directory this module made. The first version accepted anything that passed
     # `is_dir()`, which meant a single stale or inherited `PSP_HARNESS_DIR` — including one
@@ -84,6 +105,11 @@ def contain(label: str = "harness") -> str:
         if (p.is_dir() and p.name.startswith(_PREFIX)
                 and (p / ".psp-harness").exists()):
             os.environ["PSP_STATE_DIR"] = existing
+            # The provider is pinned on BOTH paths. `check_all` seeds the dir once and every
+            # child then takes this reuse branch — so setting it only where the dir is created
+            # would leave all fourteen children inheriting the shell again, which is the exact
+            # bug this argument exists to close.
+            os.environ["PSP_DATA_PROVIDER"] = provider
             _blind_the_mirror(label)
             return existing
         # Do not raise and do not obey it — mint a fresh contained dir and say why.
@@ -104,12 +130,28 @@ def contain(label: str = "harness") -> str:
     (Path(d) / ".psp-harness").write_text("seeded by scripts/_contain.py\n")
     os.environ["PSP_HARNESS_DIR"] = d
     os.environ["PSP_STATE_DIR"] = d
+    os.environ["PSP_DATA_PROVIDER"] = provider
     _blind_the_mirror(label)
     return d
 
 
 def _blind_the_mirror(label: str) -> None:
     for k in ("TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"):
+        os.environ.pop(k, None)
+    # ── AND THE ROUTER CONFIG, for the same reason the mirror is blinded ─────────────────────
+    # A harness asserts what the router does at a GIVEN mode, and it sets that mode itself. An
+    # inherited `PSP_PREROUTER*` from the shell silently overrides the mode under test.
+    #
+    # MEASURED, not hypothetical: `scripts/load_env.sh` exports PSP_PREROUTER=shadow and
+    # PSP_PREROUTER_GREETING=on, and `run.sh` sources it — so the documented dev flow is a
+    # shell where these are already set. In that shell check_router, check_phase1 and
+    # check_followups_e2e all FAILED, because router.route()'s `off` fast path is skipped when
+    # ANY per-tier override is present, so "off consults NOTHING" could not hold. Three green
+    # harnesses read as three red ones, on a config the harness never chose.
+    #
+    # Cleared by PREFIX, not by name: the per-tier override is PSP_PREROUTER_<TIER>, so a new
+    # tier would otherwise reintroduce this the day it is registered.
+    for k in [k for k in os.environ if k.startswith("PSP_PREROUTER")]:
         os.environ.pop(k, None)
     # Belongs here rather than in each harness: every row a harness writes is a harness row.
     #

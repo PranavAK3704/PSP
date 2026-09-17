@@ -204,14 +204,10 @@ def _coerce(fw: dict) -> dict:
 
 
 def _load() -> dict | None:
-    if _STORE.exists():
-        try:
-            data = json.loads(_STORE.read_text())
-            if isinstance(data, dict) and data.get("name"):
-                return data
-        except Exception:  # noqa: BLE001
-            return None
-    return None
+    # `read_json` cannot express "dict or None" — a None default declares no type —
+    # so read as a dict and let the required key decide whether it counts as present.
+    data = _STORE.read_json({})
+    return data if data.get("name") else None
 
 
 def _write(fw: dict) -> None:

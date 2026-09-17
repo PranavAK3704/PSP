@@ -86,3 +86,8 @@ backend/data/intake/tickets.jsonl
 # so losing them costs real human effort. app/intake/labels.py has export_confirmations(), which
 # can drop the text, for moving them off this machine deliberately rather than by a commit.
 backend/data/intake/labels/
+
+# SQLite journal sidecars — same rule as the database they belong to.
+*.db-wal
+*.db-shm
+*.db-journal

@@ -145,3 +145,65 @@ def test_a_failed_send_is_recorded_but_retried(tmp_path):
     still = [t for t in intake_api.unacknowledged("email") if t["idempotency_key"] == "k2"]
     assert still, "a failed send must remain outstanding"
     assert still[0]["acknowledge_error"] == "smtp down"
+
+
+# ── concurrency and cost, from the deployment audit ──────────────────────────────────────────
+
+def test_two_writers_do_not_lose_each_other_s_changes():
+    """The poller thread creates tickets while request threads patch them, and both are
+    read-modify-write on one JSON document. Unsynchronized, one silently wins."""
+    import threading
+    done = []
+
+    def create(i):
+        done.append(intake_api.create_ticket_record(
+            {"idempotency_key": f"k{i}", "title": f"t{i}"}))
+
+    threads = [threading.Thread(target=create, args=(i,)) for i in range(12)]
+    for t in threads: t.start()
+    for t in threads: t.join()
+
+    tickets = intake_api._load()["tickets"]
+    assert len(tickets) == 12, "a concurrent create was lost"
+    refs = [t["ref"] for t in tickets]
+    assert len(set(refs)) == 12, f"duplicate references: {refs}"
+
+
+def test_the_reference_is_not_derived_from_the_list_length():
+    """len()+1 makes two racing creates compute the same number, so two tickets share the one
+    identifier everybody quotes."""
+    assert intake_api._next_ref([{"ref": "VAL-7"}, {"ref": "VAL-3"}]) == 8
+    assert intake_api._next_ref([]) == 1
+    assert intake_api._next_ref([{"ref": "junk"}, {"ref": "VAL-2"}]) == 3
+
+
+def test_status_reports_a_dead_poller_as_not_running():
+    """A flag set once says 'running' forever, including after the thread has died — worse than
+    reporting nothing."""
+    assert intake_poller.status()["running"] is False
+
+
+def test_a_cold_start_is_bounded(monkeypatch):
+    """Without a bound the first poll after every deploy re-reads the channel's entire history.
+    Render's free plan explicitly reserves the right to suspend a service that initiates an
+    uncommonly high volume of external traffic."""
+    assert intake_poller.COLD_START_DAYS <= 30
+    seen = {}
+
+    class FakeReader:
+        def __init__(self, **kw): pass
+        def fetch(self, ch, oldest=None):
+            seen[ch] = oldest
+            return []
+
+    monkeypatch.setattr(intake_poller, "_watermarks", lambda: {})
+    monkeypatch.setattr(intake_poller, "_save_watermarks", lambda w: None)
+    from app.intake import slack_source as ss
+    monkeypatch.setattr(ss, "SlackReader", FakeReader)
+    import time as _t
+    try:
+        intake_poller._poll_once(["C1"], __import__("pathlib").Path("/tmp/x"), "r")
+    except Exception:
+        pass
+    assert seen.get("C1"), "fetch was called with no oldest cursor"
+    assert float(seen["C1"]) > _t.time() - (intake_poller.COLD_START_DAYS + 1) * 86400

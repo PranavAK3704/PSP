@@ -63,13 +63,44 @@ _state: dict = {"polls": 0, "last_at": None, "last_error": None, "messages": 0, 
 
 def status() -> dict:
     """What the poller has been doing — surfaced on the Intake page so 'no new tickets' can be
-    told apart from 'nothing is listening', which look identical otherwise."""
-    return dict(_state)
+    told apart from 'nothing is listening', which look identical otherwise.
+
+    `running` is derived from the thread rather than from a flag set once at start: a flag says
+    "running" forever, including after the thread has died, and a dead poller reporting health
+    is worse than one reporting nothing.
+    """
+    return {**_state, "running": bool(_thread is not None and _thread.is_alive())}
 
 
 def _channels() -> list[str]:
     raw = os.environ.get(ENV_CHANNELS, "")
     return [c.strip() for c in raw.split(",") if c.strip()]
+
+
+#: How far back a cold start reads. The container filesystem is wiped on every restart, so
+#: without a bound the first poll after a deploy re-reads the channel's entire history — and
+#: Render's free plan explicitly reserves the right to suspend a service that "initiates an
+#: uncommonly high volume of traffic", naming external API calls. Seven days comfortably covers
+#: the longest grouping join window, so an issue is never anchored on a message that fell
+#: outside the window while its siblings stayed in.
+COLD_START_DAYS = 7
+
+
+def _watermarks() -> dict:
+    """Per-channel high-water mark, kept in the DURABLE store.
+
+    The point of persisting it: after a restart the poller resumes from where it stopped instead
+    of re-reading everything. Ephemeral storage would give a watermark that is forgotten exactly
+    when it is needed.
+    """
+    from .durable_state import durable_path, read_json_from
+    return read_json_from(durable_path("intake_watermarks.json"), {})
+
+
+def _save_watermarks(w: dict) -> None:
+    import json as _json
+    from .durable_state import durable_path
+    durable_path("intake_watermarks.json").write_text(_json.dumps(w, indent=1))
 
 
 def _poll_once(channels: list[str], raw_dir: Path, run_id: str) -> dict:
@@ -80,11 +111,20 @@ def _poll_once(channels: list[str], raw_dir: Path, run_id: str) -> dict:
     from .intake_sink import InProcessTicketSink
 
     reader = slack_source.SlackReader(pause=0.2)
+    marks = _watermarks()
+    cold = time.time() - COLD_START_DAYS * 86400
     got = 0
     for ch in channels:
-        recs = reader.fetch(ch)
+        # Resume from the last message seen, or from the cold-start bound on a fresh container.
+        # A backfill and a poll are the same call with a different cursor — which is why there
+        # is no separate streaming path to keep in step with this one.
+        oldest = f"{max(float(marks.get(ch, 0) or 0), cold):.6f}"
+        recs = reader.fetch(ch, oldest=oldest)
         slack_source.write_ndjson(recs, raw_dir)
         got += len(recs)
+        if recs:
+            marks[ch] = max([float(r["ts_epoch"]) for r in recs] + [float(marks.get(ch, 0) or 0)])
+    _save_watermarks(marks)
 
     con = store.connect()
     try:
@@ -183,7 +223,7 @@ def _loop(channels: list[str], every: float) -> None:
     raw_dir = Path(os.environ.get("PSP_STATE_DIR", "/tmp")) / "intake-raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     run_id = "render"
-    _state.update(running=True, channels=channels)
+    _state.update(channels=channels)
     log.info("intake poller started: %d channel(s) every %.0fs", len(channels), every)
 
     while True:

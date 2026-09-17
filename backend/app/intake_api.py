@@ -33,6 +33,7 @@ from __future__ import annotations
 import html
 import json
 import secrets
+import threading
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -45,6 +46,12 @@ router = APIRouter()
 
 STORE = "intake_tickets.json"
 CHANNELS = "intake_channels.json"
+
+#: Every write to the register is read-modify-write on one JSON document, and there are now TWO
+#: kinds of writer: the poller thread creating tickets, and request threads patching them. Without
+#: this lock they interleave and one of them silently loses — an agent's state change overwritten
+#: by a ticket created a millisecond later, with nothing to show it happened.
+_WRITE_LOCK = threading.Lock()
 
 #: An agent works the register and sees nothing else in PSP. Staff roles see it too.
 intake_access = require_role("agent", "viewer", "author", "approver")
@@ -65,6 +72,17 @@ def _save(data: dict) -> None:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _next_ref(tickets: list) -> int:
+    """One past the highest VAL- number in use. Survives deletions and racing writers."""
+    top = 0
+    for t in tickets:
+        try:
+            top = max(top, int(str(t.get("ref", "")).split("-")[-1]))
+        except (ValueError, IndexError):
+            continue
+    return top + 1
 
 
 def _public(t: dict) -> dict:
@@ -100,17 +118,18 @@ def mark_acknowledged(key: str, *, channel: str, recipient: str | None,
     next poll retries it. Silently dropping a failed acknowledgement would leave a partner
     believing nobody read their message, which is the whole failure this project exists to fix.
     """
-    data = _load()
-    for t in data["tickets"]:
-        if t["idempotency_key"] != key:
-            continue
-        if error:
-            t["acknowledge_error"] = error
-        else:
-            t.update(acknowledged_at=_now(), acknowledged_to=recipient,
-                     acknowledged_channel=channel, acknowledge_error=None)
-        _save(data)
-        return True
+    with _WRITE_LOCK:
+        data = _load()
+        for t in data["tickets"]:
+            if t["idempotency_key"] != key:
+                continue
+            if error:
+                t["acknowledge_error"] = error
+            else:
+                t.update(acknowledged_at=_now(), acknowledged_to=recipient,
+                         acknowledged_channel=channel, acknowledge_error=None)
+            _save(data)
+            return True
     return False
 
 
@@ -130,6 +149,11 @@ def create_ticket_record(payload: dict, *, created_by: str | None = None) -> dic
     in-process, which is the kind of divergence that produces duplicates nobody can explain.
     """
     key = (payload.get("idempotency_key") or "").strip()
+    with _WRITE_LOCK:
+        return _create_locked(payload, key, created_by)
+
+
+def _create_locked(payload: dict, key: str, created_by: str | None) -> dict:
     data = _load()
     for t in data["tickets"]:
         if t["idempotency_key"] == key:
@@ -137,7 +161,10 @@ def create_ticket_record(payload: dict, *, created_by: str | None = None) -> dic
             # retried acknowledgement points at the same page rather than a second one.
             return {"ref": t["ref"], "created": False, "status_token": t["status_token"]}
 
-    ref = f"VAL-{len(data['tickets']) + 1}"
+    # NOT len()+1. Two creates racing on a stale read both compute the same number and two
+    # tickets end up sharing a reference — the one identifier everybody quotes. Derived from the
+    # highest reference actually present instead, under the lock.
+    ref = f"VAL-{_next_ref(data['tickets'])}"
     ticket = {
         "ref": ref,
         "idempotency_key": key,
@@ -229,24 +256,24 @@ def list_tickets(state: str | None = None, q: str | None = None,
 @router.patch("/api/intake/tickets/{ref}")
 def update_ticket(ref: str, payload: dict = Body(...),
                   user: dict = Depends(intake_write)) -> dict:
-    data = _load()
-    for t in data["tickets"]:
-        if t["ref"] != ref:
-            continue
+    with _WRITE_LOCK:
+        data = _load()
+        target = next((t for t in data["tickets"] if t["ref"] == ref), None)
+        if target is None:
+            raise HTTPException(status_code=404, detail=f"no ticket {ref}")
         if "state" in payload:
             if payload["state"] not in STATES:
                 raise HTTPException(status_code=400,
                                     detail=f"state must be one of {list(STATES)}")
-            t["state"] = payload["state"]
+            target["state"] = payload["state"]
         if "status_note" in payload:
             # Shown to the raiser on the status page, so it is their update, not an internal
             # note. Capped because that page has no scrollable body.
-            t["status_note"] = str(payload["status_note"])[:400]
-        t["updated_at"] = _now()
-        t["updated_by"] = user.get("email")
+            target["status_note"] = str(payload["status_note"])[:400]
+        target["updated_at"] = _now()
+        target["updated_by"] = user.get("email")
         _save(data)
-        return {"ok": True, "ticket": _public(t)}
-    raise HTTPException(status_code=404, detail=f"no ticket {ref}")
+        return {"ok": True, "ticket": _public(target)}
 
 
 @router.get("/t/{token}", response_class=HTMLResponse)

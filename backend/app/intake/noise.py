@@ -147,14 +147,24 @@ def classify(text: str, subtype: str | None, has_media: bool, rules: dict) -> di
                 best = (i, t)
         return best
 
+    asks = [r.lower() for r in (info.get("request_markers") or [])]
+
     w, c, a = first_hit(weather), first_hit(competing), first_hit(announce)
     if w:
-        out["informational"] = True
         if c and c[0] < w[0]:
-            # A non-weather topic is mentioned FIRST — loose only.
-            out.update(informational_rule=f"loose:{w[1]}(after {c[1]})", borderline=True)
+            # An operational topic is named FIRST, so the weather is context rather than the
+            # subject. If the message also ASKS for something it is not a callout at all — a
+            # callout announces, it does not request. Holding one of these back means a real
+            # issue nobody ever sees; letting an announcement through costs one closed ticket.
+            ask = first_hit(asks)
+            if ask:
+                out.update(informational=False,
+                           informational_rule=f"kept:{c[1]}_then_{w[1]}_with_ask({ask[1]})")
+                return out
+            out.update(informational=True,
+                       informational_rule=f"loose:{w[1]}(after {c[1]})", borderline=True)
         else:
-            out["informational_rule"] = f"strict:{w[1]}"
+            out.update(informational=True, informational_rule=f"strict:{w[1]}")
     elif a:
         # An announcement marker is a PHRASE, not a word, so it carries its own confidence and
         # does not need the first-topic test weather needs.

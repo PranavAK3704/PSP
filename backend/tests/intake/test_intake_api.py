@@ -253,3 +253,48 @@ def test_only_an_approver_can_reset_a_password(client):
     r = client.post("/api/auth/password", headers=_token("agent"),
                     json={"email": "x@meesho.com", "password": "long-enough"})
     assert r.status_code == 403
+
+
+# ── listening channels ───────────────────────────────────────────────────────────────────────
+
+def test_channels_are_reported_and_read_back(client):
+    rows = [{"channel_id": "C1", "name": "valmo-firefighters", "messages": 42,
+             "issues": 9, "tickets": 7, "qualified": True, "reason": None},
+            {"channel_id": "C2", "name": "pilot_support_ams", "messages": 9, "issues": 0,
+             "tickets": 0, "qualified": False, "reason": "the support team's own channel"}]
+    r = client.post("/api/intake/channels", json={"channels": rows}, headers=_token("agent"))
+    assert r.status_code == 200 and r.json()["channels"] == 2
+    got = client.get("/api/intake/channels", headers=_token("agent")).json()
+    assert [c["name"] for c in got["channels"]] == [x["name"] for x in rows]
+    assert got["updated_at"]
+
+
+def test_reporting_replaces_rather_than_appends(client):
+    """A snapshot, not a log. A channel we stopped listening to must disappear rather than
+    linger with counts that will never change again."""
+    client.post("/api/intake/channels", headers=_token("agent"),
+                json={"channels": [{"channel_id": "C1", "name": "old", "messages": 1}]})
+    client.post("/api/intake/channels", headers=_token("agent"),
+                json={"channels": [{"channel_id": "C2", "name": "new", "messages": 2}]})
+    got = client.get("/api/intake/channels", headers=_token("agent")).json()
+    assert [c["name"] for c in got["channels"]] == ["new"]
+
+
+def test_an_excluded_channel_carries_its_reason(client):
+    """Zero tickets from a live channel, a silent one and an excluded one look identical
+    without this."""
+    client.post("/api/intake/channels", headers=_token("agent"), json={"channels": [
+        {"channel_id": "C2", "name": "pilot_support_ams", "messages": 9, "issues": 0,
+         "tickets": 0, "qualified": False, "reason": "internal channel, not an escalation one"}]})
+    c = client.get("/api/intake/channels", headers=_token("agent")).json()["channels"][0]
+    assert c["qualified"] is False and "internal channel" in c["reason"]
+
+
+def test_channels_need_a_login(client):
+    assert client.get("/api/intake/channels").status_code == 401
+    assert client.post("/api/intake/channels", json={"channels": []}).status_code == 401
+
+
+def test_a_malformed_report_is_refused(client):
+    assert client.post("/api/intake/channels", json={"channels": "nope"},
+                       headers=_token("agent")).status_code == 400

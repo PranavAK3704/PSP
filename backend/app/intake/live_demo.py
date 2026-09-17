@@ -39,7 +39,7 @@ if str(_BACKEND) not in sys.path:
 
 from app.intake import (  # noqa: E402
     classify, dedupe, emit, evidence, extract, group, labels, loadstage, noise, qualify,
-    register, slack_source, store,
+    register, rollup, slack_source, store,
 )
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -149,39 +149,9 @@ def _snapshot(con) -> dict:
                for d in sorted(drafts.values(), key=lambda x: (x["suppressed"], x["title"] or ""))]
 
     # ── LISTENING CHANNELS ──────────────────────────────────────────────────────────────
-    # One row per channel we are reading, with what the pipeline made of it. This is the panel
-    # that answers "where are we listening, and is anything coming in from there" — a channel
-    # that is connected but silent looks identical to one that is broken until you show counts.
-    chan_rows = {}
-    for r in con.execute(
-            "SELECT channel_id, channel_name, COUNT(*) n, MAX(ts_iso) last_at "
-            "FROM messages GROUP BY channel_id, channel_name"):
-        chan_rows[r["channel_id"]] = {
-            "channel_id": r["channel_id"], "name": r["channel_name"] or r["channel_id"],
-            "messages": r["n"], "last_at": (r["last_at"] or "")[11:16], "issues": 0,
-            "tickets": 0, "qualified": None, "reason": None}
-    for r in con.execute(
-            "SELECT anchor_channel_id c, COUNT(*) n FROM issues WHERE run_id=? "
-            "GROUP BY anchor_channel_id", (RUN_ID,)):
-        if r["c"] in chan_rows:
-            chan_rows[r["c"]]["issues"] = r["n"]
-    for iid, d in drafts.items():
-        row = con.execute("SELECT anchor_channel_id c FROM issues WHERE run_id=? AND issue_id=?",
-                          (RUN_ID, iid)).fetchone()
-        if row and row["c"] in chan_rows and not d["suppressed"]:
-            chan_rows[row["c"]]["tickets"] += 1
-    # The qualification gate's verdict, so a channel excluded from ticketing says so out loud
-    # rather than just showing zero.
-    try:
-        for r in con.execute(
-                "SELECT channel_id, in_scope, reason FROM channel_qualification WHERE run_id=?",
-                (RUN_ID,)):
-            if r["channel_id"] in chan_rows:
-                chan_rows[r["channel_id"]]["qualified"] = bool(r["in_scope"])
-                chan_rows[r["channel_id"]]["reason"] = r["reason"]
-    except Exception:                                                     # noqa: BLE001
-        pass                      # qualification has not run yet on a cold start
-    channels = sorted(chan_rows.values(), key=lambda c: -c["messages"])
+    # Same function the PSP register uses, so the two views cannot drift into disagreeing
+    # about the same counts.
+    channels = rollup.channel_rollup(con, RUN_ID)
 
     n = len(feed)
     return {

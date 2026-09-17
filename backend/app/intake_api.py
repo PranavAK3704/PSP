@@ -44,6 +44,7 @@ from .durable_state import durable_path, read_json_from
 router = APIRouter()
 
 STORE = "intake_tickets.json"
+CHANNELS = "intake_channels.json"
 
 #: An agent works the register and sees nothing else in PSP. Staff roles see it too.
 intake_access = require_role("agent", "viewer", "author", "approver")
@@ -115,6 +116,28 @@ def create_ticket(payload: dict = Body(...), user: dict = Depends(intake_write))
     data["tickets"].append(ticket)
     _save(data)
     return {"ok": True, "ref": ref, "created": True, "status_token": ticket["status_token"]}
+
+
+@router.post("/api/intake/channels")
+def report_channels(payload: dict = Body(...), user: dict = Depends(intake_write)) -> dict:
+    """The pipeline reports what each listening channel produced.
+
+    A REPLACE, not an append: this is a snapshot of the current state of every channel, and a
+    channel that stopped being listened to should disappear rather than linger with stale
+    counts.
+    """
+    rows = payload.get("channels")
+    if not isinstance(rows, list):
+        raise HTTPException(status_code=400, detail="channels must be a list")
+    durable_path(CHANNELS).write_text(json.dumps(
+        {"channels": rows, "updated_at": _now(), "updated_by": user.get("email")},
+        indent=1, ensure_ascii=False))
+    return {"ok": True, "channels": len(rows)}
+
+
+@router.get("/api/intake/channels")
+def list_channels(user: dict = Depends(intake_access)) -> dict:
+    return read_json_from(durable_path(CHANNELS), {"channels": [], "updated_at": None})
 
 
 @router.get("/api/intake/tickets")

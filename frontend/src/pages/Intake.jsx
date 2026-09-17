@@ -14,7 +14,7 @@
  *     comment, and the placeholder says so, because discovering that afterwards is expensive.
  */
 import { useEffect, useMemo, useState } from "react";
-import { getIntakeTickets, updateIntakeTicket } from "../lib/api.js";
+import { getIntakeChannels, getIntakeTickets, updateIntakeTicket } from "../lib/api.js";
 
 const STATES = [
   { k: "open",        label: "Open",            tone: "text-primary bg-primary/10 border-primary/30" },
@@ -31,6 +31,9 @@ export default function Intake() {
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
   const [open, setOpen] = useState(null);      // ref of the expanded row
+  const [chans, setChans] = useState({ channels: [], updated_at: null });
+
+  useEffect(() => { getIntakeChannels().then(setChans).catch(() => {}); }, []);
 
   async function load() {
     try {
@@ -69,6 +72,72 @@ export default function Intake() {
 
   return (
     <div className="space-y-lg">
+      {/* ── LISTENING CHANNELS ───────────────────────────────────────────────────────────
+          A channel that is connected but silent looks exactly like one that is broken, and
+          both look like one the gate excluded — all three produce no tickets. So every row
+          shows what arrived, what came of it, and the gate's reason when it excluded one. */}
+      <div>
+        <div className="flex items-baseline gap-sm mb-sm">
+          <h3 className="text-[11px] uppercase tracking-wide text-on-surface-variant">
+            Listening on
+          </h3>
+          {chans.updated_at && (
+            <span className="text-[10px] text-on-surface-variant/70">
+              as of {String(chans.updated_at).slice(0, 16).replace("T", " ")}
+            </span>
+          )}
+        </div>
+        {!chans.channels.length ? (
+          <div className="rounded-lg border border-dashed border-on-primary-fixed-variant/20 p-md text-center text-[12px] text-on-surface-variant">
+            No channel has reported yet — the pipeline sends this when it runs.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-md">
+            {chans.channels.map((c) => {
+              const excluded = c.qualified === false;
+              const quiet = !excluded && !c.messages;
+              const dot = excluded ? "bg-tertiary" : quiet ? "bg-on-surface-variant/40" : "bg-primary";
+              return (
+                <div key={c.channel_id}
+                  className={`rounded-lg border p-md ${excluded
+                    ? "border-tertiary/30 bg-tertiary/5"
+                    : "border-on-primary-fixed-variant/15"}`}>
+                  <div className="flex items-center gap-sm">
+                    <span className={`inline-block w-[7px] h-[7px] rounded-full ${dot}`} />
+                    <span className="text-sm font-semibold truncate">#{c.name}</span>
+                    {c.last_at && (
+                      <span className="ml-auto text-[10px] text-on-surface-variant">
+                        {String(c.last_at).slice(11, 16)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-sm flex gap-md text-[11px] text-on-surface-variant">
+                    <span><b className="text-on-surface">{c.messages || 0}</b> messages</span>
+                    <span><b className="text-on-surface">{c.issues || 0}</b> issues</span>
+                    <span><b className="text-on-surface">{c.tickets || 0}</b> tickets</span>
+                  </div>
+                  {(c.gated || c.not_an_issue) ? (
+                    <div className="mt-1 text-[10px] text-on-surface-variant/70">
+                      {c.gated || 0} gated · {c.not_an_issue || 0} not an issue
+                    </div>
+                  ) : null}
+                  {excluded && (
+                    <div className="mt-sm text-[10px] text-tertiary leading-relaxed">
+                      excluded by the qualification gate — {String(c.reason || "").slice(0, 110)}
+                    </div>
+                  )}
+                  {quiet && (
+                    <div className="mt-sm text-[10px] text-on-surface-variant/70">
+                      connected, nothing yet
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-md">
         {tiles.map(([k, n, label]) => (
           <button key={k} onClick={() => setFilter(k === "all" ? "" : k)}

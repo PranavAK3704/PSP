@@ -105,6 +105,22 @@ class PspTicketSink:
         self.token = tok
         return tok
 
+    def report_channels(self, rows: list[dict]) -> int:
+        """Send the per-channel rollup. Best effort — a failure here must never lose tickets,
+        which are the thing that matters; the panel can be a run stale."""
+        if self.dry_run or not rows:
+            return 0
+        if self.token is None:
+            self._login()
+        try:
+            r = requests.post(f"{self.base_url}/api/intake/channels",
+                              json={"channels": rows},
+                              headers={"Authorization": f"Bearer {self.token}"},
+                              timeout=self.timeout)
+            return len(rows) if r.status_code == 200 else 0
+        except requests.RequestException:
+            return 0
+
     def create(self, draft) -> str:
         payload = asdict(draft) if hasattr(draft, "__dataclass_fields__") else dict(draft)
         key = payload["idempotency_key"]

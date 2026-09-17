@@ -130,6 +130,7 @@ export const getIntakeTickets = ({ state = "", q = "" } = {}) => {
   if (q) p.set("q", q);
   return apiGet(`/api/intake/tickets?${p}`);
 };
+export const getIntakeChannels = () => apiGet("/api/intake/channels");
 export const updateIntakeTicket = (ref, body) =>
   apiPatch(`/api/intake/tickets/${encodeURIComponent(ref)}`, body);
 export const getLedger = () => apiGet("/api/ledger");

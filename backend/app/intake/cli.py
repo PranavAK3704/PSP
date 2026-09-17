@@ -30,7 +30,7 @@ if str(BACKEND) not in sys.path:
 
 from app.intake import (  # noqa: E402
     classify, dedupe, emit, evaluate, evidence, extract, group, labels, loadstage, noise,
-    notify, qualify, register, report, sinks, slack_source, store,
+    notify, qualify, register, report, rollup, sinks, slack_source, store,
 )
 
 DEFAULT_RAW = BACKEND / "data" / "intake" / "raw"
@@ -319,6 +319,17 @@ def cmd_run_all(args) -> int:
     if r.get("CAVEAT"):
         print(f"\n!! {r['CAVEAT']}\n")
     _show("evaluate", r)
+    # The listening-channel panel. Reported after emit so ticket counts are final, and only
+    # when the sink can carry it — the local file sink has nowhere to put this.
+    if hasattr(_sink, "report_channels"):
+        _con = store.connect()
+        try:
+            _rows = rollup.channel_rollup(_con, rid)
+        finally:
+            _con.close()
+        n = _sink.report_channels(_rows)
+        print(f"\n  listening channels reported: {n}/{len(_rows)}")
+
     # Acknowledgement runs LAST and reads the sink's status links, because a message with
     # nowhere to look is exactly what was rejected in the first place.
     _n = _notifier(args)

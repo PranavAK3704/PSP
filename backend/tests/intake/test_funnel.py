@@ -88,3 +88,27 @@ def test_the_human_row_counts_what_is_still_being_asked(run, tmp_path, monkeypat
     labels.confirm(text, "label", disposition="something_new", confirmed_by="tester")
 
     assert evaluate._funnel(con, rid)["awaiting_a_human"] == before - 1
+
+
+def test_the_channel_rollup_reconciles_with_the_funnel(run):
+    """Both views read the same store, so their totals must agree — a panel that disagrees
+    with the pipeline is worse than no panel."""
+    from app.intake import evaluate, rollup
+    rid, con = run
+    rows = rollup.channel_rollup(con, rid)
+    assert rows, "the fixtures span three channels"
+    assert sum(r["messages"] for r in rows) == \
+        con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+    assert sum(r["issues"] for r in rows) == \
+        con.execute("SELECT COUNT(*) FROM issues WHERE run_id=?", (rid,)).fetchone()[0]
+    assert sum(r["gated"] for r in rows) == \
+        evaluate._funnel(con, rid)["tiers"][0]["resolved"]
+
+
+def test_an_excluded_channel_is_marked_with_its_reason(run):
+    from app.intake import rollup
+    rid, con = run
+    rows = rollup.channel_rollup(con, rid)
+    excluded = [r for r in rows if r["qualified"] is False]
+    for r in excluded:
+        assert r["reason"], f"{r['name']} is excluded but says nothing about why"

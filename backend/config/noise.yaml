@@ -106,6 +106,25 @@ informational:
      sabhi ko inform, for your information only, fyi only, no action required,
      updated sop, process follow karna, daily mis, mis report]
 
+  # ── AN ASK BEATS THE WEATHER ──────────────────────────────────────────────────────────────
+  # Measured failure: "Dear losses team, I have so many losses at my hub please reverse - rain
+  # has made it extremely difficult to route these parcels" was held back as a weather callout.
+  # It is not. It is a partner asking for their losses to be reversed; the rain is the REASON,
+  # offered as context. Two of these arrived in one afternoon and neither became a ticket.
+  #
+  # The old rule already knew it was unsure — an ops topic came first, so it marked the message
+  # `borderline` — and then suppressed it anyway. Borderline has to mean something.
+  #
+  # So: when an operational topic is named BEFORE the weather word AND the message asks for
+  # something, it is not informational at all. A weather callout does not ask for anything;
+  # that is what makes it a callout. The asymmetry justifies it — a real issue wrongly held
+  # back is never seen by anyone, while a missed announcement just raises a ticket somebody
+  # closes in ten seconds.
+  request_markers:
+    [please, pls, kindly, request, requesting, need, chahiye, karo, kar do, dijiye, karwa do,
+     can we, can you, could you, do the needful, arrange, reverse, resolve, release, approve,
+     help, support, sort out, look into, revert]
+
   # An operational topic that is NOT weather. Used only to decide the STRICT bound: a message
   # is strictly informational when the FIRST topic keyword it mentions is a weather term.
   # The real message that motivated this leads with festival manpower absenteeism and mentions

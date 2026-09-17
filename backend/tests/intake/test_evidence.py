@@ -189,3 +189,45 @@ def test_without_the_evidence_stage_nothing_is_filtered(pipeline):
     pipeline.commit()
     stats = group.run("r1", con=pipeline)
     assert stats["excluded_no_evidence"] == 0
+
+
+# ── an ask beats the weather ─────────────────────────────────────────────────────────────────
+
+def test_a_partner_asking_for_reversal_is_not_a_weather_callout():
+    """MEASURED FAILURE, twice in one afternoon, on a live channel:
+
+        "Dear losses team, I have so many losses at my hub please reverse - rain has made it
+         extremely difficult to route these parcels"
+
+    was held back as an operational weather callout and never became a ticket. It is not a
+    callout — it is a partner asking for their losses to be reversed, with the rain offered as
+    the reason. The old rule already knew it was unsure (an ops topic came first, so it marked
+    the message `borderline`) and suppressed it anyway. Borderline has to mean something.
+    """
+    from app.intake import noise
+    rules = noise.load_rules()
+    d = noise.classify(
+        "Dear losses team, I have so many losses at my hub please reverse - rain has made it "
+        "extremely difficult to route these parcels", None, False, rules)
+    assert d["informational"] is False, d.get("informational_rule")
+    assert "with_ask" in d["informational_rule"]
+
+
+def test_a_genuine_weather_callout_is_still_held_back():
+    """The fix must not simply disable the classifier — these are deliberate comms, and a
+    register full of rain announcements is the thing it exists to prevent."""
+    from app.intake import noise
+    rules = noise.load_rules()
+    for text in ("Heavy rain in Bangalore today, expect delays",
+                 "rain has flooded the hub, all routes stopped",
+                 "IMD alert: red alert for the city tomorrow"):
+        assert noise.classify(text, None, False, rules)["informational"] is True, text
+
+
+def test_weather_after_an_ops_topic_with_no_ask_stays_informational():
+    """The ask is what distinguishes them. "manpower short today because of rain" reports a
+    situation; it does not request anything."""
+    from app.intake import noise
+    rules = noise.load_rules()
+    d = noise.classify("manpower short today because of rain", None, False, rules)
+    assert d["informational"] is True and d["borderline"] is True

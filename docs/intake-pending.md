@@ -198,6 +198,14 @@ English-dominant holdout, so it *understates* the gain for WhatsApp.
 Throughput on this laptop's CPU: **29 msgs/sec**. At 1M messages/month only what BM25 refuses
 reaches this tier — roughly 5/min. **~350x headroom, no GPU, no per-message cost.**
 
+**Before fixing the encoder in place, A/B three of them** on our own held-out set — BGE-M3
+(current), `multilingual-e5-large` (beats BGE-M3 on Hindi specifically in the published IndicRAG
+benchmark), and a HingBERT variant (pre-trained on romanised Hindi-English, our exact register).
+Half a day, and it settles a component we will live with. Also worth testing: AI4Bharat's
+IndicXlit as a normaliser in front of BM25 — if a *trained* transliterator turns पेमेंट into
+`payment`, the free lexical tier starts working on Devanagari too. Prior art, sources and the
+measured case against rule-based transliteration: [indic-intent-prior-art.md](indic-intent-prior-art.md).
+
 Costs to weigh honestly: `torch` + `sentence-transformers` as dependencies, and a 2.2 GB model
 file in the deployment image. Still deterministic — pinned weights + pinned index + fixed floor
 is a pure function, and the model version is recorded in the index so it cannot drift silently.

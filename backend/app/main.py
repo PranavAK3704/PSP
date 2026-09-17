@@ -247,6 +247,11 @@ class SetRoleIn(BaseModel):
     role: str
 
 
+class SetPasswordIn(BaseModel):
+    email: str
+    password: str
+
+
 def _sse(gen):
     for event in gen:
         yield {"event": "trace", "data": json.dumps(event)}
@@ -315,6 +320,26 @@ def auth_set_role(body: SetRoleIn):
         user = auth_store.set_role(body.email, body.role)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "user": user}
+
+
+@app.post("/api/auth/password", dependencies=[_approver])
+def auth_set_password(body: SetPasswordIn, actor: dict = Depends(current_user)):
+    """Approver only. Reset someone's password.
+
+    Without this a mistyped password is permanent — there is no delete endpoint, so the account
+    is stranded and the only way forward is a new email address.
+
+    Their existing sessions keep working until the 12h token expires: the token is signed, not
+    looked up, so a password change cannot revoke one. Worth knowing if you are resetting a
+    password *because* you think a session is compromised — rotate AUTH_SECRET for that, which
+    invalidates every token at once.
+    """
+    try:
+        user = auth_store.set_password(body.email, body.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _log.info("password reset for %s by %s", body.email, actor.get("email"))
     return {"ok": True, "user": user}
 
 

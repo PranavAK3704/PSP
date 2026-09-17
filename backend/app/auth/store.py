@@ -171,6 +171,32 @@ def set_role(email: str, role: str) -> dict:
         return _public(target)
 
 
+def set_password(email: str, password: str) -> dict:
+    """Reset a user's password. Returns the public view.
+
+    Without this, a forgotten or mistyped password is PERMANENT: there is no delete either, so
+    the account is stranded and the only way out is a new email address. That is how
+    `intake-bot@meesho.com` ended up unusable — created through the form with a password that
+    did not match the one the pipeline had.
+
+    A fresh salt is generated rather than reusing the old one, so the stored hash of a repeated
+    password is not identical to what it was before.
+    """
+    email = (email or "").strip().lower()
+    if len(password or "") < 8:
+        raise ValueError("password must be at least 8 characters")
+    with _lock:
+        users = _load()
+        for u in users:
+            if u.get("email") == email:
+                salt = os.urandom(16).hex()
+                u["salt"] = salt
+                u["pw_hash"] = _hash(password, salt)
+                _save(users)
+                return _public(u)
+    raise ValueError("no such user")
+
+
 def verify_password(email: str, password: str) -> dict | None:
     """Return the public user view if the password matches, else None (constant-time compare)."""
     u = get_user(email)

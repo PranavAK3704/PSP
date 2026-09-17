@@ -207,3 +207,49 @@ def test_an_unknown_role_is_refused(client):
     r = client.post("/api/auth/role", headers=_token("approver"),
                     json={"email": "b2@meesho.com", "role": "superuser"})
     assert r.status_code == 400
+
+
+def test_a_mistyped_password_is_recoverable(client):
+    """It was not. There is no delete endpoint either, so before this a wrong password stranded
+    the account permanently — which is exactly how the intake bot ended up unusable."""
+    client.post("/api/auth/users", headers=_token("approver"),
+                json={"email": "bot@meesho.com", "name": "Bot", "role": "agent",
+                      "password": "what-i-typed"})
+    assert client.post("/api/auth/login",
+                       json={"email": "bot@meesho.com",
+                             "password": "what-the-file-says"}).status_code == 401
+
+    r = client.post("/api/auth/password", headers=_token("approver"),
+                    json={"email": "bot@meesho.com", "password": "what-the-file-says"})
+    assert r.status_code == 200
+    ok = client.post("/api/auth/login",
+                     json={"email": "bot@meesho.com", "password": "what-the-file-says"})
+    assert ok.status_code == 200 and ok.json()["user"]["role"] == "agent"
+
+
+def test_a_reset_re_salts_rather_than_reusing_the_old_salt(client):
+    from app.auth import store as auth_store
+    client.post("/api/auth/users", headers=_token("approver"),
+                json={"email": "s@meesho.com", "name": "S", "role": "viewer",
+                      "password": "same-password"})
+    before = auth_store.get_user("s@meesho.com")["salt"]
+    client.post("/api/auth/password", headers=_token("approver"),
+                json={"email": "s@meesho.com", "password": "same-password"})
+    after = auth_store.get_user("s@meesho.com")
+    assert after["salt"] != before
+    assert auth_store.verify_password("s@meesho.com", "same-password")
+
+
+def test_a_short_password_is_refused(client):
+    client.post("/api/auth/users", headers=_token("approver"),
+                json={"email": "t@meesho.com", "name": "T", "role": "viewer",
+                      "password": "long-enough"})
+    r = client.post("/api/auth/password", headers=_token("approver"),
+                    json={"email": "t@meesho.com", "password": "short"})
+    assert r.status_code == 400
+
+
+def test_only_an_approver_can_reset_a_password(client):
+    r = client.post("/api/auth/password", headers=_token("agent"),
+                    json={"email": "x@meesho.com", "password": "long-enough"})
+    assert r.status_code == 403

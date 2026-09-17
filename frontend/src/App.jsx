@@ -10,7 +10,7 @@ import Shader from "./components/Shader.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import { ChatStoreProvider } from "./lib/chatStore.jsx";
 import { AudienceProvider } from "./lib/audienceMode.js";
-import { getHealth, listUsers, createUser, setUserRole } from "./lib/api.js";
+import { getHealth, listUsers, createUser, setUserRole, setUserPassword } from "./lib/api.js";
 import { AuthProvider, useAuth } from "./lib/auth.jsx";
 
 /* ── Views, ORGANISED BY WHO IS LOOKING ───────────────────────────────────────────────────────
@@ -218,6 +218,21 @@ function TeamAdmin({ onClose }) {
   const [roleBusy, setRoleBusy] = useState("");
   const [roleErr, setRoleErr] = useState("");
 
+  async function resetPw(email) {
+    const pw = window.prompt(`New password for ${email}\n(at least 8 characters)`);
+    if (!pw) return;
+    setRoleBusy(email);
+    setRoleErr("");
+    try {
+      const r = await setUserPassword(email, pw);
+      setRoleErr(r?.detail ? r.detail : `Password updated for ${email}.`);
+    } catch (e) {
+      setRoleErr(String(e.message || e));
+    } finally {
+      setRoleBusy("");
+    }
+  }
+
   async function changeRole(email, role) {
     setRoleBusy(email);
     setRoleErr("");
@@ -297,6 +312,14 @@ function TeamAdmin({ onClose }) {
                     className={`text-[10px] font-bold px-2 py-0.5 rounded border bg-transparent disabled:opacity-40 ${ROLE_TONE[u.role] || ROLE_TONE.viewer}`}>
                     {ADMIN_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r] || r}</option>)}
                   </select>
+                  {/* Without this a mistyped password strands the account: there is no delete
+                      endpoint, so the only way forward would be a new email address. */}
+                  <button type="button" onClick={() => resetPw(u.email)}
+                    disabled={roleBusy === u.email}
+                    title="Set a new password for this user"
+                    className="ml-sm text-[10px] px-2 py-0.5 rounded border border-on-primary-fixed-variant/25 text-on-surface-variant hover:text-on-surface disabled:opacity-40">
+                    reset pw
+                  </button>
                 </div>
               ))}
             </div>

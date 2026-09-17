@@ -102,3 +102,23 @@ services:
         sync: false
       - key: INITIAL_ADMIN_PASSWORD
         sync: false
+
+      # ── the Slack intake listener ───────────────────────────────────────────
+      # With these set, the deployed app reads the channels itself and creates
+      # tickets in its own store — no laptop involved. Unset, the poller never
+      # starts and says so in the boot log.
+      #
+      # CAVEAT, stated here because it is easy to be surprised by: this plan
+      # spins the service down after ~15 min idle, and a spun-down instance runs
+      # no threads, so polling stops until an HTTP request wakes it. An open
+      # Intake page keeps it awake (it polls every 8s), which is enough for a
+      # demo and not enough for production. The fix is a paid instance, not a
+      # smaller INTAKE_POLL_SECONDS.
+      - key: SLACK_BOT_TOKEN          # xoxb-…, the same read-only token as local
+        sync: false
+      - key: INTAKE_CHANNELS          # comma-separated channel ids, e.g. C0C0KPAFVT4
+        sync: false
+      - key: INTAKE_POLL_SECONDS      # default 60; floored at 15 to stay inside Slack's limits
+        value: "60"
+      - key: INTAKE_POLL_ENABLED      # set to 0 to hold it off with everything else configured
+        value: "1"

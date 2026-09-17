@@ -28,6 +28,7 @@ Three of these are counter-intuitive and all three are checked by the validator:
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -50,10 +51,28 @@ class SlackError(RuntimeError):
     pass
 
 
+#: Env var wins over the file. `.dockerignore` excludes `backend/data/*.txt`, so the deployed
+#: image contains no token at all — a file-only reader can never work on Render, and the failure
+#: is a confusing "file not found" for a file nobody expected to be there.
+_TOKEN_ENV = {"slack_bot_token.txt": "SLACK_BOT_TOKEN",
+              "slack_app_token.txt": "SLACK_APP_TOKEN"}
+
+
 def read_token(name: str = "slack_bot_token.txt") -> str:
+    """The bot token, from the environment in a deployment and from a file locally.
+
+    Env first so a deployment needs no files, file second so local work needs no exports. Both
+    are read the same way everywhere else, which is what keeps the laptop and the server running
+    identical code rather than two paths that drift.
+    """
+    env = _TOKEN_ENV.get(name)
+    if env and os.environ.get(env, "").strip():
+        return os.environ[env].strip()
     p = _BACKEND / "data" / name
     if not p.exists():
-        raise SlackError(f"{p} not found — see config/slack/app-manifest.yaml for setup")
+        raise SlackError(
+            f"no Slack token: ${env} is unset and {p} does not exist. "
+            f"In a deployment set ${env}; locally see config/slack/app-manifest.yaml.")
     return p.read_text().strip()
 
 

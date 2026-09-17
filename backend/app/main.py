@@ -104,6 +104,14 @@ def _seed_users():
         blueprints.load()   # seeds the Losses brain if the store is empty
     except Exception:  # noqa: BLE001 — never let seeding block startup
         pass
+    # The Slack poller. Off unless SLACK_BOT_TOKEN and INTAKE_CHANNELS are both set, and its
+    # reason is logged either way — a deployment that is not listening should say so at boot
+    # rather than look like one that is listening and finding nothing.
+    try:
+        from . import intake_poller
+        _log.info("intake poller: %s", intake_poller.start())
+    except Exception as e:  # noqa: BLE001 — a broken poller must not stop PSP booting
+        _log.warning("intake poller failed to start: %s: %s", type(e).__name__, e)
 
 
 class ChatIn(BaseModel):

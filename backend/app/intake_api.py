@@ -79,14 +79,31 @@ def create_ticket(payload: dict = Body(...), user: dict = Depends(intake_write))
     key = (payload.get("idempotency_key") or "").strip()
     if not key:
         raise HTTPException(status_code=400, detail="idempotency_key is required")
+    return {"ok": True, **create_ticket_record(payload, created_by=user.get("email"))}
 
+
+def store_channels(rows: list, by: str = "") -> int:
+    """Replace the listening-channel snapshot. Shared by the route and the in-process poller."""
+    durable_path(CHANNELS).write_text(json.dumps(
+        {"channels": rows, "updated_at": _now(), "updated_by": by},
+        indent=1, ensure_ascii=False))
+    return len(rows)
+
+
+def create_ticket_record(payload: dict, *, created_by: str | None = None) -> dict:
+    """Create a ticket, or return the existing one for this key.
+
+    The route and the in-process poller both land here, so there is exactly one definition of
+    what creating a ticket means — and the idempotency check cannot be true over HTTP and false
+    in-process, which is the kind of divergence that produces duplicates nobody can explain.
+    """
+    key = (payload.get("idempotency_key") or "").strip()
     data = _load()
     for t in data["tickets"]:
         if t["idempotency_key"] == key:
             # ALREADY EXISTS. Return the original reference and its original token, so a
             # retried acknowledgement points at the same page rather than a second one.
-            return {"ok": True, "ref": t["ref"], "created": False,
-                    "status_token": t["status_token"]}
+            return {"ref": t["ref"], "created": False, "status_token": t["status_token"]}
 
     ref = f"VAL-{len(data['tickets']) + 1}"
     ticket = {
@@ -111,11 +128,11 @@ def create_ticket(payload: dict = Body(...), user: dict = Depends(intake_write))
         "status_note": "",
         "created_at": _now(),
         "updated_at": _now(),
-        "created_by": user.get("email"),
+        "created_by": created_by,
     }
     data["tickets"].append(ticket)
     _save(data)
-    return {"ok": True, "ref": ref, "created": True, "status_token": ticket["status_token"]}
+    return {"ref": ref, "created": True, "status_token": ticket["status_token"]}
 
 
 @router.post("/api/intake/channels")
@@ -129,15 +146,23 @@ def report_channels(payload: dict = Body(...), user: dict = Depends(intake_write
     rows = payload.get("channels")
     if not isinstance(rows, list):
         raise HTTPException(status_code=400, detail="channels must be a list")
-    durable_path(CHANNELS).write_text(json.dumps(
-        {"channels": rows, "updated_at": _now(), "updated_by": user.get("email")},
-        indent=1, ensure_ascii=False))
-    return {"ok": True, "channels": len(rows)}
+    return {"ok": True, "channels": store_channels(rows, by=user.get("email") or "")}
 
 
 @router.get("/api/intake/channels")
 def list_channels(user: dict = Depends(intake_access)) -> dict:
     return read_json_from(durable_path(CHANNELS), {"channels": [], "updated_at": None})
+
+
+@router.get("/api/intake/poller")
+def poller_status(user: dict = Depends(intake_access)) -> dict:
+    """What the listener has been doing.
+
+    Without this, "no new tickets" and "nothing is listening" look identical on the page — and
+    the second is the one worth knowing about.
+    """
+    from . import intake_poller
+    return intake_poller.status()
 
 
 @router.get("/api/intake/tickets")

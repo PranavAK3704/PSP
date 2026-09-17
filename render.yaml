@@ -122,3 +122,28 @@ services:
         value: "60"
       - key: INTAKE_POLL_ENABLED      # set to 0 to hold it off with everything else configured
         value: "1"
+
+      # ── acknowledgement ─────────────────────────────────────────────────────
+      # OFF by default, and the default is the point: this is a server that can
+      # mail real partners with nobody watching. Turn it on only once
+      # INTAKE_NOTIFY_TO points at YOU, so a mistake lands in your inbox rather
+      # than a partner's.
+      #
+      #   INTAKE_NOTIFY=email-dry   renders and sends nothing
+      #   INTAKE_NOTIFY=email       actually sends
+      - key: INTAKE_NOTIFY
+        value: "off"
+      - key: INTAKE_NOTIFY_TO        # redirect EVERY acknowledgement here. Use it.
+        sync: false
+      - key: INTAKE_NOTIFY_ALLOW     # domains allowed to receive real mail; empty = nobody
+        sync: false
+      - key: INTAKE_NOTIFY_MAX       # hard cap per poll — a grouping bug costs 10 mails, not 400
+        value: "10"
+      # The status link a partner opens. Without it acknowledgement refuses to send, because a
+      # relative link promises somewhere to look and then does not go there.
+      - key: PSP_PUBLIC_URL
+        value: "https://valmo-psp.onrender.com"
+      - key: SMTP_USERNAME           # the Gmail/Workspace account mail is sent from
+        sync: false
+      - key: SMTP_PASSWORD           # a Google App Password, never the real password
+        sync: false

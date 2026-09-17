@@ -82,6 +82,38 @@ def create_ticket(payload: dict = Body(...), user: dict = Depends(intake_write))
     return {"ok": True, **create_ticket_record(payload, created_by=user.get("email"))}
 
 
+def unacknowledged(channel: str = "email") -> list[dict]:
+    """Tickets that have not been acknowledged on this channel yet.
+
+    Keyed on the ticket rather than on a separate ledger, so "did we tell them" is a property of
+    the thing itself and cannot drift out of step with it.
+    """
+    return [t for t in _load()["tickets"]
+            if not t.get("acknowledged_at") or t.get("acknowledged_channel") != channel]
+
+
+def mark_acknowledged(key: str, *, channel: str, recipient: str | None,
+                      error: str | None = None) -> bool:
+    """Record that we told the raiser — or that we tried and failed.
+
+    A failure is recorded too, with its reason, and does NOT mark the ticket acknowledged: the
+    next poll retries it. Silently dropping a failed acknowledgement would leave a partner
+    believing nobody read their message, which is the whole failure this project exists to fix.
+    """
+    data = _load()
+    for t in data["tickets"]:
+        if t["idempotency_key"] != key:
+            continue
+        if error:
+            t["acknowledge_error"] = error
+        else:
+            t.update(acknowledged_at=_now(), acknowledged_to=recipient,
+                     acknowledged_channel=channel, acknowledge_error=None)
+        _save(data)
+        return True
+    return False
+
+
 def store_channels(rows: list, by: str = "") -> int:
     """Replace the listening-channel snapshot. Shared by the route and the in-process poller."""
     durable_path(CHANNELS).write_text(json.dumps(
@@ -126,6 +158,14 @@ def create_ticket_record(payload: dict, *, created_by: str | None = None) -> dic
         "flags": payload.get("flags") or [],
         "entities": payload.get("entities") or {},
         "status_note": "",
+        # Acknowledgement state lives HERE, on the durable ticket, and not in the intake
+        # SQLite — that database sits on the container filesystem, which Render wipes, so a
+        # ledger there would forget every send on each restart and mail the same partner again.
+        # That is the precise failure the ledger exists to prevent, firing on every deploy.
+        "acknowledged_at": None,
+        "acknowledged_to": None,
+        "acknowledged_channel": None,
+        "acknowledge_error": None,
         "created_at": _now(),
         "updated_at": _now(),
         "created_by": created_by,

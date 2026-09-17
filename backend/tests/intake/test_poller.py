@@ -100,3 +100,48 @@ def test_status_distinguishes_never_ran_from_found_nothing():
     st = intake_poller.status()
     assert st["running"] is False and st["polls"] == 0
     assert "last_error" in st
+
+
+# ── acknowledgement ──────────────────────────────────────────────────────────────────────────
+
+def test_acknowledgement_is_off_unless_asked():
+    """This is a server that can mail real partners with nobody watching — the one thing here
+    with consequences outside the building."""
+    assert intake_poller._acknowledge("r") == 0
+
+
+def test_it_refuses_to_send_without_a_public_url(monkeypatch):
+    """A relative status link in an email is worse than no email: it promises somewhere to look
+    and then does not go there."""
+    monkeypatch.setenv("INTAKE_NOTIFY", "email")
+    monkeypatch.delenv("PSP_PUBLIC_URL", raising=False)
+    assert intake_poller._acknowledge("r") == 0
+
+
+def test_the_ledger_survives_a_restart(tmp_path, monkeypatch):
+    """THE BUG THIS FIXES. The old ledger was a table in the intake SQLite, which sits on
+    Render's ephemeral disk — so every restart forgot every send and mailed the same partner
+    again. That is precisely the failure the ledger exists to prevent, firing on every deploy.
+    Acknowledgement state now lives on the durable ticket."""
+    rec = intake_api.create_ticket_record(
+        {"idempotency_key": "k1", "title": "t", "source_id": "C1/1.1"})
+    assert intake_api.unacknowledged("email"), "a fresh ticket is owed an acknowledgement"
+
+    intake_api.mark_acknowledged("k1", channel="email", recipient="p@meesho.com")
+    assert not [t for t in intake_api.unacknowledged("email")
+                if t["idempotency_key"] == "k1"]
+
+    # A restart wipes the intake SQLite; the durable ticket is what remains, and it remembers.
+    t = [x for x in intake_api._load()["tickets"] if x["idempotency_key"] == "k1"][0]
+    assert t["acknowledged_at"] and t["acknowledged_to"] == "p@meesho.com"
+    assert rec["created"] is True
+
+
+def test_a_failed_send_is_recorded_but_retried(tmp_path):
+    """Marking a failure as 'acknowledged' would leave a partner believing nobody read their
+    message — the exact failure this project exists to fix."""
+    intake_api.create_ticket_record({"idempotency_key": "k2", "title": "t"})
+    intake_api.mark_acknowledged("k2", channel="email", recipient=None, error="smtp down")
+    still = [t for t in intake_api.unacknowledged("email") if t["idempotency_key"] == "k2"]
+    assert still, "a failed send must remain outstanding"
+    assert still[0]["acknowledge_error"] == "smtp down"

@@ -10,7 +10,7 @@ import Shader from "./components/Shader.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import { ChatStoreProvider } from "./lib/chatStore.jsx";
 import { AudienceProvider } from "./lib/audienceMode.js";
-import { getHealth, listUsers, createUser } from "./lib/api.js";
+import { getHealth, listUsers, createUser, setUserRole } from "./lib/api.js";
 import { AuthProvider, useAuth } from "./lib/auth.jsx";
 
 /* ── Views, ORGANISED BY WHO IS LOOKING ───────────────────────────────────────────────────────
@@ -215,6 +215,24 @@ function TeamAdmin({ onClose }) {
   const [busy, setBusy] = useState(false);
 
   const load = () => listUsers().then((d) => setUsers(d.users || [])).catch(() => {});
+  const [roleBusy, setRoleBusy] = useState("");
+  const [roleErr, setRoleErr] = useState("");
+
+  async function changeRole(email, role) {
+    setRoleBusy(email);
+    setRoleErr("");
+    try {
+      const r = await setUserRole(email, role);
+      // The server refuses to demote the last approver — surface its reason rather than
+      // silently reverting the dropdown, which would look like a bug.
+      if (r?.detail) setRoleErr(r.detail);
+      await load();
+    } catch (e) {
+      setRoleErr(String(e.message || e));
+    } finally {
+      setRoleBusy("");
+    }
+  }
   useEffect(() => { load(); }, []);
 
   // Strong, unambiguous temp password (no 0/O/1/l/I) so onboarding a leader is one click.
@@ -260,6 +278,7 @@ function TeamAdmin({ onClose }) {
           {/* existing team */}
           <div>
             <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-sm">Members · {users.length}</div>
+            {roleErr && <div className="mb-sm rounded-md border border-error/40 bg-error/10 px-md py-sm text-[11px]">{roleErr}</div>}
             <div className="space-y-sm">
               {users.length === 0 && <div className="text-on-surface-variant text-sm">No users loaded.</div>}
               {users.map((u) => (
@@ -268,7 +287,16 @@ function TeamAdmin({ onClose }) {
                     <div className="text-sm font-semibold truncate">{u.name || u.email}</div>
                     <div className="text-[10px] text-on-surface-variant truncate" style={{ fontFamily: "JetBrains Mono" }}>{u.email}</div>
                   </div>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${ROLE_TONE[u.role] || ROLE_TONE.viewer}`}>{ROLE_LABEL[u.role] || u.role}</span>
+                  {/* Editable in place. Correcting a wrong role used to mean deleting and
+                      recreating the account — which for a service account means rotating its
+                      password too. Takes effect at that user's next login, since role is read
+                      from the signed token. */}
+                  <select value={u.role} disabled={roleBusy === u.email}
+                    onChange={(e) => changeRole(u.email, e.target.value)}
+                    title="Takes effect at their next login"
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded border bg-transparent disabled:opacity-40 ${ROLE_TONE[u.role] || ROLE_TONE.viewer}`}>
+                    {ADMIN_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r] || r}</option>)}
+                  </select>
                 </div>
               ))}
             </div>

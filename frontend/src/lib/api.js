@@ -117,6 +117,7 @@ export async function getMe() {
 export function logout() { clearToken(); }
 export const listUsers = () => apiGet("/api/auth/users");
 export const createUser = (payload) => apiPost("/api/auth/users", payload);
+export const setUserRole = (email, role) => apiPost("/api/auth/role", { email, role });
 
 export const getHealth = () => apiGet("/api/health");
 export const getCaptains = () => apiGet("/api/captains");

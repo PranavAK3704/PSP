@@ -135,6 +135,42 @@ def set_team(email: str, team: str) -> dict:
     raise ValueError("no such user")
 
 
+def set_role(email: str, role: str) -> dict:
+    """Change a user's role. Returns the public view.
+
+    Separate from create so fixing a wrong role does not mean deleting and recreating an
+    account — which for a service account means rotating its password too.
+
+    ── THE LAST-APPROVER GUARD ───────────────────────────────────────────────────────────────
+    Role is the only thing that lets anyone administer this system. Demoting the final approver
+    leaves an instance nobody can add a user to, change a role in, or approve anything on, and
+    the only way back is editing the store by hand on the server. So that one move is refused.
+    It is not a permission check — an approver is *allowed* to do this — it is a check that the
+    system remains administrable afterwards.
+
+    Note that role lives in the SIGNED TOKEN, so unlike a team change this takes effect at the
+    user's next LOGIN, not their next request. Their current session keeps the old role until it
+    expires. That is the price of not trusting the client for role, and it is the right trade.
+    """
+    email = (email or "").strip().lower()
+    if role not in ROLES:
+        raise ValueError(f"role must be one of {sorted(ROLES)}")
+    with _lock:
+        users = _load()
+        target = next((u for u in users if u.get("email") == email), None)
+        if target is None:
+            raise ValueError("no such user")
+        if target.get("role") == "approver" and role != "approver":
+            approvers = sum(1 for u in users if u.get("role") == "approver")
+            if approvers <= 1:
+                raise ValueError(
+                    "refusing to demote the only approver — nobody would be able to administer "
+                    "this instance afterwards. Make someone else an approver first.")
+        target["role"] = role
+        _save(users)
+        return _public(target)
+
+
 def verify_password(email: str, password: str) -> dict | None:
     """Return the public user view if the password matches, else None (constant-time compare)."""
     u = get_user(email)

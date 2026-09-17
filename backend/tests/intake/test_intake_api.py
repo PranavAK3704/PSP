@@ -150,3 +150,60 @@ def test_the_agent_role_is_actually_creatable(client):
     assert client.post("/api/intake/tickets", json=_draft("via-bot"),
                        headers=tok).status_code == 200
     assert client.get("/api/connectors", headers=tok).status_code == 403
+
+
+# ── changing a role ──────────────────────────────────────────────────────────────────────────
+
+def test_a_role_can_be_corrected_without_recreating_the_account(client):
+    """Recreating a service account means rotating its password too, which is why this exists."""
+    # A real human approver has to exist, or the last-approver guard correctly refuses —
+    # which is exactly what happened the first time this test ran.
+    client.post("/api/auth/users", headers=_token("approver"),
+                json={"email": "boss@meesho.com", "name": "Boss", "role": "approver",
+                      "password": "pw-long-enough"})
+    client.post("/api/auth/users", headers=_token("approver"),
+                json={"email": "bot@meesho.com", "name": "Bot", "role": "approver",
+                      "password": "pw-long-enough"})
+    r = client.post("/api/auth/role", headers=_token("approver"),
+                    json={"email": "bot@meesho.com", "role": "agent"})
+    assert r.status_code == 200 and r.json()["user"]["role"] == "agent"
+
+    # The password still works, and the new role is in the new token.
+    login = client.post("/api/auth/login",
+                        json={"email": "bot@meesho.com", "password": "pw-long-enough"})
+    assert login.json()["user"]["role"] == "agent"
+    tok = {"Authorization": f"Bearer {login.json()['token']}"}
+    assert client.get("/api/connectors", headers=tok).status_code == 403
+    assert client.get("/api/intake/tickets", headers=tok).status_code == 200
+
+
+def test_the_last_approver_cannot_be_demoted(client):
+    """Not a permission check — an approver is allowed to do this. It is a check that the
+    system is still administrable afterwards, because role is the only thing that grants it."""
+    client.post("/api/auth/users", headers=_token("approver"),
+                json={"email": "solo@meesho.com", "name": "Solo", "role": "approver",
+                      "password": "pw-long-enough"})
+    from app.auth import store as auth_store
+    approvers = [u["email"] for u in auth_store.list_users() if u["role"] == "approver"]
+    # Demote every approver but the last; the last one must be refused.
+    for e in approvers[:-1]:
+        assert client.post("/api/auth/role", headers=_token("approver"),
+                           json={"email": e, "role": "viewer"}).status_code == 200
+    r = client.post("/api/auth/role", headers=_token("approver"),
+                    json={"email": approvers[-1], "role": "viewer"})
+    assert r.status_code == 400 and "only approver" in r.json()["detail"]
+
+
+def test_a_non_approver_cannot_change_roles(client):
+    r = client.post("/api/auth/role", headers=_token("agent"),
+                    json={"email": "x@meesho.com", "role": "approver"})
+    assert r.status_code == 403
+
+
+def test_an_unknown_role_is_refused(client):
+    client.post("/api/auth/users", headers=_token("approver"),
+                json={"email": "b2@meesho.com", "name": "B", "role": "viewer",
+                      "password": "pw-long-enough"})
+    r = client.post("/api/auth/role", headers=_token("approver"),
+                    json={"email": "b2@meesho.com", "role": "superuser"})
+    assert r.status_code == 400

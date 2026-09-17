@@ -242,6 +242,11 @@ class SetTeamIn(BaseModel):
     team: str
 
 
+class SetRoleIn(BaseModel):
+    email: str
+    role: str
+
+
 def _sse(gen):
     for event in gen:
         yield {"event": "trace", "data": json.dumps(event)}
@@ -293,6 +298,21 @@ def auth_set_team(body: SetTeamIn):
     """
     try:
         user = auth_store.set_team(body.email, body.team)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "user": user}
+
+
+@app.post("/api/auth/role", dependencies=[_approver])
+def auth_set_role(body: SetRoleIn):
+    """Approver only. Change someone's role — including down to `agent`.
+
+    Takes effect at their NEXT LOGIN, not their next request: role is read from the signed
+    token, deliberately, so that the client can never assert it. Refuses to demote the last
+    approver, which would leave an instance nobody can administer.
+    """
+    try:
+        user = auth_store.set_role(body.email, body.role)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "user": user}

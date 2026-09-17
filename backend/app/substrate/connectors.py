@@ -128,6 +128,18 @@ OTHER_SERVICE_ROUTES = [
      "losses_debits", "One hop closer to source than LMS's own tracking-details."),
     ("Nexus", "TRACKING_LATEST", "POST /v1/shipment/tracking/latest", "nexus", "none",
      "losses_debits", "Latest scan only — cheaper than the full trail."),
+    ("Nexus", "SHIPMENT_DETAILS_BULK", "POST /api/v1/valmo/shipment/details/bulk", "nexus",
+     "none", "losses_debits",
+     "BULK shipment details in one call. Catalogued because the per-AWB alternative is what "
+     "makes a multi-AWB dispute expensive: a captain contesting a bag of 40 shipments costs 40 "
+     "round trips through the routes above. Read-only, and no access today — same Nexus "
+     "approval as the two above, so it costs nothing extra to ask for."),
+    ("LossManagementService", "LOSS_VALIDATION_TOPIC",
+     "(none — Kafka loss-validation)", "lms", "none", "losses_debits",
+     "A TOPIC, not an endpoint, and listed so its absence is visible rather than assumed. "
+     "It carries the validation verdict on a marked loss. PSP cannot subscribe: the same "
+     "reason LOSS_REVERSAL below has no HTTP write path (ADR-0015). Registered so 'can we see "
+     "whether a loss was validated' has a recorded answer of NO instead of no answer."),
     ("LossManagementService", "COD_PENDENCY_UPLOAD",
      "POST /api/v1/cod-pendency/file-upload", "lms", "none", "cash_cod",
      "A WRITE endpoint, but a CSV ingest — not a per-captain action."),

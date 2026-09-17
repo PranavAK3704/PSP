@@ -141,38 +141,26 @@ export default function Calibration() {
         </p>
       </Verdict>
 
-      {/* ── ANSWER 2 ── */}
+      {/* ── ANSWER 2 — MOVED, and this is the pointer, not a copy ─────────────────────────
+          The κ block now renders in the Auditing Studio, above the audit scores it qualifies.
+          Deliberately not duplicated here: two copies of a caveat drift, and the one that drifts
+          is always the one on the page nobody opens. */}
       {k.available && (
-        <Verdict tone="bad" kicker={<><Users size={13} />Answer 2 — 90.6% agreement is not what it sounds like</>}
-          headline={`Cohen's κ = ${k.cohen_kappa} on n=${(k.n || 0).toLocaleString("en-IN")} paired verdicts.`}>
-          <div className="grid grid-cols-3 gap-md my-sm">
-            {[["raw agreement", pct(k.agreement_pct), "text-tertiary"],
-              ["Cohen's κ", String(k.cohen_kappa), "text-warn"],
-              ["engine fail rate", pct(k.engine_fail_rate), "text-on-surface"]].map(([l, v, c]) => (
-              <div key={l} className="rounded-lg bg-surface-variant/25 p-md">
-                <div className="text-[9.5px] uppercase tracking-[0.1em] text-on-surface-variant"
-                  style={{ fontFamily: "JetBrains Mono" }}>{l}</div>
-                <div className={`text-xl font-bold mt-1 ${c}`}
-                  style={{ fontVariantNumeric: "tabular-nums" }}>{v}</div>
-              </div>
-            ))}
-          </div>
+        <Verdict tone="bad" kicker={<><Users size={13} />Answer 2 — moved to where it is read</>}
+          headline={`Cohen's κ = ${k.cohen_kappa} on n=${(k.n || 0).toLocaleString("en-IN")} paired verdicts — now shown in the Auditing Studio.`}>
           <p>
-            κ corrects for the agreement you would get by chance. When the overwhelming majority
-            of cases are a pass, agreeing on the passes is free — so 90.6% raw agreement and
-            κ = {k.cohen_kappa} together mean the judge and the human are agreeing{" "}
-            <b className="text-on-surface">about as much as two people flipping coins with the
-            same bias</b>. Where it matters — the cases that fail — they do not agree.
+            Our LLM judge and a human agree {pct(k.agreement_pct)} of the time, and κ ={" "}
+            {k.cohen_kappa} — near zero once chance agreement is removed. That number qualifies{" "}
+            <b className="text-on-surface">every audit score in the platform</b>, so it now sits
+            directly above those scores in{" "}
+            <b className="text-on-surface">Support Command → Auditing Studio → Scores &amp; Rubric</b>{" "}
+            instead of here.
           </p>
           <p className="text-on-surface-variant/85">
-            <b className="text-on-surface">And what it does NOT measure:</b> {k.not_measures}. It
-            scores {k.measures}. These are two different numbers and the old version of this page
-            put them side by side without saying so.
-          </p>
-          <p className="text-on-surface-variant/85">
-            This κ is the caveat on every audit score in the platform, so it belongs beside those
-            scores in the Auditing Studio rather than on a page nobody opens. That move is the next
-            change to this area.
+            Why it mattered: <code className="text-on-surface">grep kappa</code> used to hit this
+            file and nothing else — so the studio that scores every concern with an LLM judge held
+            no human verdict at all, and the one measurement of whether to believe it was a nav
+            click away on a page whose purpose you told us was unclear.
           </p>
         </Verdict>
       )}

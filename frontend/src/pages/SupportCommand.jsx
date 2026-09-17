@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import DataFoundation from "./DataFoundation.jsx";
 import { getInsights, getAudit, getKt, submitKt, reviewKt, compileSopStream, getLedger, checkSopConformance,
   approveSop, saveSopDraft, deleteSop, extractSop, compileBlueprintStream, getBlueprints, saveBlueprint, approveBlueprint,
   getConcernTrace, exportLedger, getAuditRubric, saveAuditRubric, runAudit, runAuditBatch, getAuditScores,
   getFramework, saveFramework, uploadFramework, approveFramework,
  } from "../lib/api.js";
+import JudgeAgreement from "../components/JudgeAgreement.jsx";
 import PolicyCompileAnimation from "../components/PolicyCompileAnimation.jsx";
 import BlueprintCompileAnimation from "../components/BlueprintCompileAnimation.jsx";
 import { useAuth } from "../lib/auth.jsx";
@@ -1216,6 +1217,9 @@ export function AuditingStudio() {
           </button>
         ))}
       </div>
+      {/* The κ caveat sits ABOVE the scores: it is the thing that says how far to trust
+          them, and a caveat read after the number has already been believed is late. */}
+      {sub === "scores" && <JudgeAgreement />}
       {sub === "scores" && <AuditScores />}
       {sub === "trail" && <Audit />}
       {sub === "learning" && <LearningQueue />}

@@ -131,3 +131,40 @@ def test_both_sinks_expose_status_urls(tmp_path):
     f = sinks.build("file", path=tmp_path / "t.jsonl")
     f.create(_draft())
     assert _draft().idempotency_key in f.status_urls
+
+
+# ── the Sheets API path ──────────────────────────────────────────────────────────────────────
+
+def test_the_sheets_api_sink_needs_no_public_endpoint():
+    """The reason this path exists: an org-restricted Apps Script Web App cannot be called by a
+    script, and making it public means standing up a writable endpoint. This one authenticates
+    as a real identity and exposes nothing — so it must not reach for the web app's URL or its
+    shared secret, which are the two things that only exist to talk to a public endpoint."""
+    import inspect
+    src = inspect.getsource(sinks.GoogleSheetsApiTicketSink)
+    for banned in ("requests.post", "read_url()", "read_secret()", "URL_FILE", "SECRET_FILE"):
+        assert banned not in src, f"{banned} in the API sink — it needs no endpoint at all"
+
+
+def test_it_refuses_without_a_spreadsheet_id(tmp_path, monkeypatch):
+    monkeypatch.setattr(sinks, "SHEET_ID_FILE", tmp_path / "none.txt")
+    with pytest.raises(sinks.SinkError, match="no spreadsheet id"):
+        sinks.build("sheets_api")
+
+
+def test_a_repeat_create_returns_the_original_reference_without_appending(monkeypatch):
+    """Idempotency moved from the sheet to the client here, so it is worth pinning."""
+    s = sinks.GoogleSheetsApiTicketSink(spreadsheet_id="sid")
+    s._keys = {"abc123": "VAL-7"}                       # pretend the sheet already holds it
+
+    def boom(*a, **k):
+        raise AssertionError("must not touch the API for a key already present")
+
+    monkeypatch.setattr(s, "_service", boom)
+    assert s.create(_draft("abc123")) == "VAL-7"
+    assert s.created == 0 and s.already_existed == 1
+
+
+def test_an_unknown_sink_name_lists_every_real_one():
+    with pytest.raises(sinks.SinkError, match="sheets_api"):
+        sinks.build("nope")

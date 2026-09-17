@@ -165,31 +165,54 @@ and you have the human cost — and the ceiling on what any paid tier could save
 
 ## Mine to build
 
-### 8. LLM escape tier — the answer to Hinglish and Devanagari ⭐ needs your go-ahead
-**Blocks: any surface that is not English-dominant**
+### 8. Local semantic tier ⭐ the answer to Hinglish and Devanagari — and it needs no API key
+**Blocks: any surface that is not English-dominant · ~2 days · $0 per message, forever**
 
-The deterministic tier handles what it can for free and *refuses* the rest. Only the refusals
-reach a model, which is what makes this cheap. Priced from the real funnel (56 messages → 23
-issues, 8 refused), with an on-disk cache so a repeated message costs nothing:
+**I previously advised skipping this and I was wrong.** The earlier comparison found embeddings
+tying with BM25 — measured on a corpus that is 90.5% English, where BM25 already works. That
+conclusion does not survive contact with Devanagari, which is where WhatsApp is going.
 
-| Volume | Escape | Opus 5 | Sonnet 5 | Haiku 4.5 |
-|---|---|---|---|---|
-| 100k msgs/mo | 20% | $41/mo | $17/mo | $8/mo |
-| 1M msgs/mo | 20% | $413/mo | $165/mo | $83/mo |
-| 1M msgs/mo | 35% (today's rate) | $723/mo | $289/mo | $145/mo |
+`BAAI/bge-m3` is an open-weights encoder, already cached on this machine. Frozen, downloaded,
+never trained. What it does to the exact queries BM25 cannot see:
 
-Halve every figure with the Batch API where latency allows. **At 1M messages/month the most
-capable model costs ~$413/mo** — against a support operation of this size, that is not a real
-constraint, and the escape rate falls as exemplars grow.
+| Query | BM25 | BGE-M3 |
+|---|---|---|
+| `मेरा पेमेंट नहीं आया` | NOVEL, **score 0.00** | `payment_not_received`, **cos 0.937** |
+| `कैप्टन पैनल काम नहीं कर रहा` | NOVEL, score 0.00 | `capacity_panel_issue`, cos 0.797 |
+| `peyment nhi aaya hai account me` | `hardstop_loss` ✗ | `payment_not_received` ✓ |
 
-Recommendation: **start on Opus 5**, because the escape path only sees what the cheap tier
-already failed — that is exactly where capability matters. Measure, then step down to Haiku if
-quality holds. The key already exists in `backend/.env`.
+**Zero Devanagari in the training data** — 5 rows out of 1,814. It transfers because the encoder
+maps meaning, not characters.
 
-Guards that must ship with it: a hard `max_spend_usd` with its own ledger (**not**
-`llm_spend.json` — that is the deployment's $45 chat budget), the on-disk cache so a re-run costs
-nothing, and `intent_source` on every row so model-labelled tickets stay separable from
-deterministic ones.
+Measured as a hybrid (BM25 first, semantic only on refusal, floor tuned on dev, reported on the
+untouched test half):
+
+| Configuration | Precision | Coverage | **Correct per 100 messages** |
+|---|---|---|---|
+| BM25 only — ships today | 86.4% | 79.7% | 68.9 |
+| **+ local semantic tier** | 86.1% | **92.6%** | **79.7** |
+
+**+10.8 correct labels per 100 messages at identical precision.** And this is measured on an
+English-dominant holdout, so it *understates* the gain for WhatsApp.
+
+Throughput on this laptop's CPU: **29 msgs/sec**. At 1M messages/month only what BM25 refuses
+reaches this tier — roughly 5/min. **~350x headroom, no GPU, no per-message cost.**
+
+Costs to weigh honestly: `torch` + `sentence-transformers` as dependencies, and a 2.2 GB model
+file in the deployment image. Still deterministic — pinned weights + pinned index + fixed floor
+is a pure function, and the model version is recorded in the index so it cannot drift silently.
+
+### 8b. LLM escape tier — now a much smaller hatch
+**Needs your go-ahead · after item 8**
+
+After both free tiers, **7.4%** of the held-out set is still unresolved. That, and only that, is
+what a paid tier covers — roughly a third of what it would have been, so ~**$150/mo at 1M
+messages/month** on the most capable model, half that batched. The key already exists in
+`backend/.env`.
+
+Ship it with a hard `max_spend_usd` on its own ledger (**not** `llm_spend.json` — that is the
+deployment's $45 chat budget), the on-disk cache so a re-run costs nothing, and `intent_source`
+on every row so model-labelled tickets stay separable.
 
 ### 9. Catch the issues the gate wrongly killed ⭐ the biggest hole
 **Blocks: trusting the gate at all**

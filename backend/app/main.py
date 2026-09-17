@@ -81,7 +81,15 @@ async def _request_log(request, call_next):
 
 # Role gates (server-side; the client is never trusted for role). An approver
 # implicitly satisfies an author-level gate (approver ≥ author) — see auth/deps.py.
-_authed = Depends(current_user)               # any authenticated user
+# Any authenticated STAFF user. Deliberately NOT `current_user`: the `agent` role exists to
+# work the intake register and must not reach the rest of PSP, and listing the staff roles here
+# means a new endpoint is closed to agents unless it opts in.
+_authed = Depends(require_role("viewer", "author", "approver"))
+
+# The intake ticket register. Its own router because it is the one part of PSP an `agent` can
+# reach, and because /t/{token} is intentionally unauthenticated for partners with no login.
+from .intake_api import router as _intake_router        # noqa: E402
+app.include_router(_intake_router)
 _author = Depends(require_role("author"))      # authoring writes (author or approver)
 _approver = Depends(require_role("approver"))  # approvals / go-live (approver only)
 
@@ -224,6 +232,14 @@ class CreateUserIn(BaseModel):
     name: str = ""
     role: str = "viewer"
     password: str
+    #: Which L3 desk they sit at. Empty = unassigned, which is a valid state — an account can
+    #: exist before someone decides, and an unassigned user sees the whole queue.
+    team: str = ""
+
+
+class SetTeamIn(BaseModel):
+    email: str
+    team: str
 
 
 def _sse(gen):
@@ -259,12 +275,33 @@ def auth_users():
 
 @app.post("/api/auth/users", dependencies=[_approver])
 def auth_create_user(body: CreateUserIn):
-    """Approver only. Create a team member with a temp password + role."""
+    """Approver only. Create a team member with a temp password, role and L3 team."""
     try:
-        user = auth_store.create_user(body.email, body.name, body.role, body.password)
+        user = auth_store.create_user(body.email, body.name, body.role, body.password, body.team)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "user": user}
+
+
+@app.post("/api/auth/team", dependencies=[_approver])
+def auth_set_team(body: SetTeamIn):
+    """Approver only. Move someone to another L3 desk (or clear it with "").
+
+    Separate from create so reassignment does not mean recreating an account — and because
+    `current_user` reads the team live from the store rather than from the token, it takes
+    effect on their next request instead of their next login.
+    """
+    try:
+        user = auth_store.set_team(body.email, body.team)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "user": user}
+
+
+@app.get("/api/auth/teams", dependencies=[_authed])
+def auth_teams():
+    """The canonical L3 team list — read from the SLA table, so there is only ever one."""
+    return {"teams": auth_store.teams()}
 
 
 # ── Health (PUBLIC — Render health check) ────────────────────────────────────
@@ -713,10 +750,29 @@ def whatsapp_webhook(body: WhatsAppIn):
 
 
 # ── L3 functional-team platform ─────────────────────────────────────────────
-@app.get("/api/l3/inbox", dependencies=[_authed])
-def l3_inbox():
-    # `meta` lets the desk explain an empty queue instead of looking like a failed fetch.
-    return {"items": l3.inbox(), "teams": l3.team_metrics(), "meta": l3.inbox_meta()}
+@app.get("/api/l3/inbox")
+def l3_inbox(team: str | None = None, user: dict = Depends(current_user)):
+    """The escalation queue, opening on the caller's own team.
+
+    ── NOT AN ACCESS BOUNDARY, AND THAT IS THE DESIGN ────────────────────────────────────────
+    Every authenticated user can read every case; `team` only chooses which slice opens first.
+    A hard boundary was the obvious alternative and it fails on the case that matters: a concern
+    is routed by its DISPOSITION, so a miscategorised one would become invisible to precisely the
+    people able to notice it was miscategorised. These desks also cover for each other.
+
+    `?team=` overrides — `?team=*` is all teams, an explicit act rather than a default.
+    """
+    mine = (user or {}).get("team") or ""
+    want = team if team is not None else (mine or "*")
+    items = l3.inbox()
+    scoped = items if want == "*" else [i for i in items if (i.get("team") or "") == want]
+    return {"items": scoped,
+            "teams": l3.team_metrics(),
+            "meta": {**l3.inbox_meta(),
+                     # So the UI can say "your team" rather than guess, and can tell an empty
+                     # own-team queue (good) from an empty queue overall (suspicious).
+                     "my_team": mine, "showing_team": want, "total_all_teams": len(items),
+                     "showing": len(scoped)}}
 
 
 @app.post("/api/l3/resolve", dependencies=[_authed])

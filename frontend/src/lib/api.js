@@ -35,6 +35,13 @@ async function apiPost(url, body) {
     body: JSON.stringify(body),
   })));
 }
+async function apiPatch(url, body) {
+  return J(guard(await fetch(url, {
+    method: "PATCH",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body),
+  })));
+}
 // Multipart POST (file upload). Carries the auth bearer token but does NOT set
 // Content-Type — the browser adds the multipart boundary automatically.
 async function apiPostForm(url, formData) {
@@ -113,6 +120,16 @@ export const createUser = (payload) => apiPost("/api/auth/users", payload);
 
 export const getHealth = () => apiGet("/api/health");
 export const getCaptains = () => apiGet("/api/captains");
+
+// ── intake ticket register ──────────────────────────────────────────────────
+export const getIntakeTickets = ({ state = "", q = "" } = {}) => {
+  const p = new URLSearchParams();
+  if (state) p.set("state", state);
+  if (q) p.set("q", q);
+  return apiGet(`/api/intake/tickets?${p}`);
+};
+export const updateIntakeTicket = (ref, body) =>
+  apiPatch(`/api/intake/tickets/${encodeURIComponent(ref)}`, body);
 export const getLedger = () => apiGet("/api/ledger");
 export const getCaptainCases = (id) => apiGet(`/api/captain/${id}/cases`);
 /* What proactive monitoring found for this captain. Separate from cases on purpose: nobody
@@ -182,7 +199,9 @@ export function uploadFramework(file) {
 }
 
 
-export const getL3 = () => apiGet("/api/l3/inbox");
+// `team` is optional: omitted, the server opens on the caller's own team; "*" is all teams.
+export const getL3 = (team) =>
+  apiGet("/api/l3/inbox" + (team ? `?team=${encodeURIComponent(team)}` : ""));
 /* A resolution is four things, not one string — see components/ResolutionComposer.jsx and
    backend/app/l3/platform.py. `resolution_note` is PARTNER-FACING and is validated server-side;
    `internal_note` never reaches the captain; `outcome` of "need_input" answers them and leaves

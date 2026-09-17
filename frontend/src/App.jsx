@@ -1,11 +1,11 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import CaptainPanel from "./pages/CaptainPanel.jsx";
-import GrowthDashboard from "./pages/GrowthDashboard.jsx";
 import CaptainPanelReplica from "./captain/CaptainPanelReplica.jsx";
 import Connectors from "./pages/Connectors.jsx";
 import Calibration from "./pages/Calibration.jsx";
 import L3Workspace from "./pages/L3Workspace.jsx";
 import SupportCommand from "./pages/SupportCommand.jsx";
+import Intake from "./pages/Intake.jsx";
 import Shader from "./components/Shader.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import { ChatStoreProvider } from "./lib/chatStore.jsx";
@@ -63,11 +63,18 @@ const VIEWS = {
   calibration: { label: "Trust Numbers",   icon: "speed",           comp: Calibration,
              title: "Do our two trust numbers mean anything?",
              sub: "The gate's confidence, and whether the audit judge agrees with a human." },
+  intake: { label: "Intake",         icon: "inbox",           comp: Intake,
+             title: "Tickets raised from partner conversations",
+             sub: "Every row came from someone writing in a channel — not from a form." },
 };
 
 /* One group per PERSONA. `.nav-sep` has existed in styles.css since the first build and was
    never used — this is what it was for. */
 const NAV_GROUPS = [
+  // `intake` is first and alone because an `agent` sees ONLY this group — for them the sidebar
+  // is one row, and it should be the first thing on the page rather than buried under desks
+  // they have no access to.
+  { label: "intake",       rows: ["intake"] },
   { label: "captain",      rows: ["captain"] },
   { label: "l3 desk",      rows: ["l3"] },
   // `connectors` and `calibration` sit here because a support-team person is who reads them,
@@ -76,10 +83,6 @@ const NAV_GROUPS = [
   { label: "support team", rows: ["support", "bench", "connectors", "calibration"] },
 ];
 
-// Nav context — some pages (e.g. Monitor) call useNav() to jump views. Exposes setView.
-const NavCtx = createContext(() => {});
-export const useNav = () => useContext(NavCtx);
-
 const ROLE_TONE = {
   approver: "text-tertiary bg-tertiary/10 border-tertiary/30",
   author: "text-secondary-container bg-secondary-container/10 border-secondary-container/30",
@@ -87,11 +90,19 @@ const ROLE_TONE = {
 };
 // Plain-language labels for the operator role model — leadership shouldn't have to parse
 // "approver/author/viewer". Backend role values are unchanged; this is display only.
-const ROLE_LABEL = { approver: "Admin", author: "Editor", viewer: "Viewer" };
+const ROLE_LABEL = { approver: "Admin", author: "Editor", viewer: "Viewer", agent: "Agent" };
+
+/* Which views each role may open. The SERVER is the real gate — every endpoint behind these
+   pages checks the role on the signed token — so this is about not showing someone a door that
+   will only 403. `agent` is deliberately a single view: an intake agent works the register and
+   has no business in SOPs, calibration or the ledger. */
+const ROLE_VIEWS = { agent: ["intake"] };
+const viewsFor = (role) => ROLE_VIEWS[role] || null;   // null = everything
 const ROLE_HINT = {
   approver: "Full access — sees everything, approves go-lives, and manages the team. Use this for leadership who need admin rights.",
   author: "Can draft and queue knowledge (SOPs, brains); cannot make things go live.",
   viewer: "Read-only — sees every dashboard, metric, and audit; changes nothing. Good for leadership who only observe.",
+  agent: "Intake only — works the ticket register raised from partner conversations, and sees nothing else in PSP. Use this for the support agents who action tickets.",
 };
 
 // Wrap the whole app in the auth gate: no valid session → Login; otherwise the shell.
@@ -325,7 +336,10 @@ function TeamAdmin({ onClose }) {
    ══════════════════════════════════════════════════════════════════════════ */
 function Shell() {
   const { user, isApprover, logout } = useAuth();
-  const [view, setView] = useState("captain");
+  // An agent's landing page cannot be "captain" — they cannot open it. Start them where they
+  // are allowed to be, and default everyone else to the captain view as before.
+  const allowedViews = viewsFor(user?.role);
+  const [view, setView] = useState(allowedViews ? allowedViews[0] : "captain");
   const [health, setHealth] = useState(null);
   const [teamOpen, setTeamOpen] = useState(false);
   useEffect(() => { getHealth().then(setHealth).catch(() => setHealth({ down: true })); }, []);
@@ -348,7 +362,7 @@ function Shell() {
     background: "var(--surface-2)", display: "grid", placeItems: "center", cursor: "pointer", flex: "none" };
 
   return (
-    <NavCtx.Provider value={setView}>
+    <>
       {/* The audience toggle is view-scoped state, so it lives above the shell but is read only
           by the captain view. See lib/audienceMode.js for why it is not a global demo mode. */}
       <AudienceProvider>
@@ -369,12 +383,20 @@ function Shell() {
               <span className="tag">command center</span>
             </div>
 
-            {NAV_GROUPS.map((g) => (
-              <div key={g.label}>
-                <div className="nav-sep">{g.label}</div>
-                {g.rows.map((k) => <NavItem key={k} k={k} />)}
-              </div>
-            ))}
+            {/* Hide what this role cannot open. The server is the real gate — every endpoint
+                behind these pages checks the signed token — so this only spares someone a door
+                that would 403. A group with nothing left disappears rather than showing an
+                empty heading. */}
+            {NAV_GROUPS.map((g) => {
+              const rows = allowedViews ? g.rows.filter((k) => allowedViews.includes(k)) : g.rows;
+              if (!rows.length) return null;
+              return (
+                <div key={g.label}>
+                  <div className="nav-sep">{g.label}</div>
+                  {rows.map((k) => <NavItem key={k} k={k} />)}
+                </div>
+              );
+            })}
 
             {/* ── FOOT: signed-in user · role · logout · (approver) team · health ── */}
             <div className="sidebar-foot">
@@ -433,6 +455,6 @@ function Shell() {
         {teamOpen && <TeamAdmin onClose={() => setTeamOpen(false)} />}
       </ChatStoreProvider>
       </AudienceProvider>
-    </NavCtx.Provider>
+    </>
   );
 }

@@ -169,12 +169,16 @@ def test_two_writers_do_not_lose_each_other_s_changes():
     assert len(set(refs)) == 12, f"duplicate references: {refs}"
 
 
-def test_the_reference_is_not_derived_from_the_list_length():
-    """len()+1 makes two racing creates compute the same number, so two tickets share the one
-    identifier everybody quotes."""
-    assert intake_api._next_ref([{"ref": "VAL-7"}, {"ref": "VAL-3"}]) == 8
-    assert intake_api._next_ref([]) == 1
-    assert intake_api._next_ref([{"ref": "junk"}, {"ref": "VAL-2"}]) == 3
+def test_the_reference_comes_from_a_counter_not_from_the_tickets_present():
+    """Two wrong answers were tried first. `len()+1` makes racing creates agree on the same
+    number; "one past the highest" reuses a reference after a delete. Both end with two
+    different tickets sharing the identifier people quote."""
+    assert intake_api._next_ref({"tickets": [{"ref": "VAL-7"}, {"ref": "VAL-3"}]}) == 8
+    assert intake_api._next_ref({"tickets": []}) == 1
+    assert intake_api._next_ref({"tickets": [{"ref": "junk"}, {"ref": "VAL-2"}]}) == 3
+    # Once stored, the counter is the truth and the tickets present are irrelevant.
+    d = {"tickets": [], "next_ref": 42}
+    assert intake_api._next_ref(d) == 42 and d["next_ref"] == 43
 
 
 def test_status_reports_a_dead_poller_as_not_running():

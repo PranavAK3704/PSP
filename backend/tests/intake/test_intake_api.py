@@ -298,3 +298,37 @@ def test_channels_need_a_login(client):
 def test_a_malformed_report_is_refused(client):
     assert client.post("/api/intake/channels", json={"channels": "nope"},
                        headers=_token("agent")).status_code == 400
+
+
+# ── clearing the register ────────────────────────────────────────────────────────────────────
+
+def test_reset_needs_the_words_and_the_role(client):
+    """Destructive, irreversible, and it kills every partner-facing status link with it. One
+    click or one stray request should not be enough."""
+    client.post("/api/intake/tickets", json=_draft(), headers=_token("agent"))
+    assert client.post("/api/intake/reset", json={}, headers=_token("agent")).status_code == 403
+    assert client.post("/api/intake/reset", json={},
+                       headers=_token("approver")).status_code == 400
+    r = client.post("/api/intake/reset", json={"confirm": "delete all tickets"},
+                    headers=_token("approver"))
+    assert r.status_code == 200 and r.json()["deleted"] == 1
+    assert client.get("/api/intake/tickets", headers=_token("agent")).json()["total"] == 0
+
+
+def test_a_single_ticket_can_be_deleted(client):
+    client.post("/api/intake/tickets", json=_draft("a"), headers=_token("agent"))
+    client.post("/api/intake/tickets", json=_draft("b"), headers=_token("agent"))
+    assert client.delete("/api/intake/tickets/VAL-1",
+                         headers=_token("approver")).status_code == 200
+    assert client.delete("/api/intake/tickets/VAL-99",
+                         headers=_token("approver")).status_code == 404
+    assert client.get("/api/intake/tickets", headers=_token("agent")).json()["total"] == 1
+
+
+def test_references_do_not_restart_after_a_delete(client):
+    """Reusing a reference makes two different tickets share the identifier people quote."""
+    client.post("/api/intake/tickets", json=_draft("a"), headers=_token("agent"))
+    client.post("/api/intake/tickets", json=_draft("b"), headers=_token("agent"))
+    client.delete("/api/intake/tickets/VAL-2", headers=_token("approver"))
+    r = client.post("/api/intake/tickets", json=_draft("c"), headers=_token("agent"))
+    assert r.json()["ref"] == "VAL-3"

@@ -74,15 +74,27 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _next_ref(tickets: list) -> int:
-    """One past the highest VAL- number in use. Survives deletions and racing writers."""
-    top = 0
-    for t in tickets:
-        try:
-            top = max(top, int(str(t.get("ref", "")).split("-")[-1]))
-        except (ValueError, IndexError):
-            continue
-    return top + 1
+def _next_ref(data: dict) -> int:
+    """The next reference, from a stored counter that only ever goes up.
+
+    NOT derived from the tickets present, which was the first attempt and is wrong twice over:
+    `len() + 1` makes two racing creates agree on the same number, and "one past the highest"
+    reuses a reference after a delete — so two different tickets end up sharing the identifier
+    people quote to each other. A counter is the only thing that survives both.
+
+    Seeded from the highest existing reference so a store written before this still counts on
+    from the right place rather than restarting at 1.
+    """
+    seq = data.get("next_ref")
+    if not isinstance(seq, int) or seq < 1:
+        seq = 1
+        for t in data.get("tickets", []):
+            try:
+                seq = max(seq, int(str(t.get("ref", "")).split("-")[-1]) + 1)
+            except (ValueError, IndexError):
+                continue
+    data["next_ref"] = seq + 1
+    return seq
 
 
 def _public(t: dict) -> dict:
@@ -164,7 +176,7 @@ def _create_locked(payload: dict, key: str, created_by: str | None) -> dict:
     # NOT len()+1. Two creates racing on a stale read both compute the same number and two
     # tickets end up sharing a reference — the one identifier everybody quotes. Derived from the
     # highest reference actually present instead, under the lock.
-    ref = f"VAL-{_next_ref(data['tickets'])}"
+    ref = f"VAL-{_next_ref(data)}"
     ticket = {
         "ref": ref,
         "idempotency_key": key,
@@ -274,6 +286,44 @@ def update_ticket(ref: str, payload: dict = Body(...),
         target["updated_by"] = user.get("email")
         _save(data)
         return {"ok": True, "ticket": _public(target)}
+
+
+#: Clearing the register is destructive and irreversible — there is no undo and no archive —
+#: so it is approver-only and needs an explicit confirmation, not just the right role.
+intake_admin = require_role("approver")
+
+
+@router.delete("/api/intake/tickets/{ref}")
+def delete_ticket(ref: str, user: dict = Depends(intake_admin)) -> dict:
+    """Remove one ticket. Useful for the probe rows a readiness check leaves behind."""
+    with _WRITE_LOCK:
+        data = _load()
+        before = len(data["tickets"])
+        data["tickets"] = [t for t in data["tickets"] if t["ref"] != ref]
+        if len(data["tickets"]) == before:
+            raise HTTPException(status_code=404, detail=f"no ticket {ref}")
+        _save(data)
+    return {"ok": True, "deleted": ref}
+
+
+@router.post("/api/intake/reset")
+def reset_register(payload: dict = Body(...), user: dict = Depends(intake_admin)) -> dict:
+    """Empty the register. For testing, before a demo, or after a bad import.
+
+    Requires {"confirm": "delete all tickets"} in the body. A destructive action reachable by
+    one click, or by a stray request, is one that eventually happens by accident — and the
+    partner-facing status links die with the tickets they point at.
+    """
+    if (payload or {}).get("confirm") != "delete all tickets":
+        raise HTTPException(
+            status_code=400,
+            detail='refusing: send {"confirm": "delete all tickets"} to mean it')
+    with _WRITE_LOCK:
+        data = _load()
+        n = len(data["tickets"])
+        _save({"tickets": []})
+    durable_path(CHANNELS).write_text(json.dumps({"channels": [], "updated_at": _now()}))
+    return {"ok": True, "deleted": n}
 
 
 @router.get("/t/{token}", response_class=HTMLResponse)

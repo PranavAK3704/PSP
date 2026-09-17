@@ -69,7 +69,22 @@ def status() -> dict:
     "running" forever, including after the thread has died, and a dead poller reporting health
     is worse than one reporting nothing.
     """
-    return {**_state, "running": bool(_thread is not None and _thread.is_alive())}
+    # What the PROCESS actually sees. Without this, "I set the variables" and "the poller did
+    # not start" are both true-sounding and there is no way to tell which is wrong — the value
+    # is never shown, only whether it arrived.
+    env = {
+        "SLACK_BOT_TOKEN": "set" if os.environ.get(ENV_TOKEN, "").strip() else "MISSING",
+        "INTAKE_CHANNELS": os.environ.get(ENV_CHANNELS, "") or "MISSING",
+        "INTAKE_POLL_SECONDS": os.environ.get(ENV_EVERY, "(default 60)"),
+        "INTAKE_POLL_ENABLED": os.environ.get(ENV_ENABLED, "(default 1)"),
+        "INTAKE_NOTIFY": os.environ.get(ENV_NOTIFY, "(default off)"),
+        "INTAKE_NOTIFY_TO": os.environ.get(ENV_NOTIFY_TO, "") or "(none — sends to raisers)",
+        "PSP_PUBLIC_URL": os.environ.get(ENV_PUBLIC_URL, "") or "MISSING",
+        "SMTP_USERNAME": os.environ.get("SMTP_USERNAME", "") or "MISSING",
+        "SMTP_PASSWORD": "set" if os.environ.get("SMTP_PASSWORD", "").strip() else "MISSING",
+    }
+    return {**_state, "running": bool(_thread is not None and _thread.is_alive()),
+            "env": env, "start_reason": _state.get("start_reason")}
 
 
 def _channels() -> list[str]:
@@ -247,18 +262,24 @@ def _loop(channels: list[str], every: float) -> None:
         time.sleep(every)
 
 
+def _remember(msg: str) -> str:
+    _state["start_reason"] = msg
+    return msg
+
+
 def start() -> str:
     """Start the poller if it is configured. Returns a one-line reason, for the boot log."""
     global _thread
     if _thread is not None and _thread.is_alive():
-        return "already running"
+        return _remember("already running")
     if os.environ.get(ENV_ENABLED, "1").strip() in ("0", "false", "no"):
-        return f"disabled by ${ENV_ENABLED}"
+        return _remember(f"disabled by ${ENV_ENABLED}")
     if not os.environ.get(ENV_TOKEN, "").strip():
-        return f"not started — ${ENV_TOKEN} is unset"
+        return _remember(f"not started — ${ENV_TOKEN} is unset")
     channels = _channels()
     if not channels:
-        return f"not started — ${ENV_CHANNELS} is unset (comma-separated channel ids)"
+        return _remember(
+            f"not started — ${ENV_CHANNELS} is unset (comma-separated channel ids)")
     try:
         every = float(os.environ.get(ENV_EVERY, "60"))
     except ValueError:
@@ -269,4 +290,6 @@ def start() -> str:
     _thread = threading.Thread(target=_loop, args=(channels, every), daemon=True,
                               name="intake-poller")
     _thread.start()
-    return f"started on {len(channels)} channel(s) every {every:.0f}s"
+    msg = f"started on {len(channels)} channel(s) every {every:.0f}s"
+    _state["start_reason"] = msg
+    return msg

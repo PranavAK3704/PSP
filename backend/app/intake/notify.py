@@ -162,8 +162,17 @@ class EmailNotifier:
         msg["Auto-Submitted"] = "auto-generated"     # keeps it out of vacation-responder loops
         msg.set_content(text)
         msg.add_alternative(html, subtype="html")
+        # certifi's bundle when it is installed. A stock python.org build on macOS ships no
+        # OS trust store link, so ssl.create_default_context() finds no issuer and EVERY send
+        # fails with CERTIFICATE_VERIFY_FAILED — which is what happened here, ten times, and
+        # looked like "no mail arrived" rather than like a TLS problem.
+        try:
+            import certifi
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except ImportError:
+            ctx = ssl.create_default_context()
         with smtplib.SMTP(self.cfg.host, self.cfg.port, timeout=30) as s:
-            s.starttls(context=ssl.create_default_context())
+            s.starttls(context=ctx)
             s.login(self.cfg.username, self.cfg.password)
             s.send_message(msg)
         return target

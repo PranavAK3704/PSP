@@ -71,6 +71,57 @@ def score(matcher: classify.Matcher, rows: list[dict]) -> dict:
         "novel_recall": round(refused_novel / len(truly_novel), 4) if truly_novel else None,
         "confusion": {k: dict(v.most_common(3)) for k, v in confusion.items()},
         "misses": misses,
+        "per_class": per_class(confusion),
+        "collapsed": collapsed_precision(confusion),
+    }
+
+
+#: The five dispositions that all describe the same partner sentence — "paisa nahi aaya". Which
+#: one is right usually depends on WHY the money did not arrive, and that reason is frequently
+#: not in the message at all. Grouped here so the headline number can be split into "the matcher
+#: is weak" and "these classes are not separable from the text", which are different problems
+#: with different fixes.
+MONEY = ("payment_not_received", "hardstop_loss", "cod_pendency", "cod_shortfall",
+         "shortage_loss")
+
+
+def per_class(confusion: dict) -> dict:
+    """Precision per true class. The headline average hides that this is BIMODAL — a few classes
+    are usable today and a few are near-random, and averaging them suggests a uniformly mediocre
+    system that does not exist."""
+    out = {}
+    for true, got in confusion.items():
+        n = sum(got.values())
+        out[true] = {"n": n, "correct": got.get(true, 0),
+                     "precision": round(got.get(true, 0) / n, 4) if n else None,
+                     "mostly_confused_with": next(
+                         (k for k, _ in got.most_common() if k != true), None)}
+    return dict(sorted(out.items(), key=lambda kv: -kv[1]["n"]))
+
+
+def collapsed_precision(confusion: dict) -> dict:
+    """What precision would be if the money classes were ONE class.
+
+    The gap between this and the headline is the share of error that is a taxonomy problem
+    rather than a matching problem — error that no classifier can fix, because the information
+    needed to split those classes is not in the partner's message.
+    """
+    tot = hit = c_hit = inside = errs = 0
+    for true, got in confusion.items():
+        for pred, k in got.items():
+            tot += k
+            hit += k if pred == true else 0
+            ct, cp = ("MONEY" if true in MONEY else true), ("MONEY" if pred in MONEY else pred)
+            c_hit += k if ct == cp else 0
+            if pred != true:
+                errs += k
+                inside += k if (true in MONEY and pred in MONEY) else 0
+    return {
+        "as_is": round(hit / tot, 4) if tot else None,
+        "money_merged": round(c_hit / tot, 4) if tot else None,
+        "errors_inside_the_money_cluster": inside,
+        "errors_total": errs,
+        "share_of_error_that_is_taxonomy": round(inside / errs, 4) if errs else None,
     }
 
 
@@ -107,6 +158,23 @@ def main() -> int:
     if s["truly_novel_rows"]:
         print(f"  truly-NOVEL rows     {s['truly_novel_rows']}, correctly refused "
               f"{s['truly_novel_correctly_refused']} ({(s['novel_recall'] or 0):.1%})")
+    c = s["collapsed"]
+    print(f"\n  ── is this a matcher problem or a taxonomy problem? ──")
+    print(f"  precision, 14 dispositions        {(c['as_is'] or 0):.1%}")
+    print(f"  precision, 5 money classes as 1   {(c['money_merged'] or 0):.1%}")
+    print(f"  errors that never leave the money cluster: "
+          f"{c['errors_inside_the_money_cluster']}/{c['errors_total']} = "
+          f"{(c['share_of_error_that_is_taxonomy'] or 0):.0%}")
+    print("  A symmetric confusion between two classes means the text does not separate them.")
+    print("  That error is not reachable by any classifier — it is a taxonomy decision.")
+
+    print(f"\n  ── per class (the average hides that this is bimodal) ──")
+    print(f"  {'disposition':<24} {'prec':>7} {'n':>5}   mostly confused with")
+    for k, v in s["per_class"].items():
+        mark = "ok " if (v["precision"] or 0) >= 0.75 else "   "
+        print(f"  {mark}{k:<21} {(v['precision'] or 0):>7.1%} {v['n']:>5}   "
+              f"{v['mostly_confused_with'] or '—'}")
+
     if s["misses"]:
         print(f"\n  confusions (true -> predicted):")
         for true, got, sc, mg, txt in s["misses"][:8]:

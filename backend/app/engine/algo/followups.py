@@ -96,6 +96,7 @@ from __future__ import annotations
 import unicodedata
 from dataclasses import dataclass
 
+from ...lang import FUNCTION_WORDS
 from .router import _DOMAIN_WORDS, Ctx, Verdict, normalise
 
 #: A chip label must be short enough to read at a glance on a phone, in simple Hinglish.
@@ -125,26 +126,31 @@ MIN_MARGIN = 1
 # THE TRAP, and it is the same one router.py records about SOP trigger keywords (296 of 320 were
 # single common words like "me", "has", "date"): "kya" is in "kya hai", "kya karun", "kya hua" —
 # every question. The guard is an import-time assertion, not a review habit.
-STOPWORDS = frozenset({
-    # Hindi/Hinglish function words
-    "kya", "hai", "hain", "he", "ho", "hoga", "ka", "ki", "ke", "ko", "kar", "karo", "karna",
-    "karun", "karu", "mein", "me", "se", "ye", "yeh", "wo", "woh", "ab", "to", "toh", "bhi",
-    "aur", "par", "pe", "na", "nahi", "nhi", "koi", "iska", "isme", "uska", "rahi",
-    # Possessives. "mera" prefixes everything a captain owns — mera payment, mera load, mera
-    # loss, mera paisa — so on its own it identifies nothing.
-    "mera", "mere", "meri", "apna", "apni", "hamara", "aapka", "aapki", "tumhara",
-    # Auxiliaries and light verbs. RULE 1: never a topic. "gaya" was a match keyword on
-    # u_who_has_it, so "mera id block ho gaya" — a different queue entirely — was answered with
-    # "your case has been sent to the owning team and a reference number was issued".
-    "gaya", "gayi", "gaye", "hua", "hui", "hue", "aaya", "aayi", "laga", "lagi", "lag",
-    "diya", "liya", "kiya", "raha", "tha", "thi", "kuch",
-    # Vocatives. RULE 1: a deferential form of address is not a request for a human. "sir" was a
-    # match keyword on u_talk_human, so "sir jaldi kuch kijiye" was answered with a handoff.
-    "sir", "madam", "mam", "boss", "bhai", "bhaiya", "ji", "saab", "sahab", "bro", "dear",
-    # English function words
-    "is", "are", "was", "the", "a", "an", "of", "in", "on", "for", "and", "or",
-    "i", "it", "this", "that", "do", "does", "did", "be", "will", "can", "my",
-})
+#
+# ── DERIVED FROM `app/lang.py`, NOT COPIED ───────────────────────────────────────────────────
+# This was a 98-word literal, and `lang.FUNCTION_WORDS` was written to end exactly that
+# duplication ("one list, both readers") — but only `knowledge/store.py` ever migrated. Measured
+# before collapsing: STOPWORDS was a STRICT SUBSET of FUNCTION_WORDS, 98 of 119, so the copy was
+# not merely redundant, it was 21 words WEAKER. Fourteen of those twenty-one belong here and were
+# simply missing: `as at been by from has have not were with you your kahan konsa`.
+#
+# ── WHY SEVEN ARE SUBTRACTED BACK OUT ────────────────────────────────────────────────────────
+# `FollowUp.vocabulary` is `topic | frame | phrase tokens`, and the assertion below bars every
+# stopword from it. Seven interrogatives are LOAD-BEARING inside `frame`: they shape a question
+# without naming its subject, which is the whole point of a frame — `l_why_low` carries
+# {load, kyun}, `q_process` carries {qc, kaise}, `l_how_long` carries {kab, kitna, kitne}.
+# Barring them would trip the assertion on 8 real nodes rather than catching a bug.
+#
+# Note `kya` is NOT among them: it is in FUNCTION_WORDS and stays a stopword, because no node
+# uses it in a frame. That asymmetry is the reason this is a measured exception list and not
+# `FUNCTION_WORDS - INTERROGATIVES` — INTERROGATIVES has 27 members and subtracting all of them
+# would hand `kya`, `what` and `batao` back to any node that wanted them.
+#
+# The list is CHECKED, not trusted: `_selfcheck` asserts it is exactly the set the graphs need,
+# so a stale entry and a missing one are both import-time failures.
+FRAME_INTERROGATIVES = frozenset({"kab", "kaise", "kaun", "kitna", "kitne", "kyu", "kyun"})
+
+STOPWORDS = FUNCTION_WORDS - FRAME_INTERROGATIVES
 
 # Interrogative markers. A GLOSSARY answer is a definition, and a definition is only ever the
 # right reply to a question — so a glossary node needs one of these present. RULE 1 also makes
@@ -185,6 +191,28 @@ THIRD_PARTY = frozenset({
 ACTION_WORDS = frozenset({
     "kardo", "kariye", "kijiye", "dijiye", "dedo", "dena", "chahiye", "clear",
     "karwao", "karvao", "solve", "fix", "please", "jaldi", "turant", "abhi",
+})
+
+#: Verbs that ask to be TOLD something.
+#
+# ACTION_WORDS was conflating two different requests, and the polite register is where they
+# collide. "clear kar dijiye" asks for an OPERATION on the captain's case, and answering it with
+# a definition is the patronising failure the glossary filter exists to stop. "bata dijiye" asks
+# to be told — the requested action IS the answer, and filtering the glossary there refuses the
+# one thing that would have satisfied it.
+#
+# Both contain `dijiye`, so the action word alone cannot tell them apart. The telling verb can.
+#
+# MEASURED: "mujhe loss marking ka process bata dijiye" had all nine glossary nodes stripped from
+# scope before scoring, purely on `dijiye` — the single most natural way a captain phrases a
+# request for information, and the exact phrasing that prompted this work.
+#
+# `batao`/`bataiye`/`samjhao`/`explain` are already in INTERROGATIVES and stay there; the two sets
+# do different jobs, the same way STOPWORDS and INTERROGATIVES overlap on purpose. What was
+# missing is the bare stem `bata` (as in "bata dijiye" / "bata dena") and the `samjha` forms.
+TELL_WORDS = frozenset({
+    "bata", "batao", "bataiye", "bataye", "batana", "samjha", "samjhao", "samjhaiye",
+    "explain", "tell",
 })
 
 
@@ -321,6 +349,16 @@ GLOSSARY: tuple[FollowUp, ...] = (
         source="sopkt_1_hardstop_loss (more than 5 days / 120 hours without being connected; "
                "'The system marks it as hardstop loss')",
         topic=frozenset({"hardstop"}),
+        # `loss`/`nuksan` in FRAME, not topic. RULE 2 refuses a message naming a domain the live
+        # scope does not know, and with no disposition the scope is glossary-only — so "shortage
+        # loss kya hai" was refused as a foreign LOSSES question by the very node that defines
+        # shortage loss. This node's answer literally opens "Hardstop loss tab lagta hai", so the
+        # word is its own subject matter and belonging in its vocabulary is not a concession.
+        #
+        # Frame rather than topic keeps RULE 1 intact: a bare "loss kya hai" still matches
+        # nothing here, because it does not say WHICH loss mechanism — and that question wants
+        # its own authored node, not the nearest of two definitions.
+        frame=frozenset({"loss", "nuksan"}),
         phrases=(frozenset({"hard", "stop"}),)),
     FollowUp(
         id="g_shortage", ask="Shortage loss kya hai?",
@@ -330,7 +368,75 @@ GLOSSARY: tuple[FollowUp, ...] = (
                 "kisi ek node par lagta hai."),
         source="sopkt_2_shortage_loss (B marks it as shortage; both nodes asked for evidence "
                "(CCTV footage); loss attributed to one node based on evidence)",
-        topic=frozenset({"shortage"}), frame=frozenset({"kami"})),
+        topic=frozenset({"shortage"}), frame=frozenset({"kami", "loss", "nuksan"})),
+    # ── The node this whole pass exists for ──────────────────────────────────────────────────
+    # "mujhe loss marking ka process bata dijiye" matched NOTHING before this, warm or cold, for
+    # three separate reasons: `marking` was in no node's vocabulary, `loss` existed only as a
+    # frame word inside cause-framings like {loss, kyun}, and `process`/`tarika` had been
+    # deliberately removed as bare topics because under a QC scope they claimed every "what is
+    # the process" question. That removal was right. It also left the question unanswerable.
+    #
+    # ── WHY NO DAY COUNT IS QUOTED ───────────────────────────────────────────────────────────
+    # Because there isn't one. The SLA matrix is PER LEG — 48 hrs for FM/SC forward and RTO
+    # connection, 5 days for LM forward delivery, 96 hrs for shortage in-scan — and cold we do
+    # not know which leg the captain's shipment was on. The existing `g_hardstop` quotes "5 din
+    # (120 ghante)" from sopkt_1, `sop_hardstop_loss_overview` says "forward 7d, reverse 5d", and
+    # the matrix says 48 hrs: three different numbers because they describe three different legs.
+    # Picking one would be wrong for most captains, so this names the STAGES (which are common to
+    # every leg) and the limits by leg, and lets a chip take them to their own mechanism.
+    #
+    # PHRASES, NO TOPIC, and that is deliberate. A bare `marking` topic would contend with
+    # `g_shortage` on "shortage marking kya hai"; a bare `process` topic reintroduces exactly the
+    # bug that was fixed. Every entry here needs two tokens present, so nothing fires on one word.
+    FollowUp(
+        id="g_loss_process", ask="Loss marking ka process kya hai?",
+        answer=("Loss teen stage se hokar lagta hai. Shipment in-scan hone ke baad use tay time "
+                "limit ke andar aage connect karna hota hai — limit toot-ne par pehle **breach**, "
+                "phir **loss-eligible (hardstop)**, aur uske baad **LOST** mark hota hai. Limit "
+                "leg ke hisaab se badalti hai: FM aur RTO connection mein **48 ghante**, LM "
+                "forward delivery mein **5 din**, shortage mein **96 ghante**. Debit value = "
+                "shipment value + logistics cost. Agar poori trip destination par receive nahi "
+                "hui to **origin** facility debit hoti hai; agar sirf kuch shipment pending hain "
+                "to **destination** facility."),
+        source="kt_lm_sla_hardstop_matrix (breach / loss-eligible / marked-LOST stages; FM & SC "
+               "forward+RTO 48 hrs, LM forward 5 days, shortage 96 hrs; 'Debit value for any "
+               "loss = Shipment Value + Logistics Cost'; origin debited when the complete trip "
+               "is not received, destination when only partial shipments are pending)",
+        phrases=(frozenset({"loss", "marking"}), frozenset({"loss", "mark"}),
+                 frozenset({"nuksan", "marking"}), frozenset({"loss", "process"}),
+                 frozenset({"nuksan", "process"}), frozenset({"loss", "stage"})),
+        # NOT "kaise": a glossary node already REQUIRES an interrogative to be in scope, so
+        # scoring on one double-spends the same evidence — caught at import, not in review.
+        frame=frozenset({"tarika", "stage", "timeline", "kadam"}),
+        then=("g_hardstop", "g_shortage")),
+    # Secondary QC — the other "what is the process" question the corpus can actually answer.
+    # Phrases only, two tokens each, for the same reason as g_loss_process: a bare `qc` topic
+    # would contend with the warm per-mechanism QC nodes (`q_why`, `q_process`) on every message
+    # inside a QC scope, and the chips are the better answer to a genuine tie.
+    #
+    # The last sentence is the one worth having: the corpus states plainly that QC-failed
+    # shipments are blocked from connecting onward but carry NO hub debit for now, and that is
+    # exactly the fact a captain expecting a debit needs told.
+    FollowUp(
+        id="g_qc_process", ask="Secondary QC ka process kya hai?",
+        answer=("Secondary QC har return shipment par DC (hub) par hota hai — fraud rokne aur "
+                "loss kam karne ke liye. Process: AWB scan karein → QR/packet ID scan karein → "
+                "QC window khulti hai → **3 photo** leni hoti hain (Side, Back, Front) → FE ke "
+                "category/design jawaab verify karein → match ho to **Approve**, warna **Reject "
+                "+ Next** → Finish. Pass hone par print label nikalta hai. Fail hone par system "
+                "'QC Failed' dikhata hai aur woh shipment LMSC tak connect nahi hoti — aur "
+                "**filhaal QC-fail shipments par hub ko debit nahi lagta**."),
+        source="kt_lm_secondary_qc_dc (Secondary QC at the DC for ALL return shipments; 'Scan AWB "
+               "-> scan the QR/packet ID -> the QC window opens, capture 3 images (Side, Back, "
+               "Front) -> verify the FE's responses for category/design -> click Approve if "
+               "matched, or Reject + Next if mismatched -> Finish'; 'On QC Fail, the system shows "
+               "QC Failed'; 'Secondary-QC-failed shipments are prevented from connecting to the "
+               "LMSC; for now no debit is applied to hubs for those shipments')",
+        phrases=(frozenset({"qc", "process"}), frozenset({"secondary", "qc"}),
+                 frozenset({"qc", "tarika"}), frozenset({"qc", "photo"}),
+                 frozenset({"qc", "image"})),
+        frame=frozenset({"tarika", "photo", "image", "approve", "reject"}),
+        then=("g_loss_process",)),
 )
 
 # ═══ PER-MECHANISM GRAPHS ════════════════════════════════════════════════════════════════════
@@ -986,8 +1092,12 @@ def resolve(message: str, disposition: str | None, *, facts: dict | None = None,
     # a captain asking for their own number was handed a vocabulary entry instead, which is the
     # same patronising failure as the "cod pendency clear karo" case and reads, to someone with
     # limited literacy, as the system not understanding them.
-    asks_definition = bool(toks & (INTERROGATIVES - QUANTITY_INTERROGATIVES))
-    if not asks_definition or (toks & ACTION_WORDS):
+    asks_definition = bool(toks & ((INTERROGATIVES | TELL_WORDS) - QUANTITY_INTERROGATIVES))
+    # An action word only disqualifies the glossary when nothing in the message asks to be TOLD.
+    # "cod pendency clear karo" -> operation, glossary filtered. "process bata dijiye" -> the
+    # action requested is the answer, so the glossary is exactly what should serve it.
+    wants_operation = bool(toks & ACTION_WORDS) and not (toks & TELL_WORDS)
+    if not asks_definition or wants_operation:
         gloss = {f.id for f in GLOSSARY}
         scope = tuple(f for f in scope if f.id not in gloss)
 
@@ -1000,6 +1110,25 @@ def resolve(message: str, disposition: str | None, *, facts: dict | None = None,
     best_n, best = scored[0]
     runner = scored[1][0] if len(scored) > 1 else 0
     if best_n - runner < MIN_MARGIN:
+        # ── TIE-BREAK: THE SCOPED ANSWER BEATS THE GENERIC ONE ──────────────────────────────
+        # A glossary node is in scope at every turn, by design. So the moment a queue-independent
+        # definition overlaps a per-mechanism node, they tie — and "offer chips" turns a question
+        # the graph could answer into a menu. Measured: adding `g_qc_process` made
+        # "qc process kya hai" inside a `secondary_qc_fail` scope tie 2-vs-2 with `q_process` and
+        # stop answering, even though the golden file has always expected `q_process` there.
+        #
+        # The preference is not arbitrary. The captain is IN a disposition; a node from that
+        # disposition's own graph is about their situation, while the glossary entry is about the
+        # term in general. Where both fit equally, the specific one is the better answer.
+        #
+        # Only applies when EXACTLY ONE tied node is scoped. Two graph nodes tying is the genuine
+        # ambiguity this guard exists for, and still goes to chips.
+        graph_ids = {f.id for f in GRAPHS.get((disposition or "").strip(), ())}
+        tied = [f for n, f in scored if n == best_n]
+        scoped = [f for f in tied if f.id in graph_ids]
+        if len(scoped) == 1:
+            return scoped[0], (f"{best_n} hit(s), tie with {len(tied) - 1} glossary node(s) "
+                               f"broken by scope '{disposition}'")
         # Ambiguous — two follow-ups fit equally well. ASK rather than pick: a wrong guess costs
         # the captain a tap, a wrong ANSWER costs them a wrong action.
         return None, f"ambiguous: {best_n} vs {runner} — offer chips instead"
@@ -1110,6 +1239,70 @@ def tier(ctx: Ctx) -> Verdict | None:
     )
 
 
+
+def glossary_tier(ctx: Ctx) -> Verdict | None:
+    """Tier G. The same authored nodes as Tier F, reachable on TURN ONE.
+
+    ── WHAT THIS FIXES ───────────────────────────────────────────────────────────────────────
+    `tier()` above opens with `if not disp: return None`, so a captain's FIRST message never
+    reached any of the 27 authored nodes. Measured over 16 real process phrasings: warm 10/16
+    resolved, cold 0/16. Yet `resolve(message, None)` and `_scope(None)` already handled the
+    no-disposition case correctly — 8 of the 9 glossary definitions resolved cold on the first
+    try, and the 9th (`g_shortage`) failed only because RULE 2 read "shortage LOSS kya hai" as a
+    foreign-queue question. That is now fixed where it belonged, in the node's own vocabulary.
+
+    So this tier adds no matching machinery. It removes a guard that `resolve` never needed.
+
+    ── WHY IT IS A SEPARATE TIER AND NOT A RELAXED `tier()` ──────────────────────────────────
+    Two reasons, both about being able to turn it off. `PSP_PREROUTER_<TIER>` gates per tier, so
+    cold answering can be disabled without also disabling warm follow-ups — they are different
+    risks and deserve different switches. And the trace names which tier fired, so "the router
+    answered turn one" stays legible in the log rather than looking like a follow-up to nothing.
+
+    ── WHY THE COLD SCOPE STOPS AT GLOSSARY + UNIVERSAL ──────────────────────────────────────
+    `_scope(None)` returns exactly those, and that boundary is doing real work. Seventeen of the
+    27 nodes are ungated fixed SOP, but seven of them live in per-mechanism graphs: `h_why`,
+    `s_why` and `i_why` all answer "why was a loss marked against me" for hardstop, shortage and
+    in-transit respectively — three different causes, three different evidence rules. Warm, the
+    disposition says which. Cold, nothing does, and picking the nearest would state a cause the
+    corpus does not support for that captain. A definition has no such problem: `g_rto` is true
+    for everyone, which is why `_scope` already appends GLOSSARY unconditionally.
+
+    So this tier can be `on` for the same reason greetings could: a closed set of ungated,
+    sourced, phrasing-tested answers where live traffic has nothing to teach us about
+    correctness. `PSP_PREROUTER_GLOSSARY`.
+    """
+    sess = ctx.session
+    if getattr(sess, "disposition", None) if sess else None:
+        # A scope exists — Tier F owns this turn, and its `_scope(disp)` already includes the
+        # glossary. Answering here too would double-handle it and hide which tier decided.
+        return None
+    if (ctx.entities or {}).get("any"):
+        # An AWB, amount or UTR means a specific case, not a definition. Same refusal as
+        # `greetings.tier` makes, for the same reason.
+        return None
+
+    node, why = resolve(ctx.message, None)
+    if node is None:
+        return None
+    # BELT AND BRACES. Glossary nodes carry no gates by construction, and `_scope(None)` returns
+    # only those plus UNIVERSAL — but a gated node reaching here would render either a hole or a
+    # sentence that is false for this captain, and there are no facts cold to fill it from.
+    if node.gates:
+        return None
+
+    chips = chips_for(None, already={node.id}, after=node.id)
+    return Verdict(
+        tier="glossary",
+        # No trailing "?" — see the note in `tier()`: it disables the greeting tier's
+        # pleasantry path for the rest of the conversation.
+        reply=node.answer + ("\n\nKuch aur poochna ho to bataiye." if chips else ""),
+        because=f"{node.id} cold (no disposition) — {why}",
+        action="respond",
+        options=chips,
+        data={"node": node.id, "scope": None, "source": node.source, "why": why},
+    )
+
 # ── import-time structural guards ───────────────────────────────────────────────────────────
 # These run once, at import, and fail loudly. Each encodes a defect that was actually found —
 # most of them by the adversarial review — so each is a regression test that cannot be skipped.
@@ -1161,6 +1354,24 @@ def _selfcheck() -> None:
         assert disp in SCOPE_DOMAIN, f"{disp!r} has a graph but no SCOPE_DOMAIN entry"
     for disp, dom in SCOPE_DOMAIN.items():
         assert dom in _DOMAIN_WORDS, f"SCOPE_DOMAIN[{disp!r}] = {dom!r} is not a router domain"
+    # ── the FRAME_INTERROGATIVES exception list polices itself ───────────────────────────────
+    # Every subtraction from FUNCTION_WORDS weakens RULE 1 by one word, so each one has to still
+    # be earning it. A stale entry is invisible otherwise: the node that needed it gets deleted,
+    # the exception stays, and the word is quietly allowed as a topic forever after.
+    all_vocab = set()
+    for f in _ALL_NODES:
+        all_vocab |= set(f.vocabulary)
+    stale = FRAME_INTERROGATIVES - all_vocab
+    assert not stale, (f"FRAME_INTERROGATIVES {stale} is subtracted from FUNCTION_WORDS but no "
+                       "node uses it — delete the exception, do not keep a hole in RULE 1")
+    # And the converse, as a belt-and-braces restatement: every function word a graph relies on
+    # must be excepted. In practice the per-node stopword assert above fires FIRST and names the
+    # offending node, which is the more useful message; this one exists so the invariant is
+    # stated where the exception list lives, and would catch a case the node loop cannot — a
+    # frame word reachable through `vocabulary` on a node that is somehow not in `_BY_ID`.
+    uncovered = (all_vocab & FUNCTION_WORDS) - FRAME_INTERROGATIVES
+    assert not uncovered, (f"{uncovered} is in a node vocabulary and in lang.FUNCTION_WORDS but "
+                           "not in FRAME_INTERROGATIVES")
 
 
 _selfcheck()

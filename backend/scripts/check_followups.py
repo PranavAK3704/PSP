@@ -27,18 +27,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts._contain import contain; contain()   # MUST precede every `app.` import — see _contain.py
+from scripts._harness import FAILED, check, head   # noqa: E402
 
-FAILED: list[str] = []
-
-
-def check(label: str, ok: bool, detail: str = "") -> None:
-    print(f"  {'ok  ' if ok else 'FAIL'} {label}" + (f" — {detail}" if detail else ""))
-    if not ok:
-        FAILED.append(label)
-
-
-def head(n: str) -> None:
-    print(f"\n{'-' * 78}\n{n}\n{'-' * 78}")
 
 
 # ── the golden file ─────────────────────────────────────────────────────────────────────────
@@ -216,12 +206,86 @@ def main() -> int:
             check(label, ok, note or (why if not ok else ""))
         print(f"       {fires} answered deterministically, {len(GOLDEN) - fires} declined to the LLM")
 
-        # ── 2. no scope, no answer ──────────────────────────────────────────────
-        head("[2] turn one always goes to the LLM — no disposition means no answer")
+        # ── 2. turn one, split between the two tiers ────────────────────────────
+        #
+        # THIS SECTION USED TO ASSERT THE OPPOSITE, and the reversal is deliberate, not a
+        # regression. It read "turn one always goes to the LLM — no disposition means no answer",
+        # and it passed — which meant the repo shipped a green test asserting that a cold
+        # "rto kya hai" must be answered by a model. `resolve(msg, None)` already handled it:
+        # 8 of the 9 glossary definitions resolved cold with no changes at all.
+        #
+        # `F.tier` still declines every one of these — that guard is untouched, because a
+        # per-mechanism node cold would state a cause the corpus does not support (h_why, s_why
+        # and i_why all answer "why was a loss marked" for three different mechanisms, and cold
+        # nothing says which). What changed is that `F.glossary_tier` now gets the turn after it,
+        # and answers exactly the subset that is a queue-independent definition.
+        head("[2] turn one — the follow-up tier still declines, the glossary tier decides")
+        COLD_ANSWERS = {"rto kya hai": "g_rto",
+                        "hardstop kyun laga": "g_hardstop",
+                        "insaan se baat karni hai": "u_talk_human"}
         for msg in NO_SCOPE:
             ctx = router.Ctx(message=msg, entities={}, context={},
                              session=sessmod.Session(conversation_id="c", captain_id="x"))
-            check(f"no scope: {msg[:40]!r}", F.tier(ctx) is None)
+            check(f"F.tier still declines: {msg[:38]!r}", F.tier(ctx) is None)
+            g = F.glossary_tier(ctx)
+            want = COLD_ANSWERS.get(msg)
+            got = g.data["node"] if g else None
+            why_ok = ("the escape hatch — always right, in or out of scope"
+                      if want == "u_talk_human" else "a definition, true for every captain")
+            check(f"   cold -> {str(got):14s} {msg[:34]!r}", got == want,
+                  why_ok if want else
+                  "names another queue or no topic at all — correctly the LLM's turn")
+        # And the boundary that makes the above safe: an UNGATED definition may answer cold, a
+        # gated node never may, because there are no facts cold to check its precondition
+        # against. `g_shortage` is the case that proves the fix rather than the rule — RULE 2 read
+        # "shortage LOSS kya hai" as a foreign LOSSES question until the node that defines
+        # shortage loss was taught the word `loss`.
+        for msg, want in (("shortage loss kya hai", "g_shortage"),
+                          ("hardstop loss kya hai", "g_hardstop"),
+                          ("loss kya hai", None),
+                          ("cod pendency kya hai", None),
+                          # ── g_loss_process: the phrasing this pass was opened for, and the
+                          # negatives that keep it honest. It must NOT win a question a
+                          # mechanism-specific node answers better, must NOT fire on one word,
+                          # and must NOT answer a request to DO something.
+                          ("mujhe loss marking ka process bata dijiye", "g_loss_process"),
+                          ("loss marking ka process kya hai", "g_loss_process"),
+                          ("loss kaise mark hota hai", "g_loss_process"),
+                          ("nuksan ka process batao", "g_loss_process"),
+                          ("loss ke stage kya hain", "g_loss_process"),
+                          ("loss marking ka tarika samjha dijiye", "g_loss_process"),
+                          # negatives — the mechanism wins where the captain named one
+                          ("shortage marking kya hai", "g_shortage"),
+                          ("hardstop ka process kya hai", "g_hardstop"),
+                          # negatives — one word is never enough, and an operation is not a question
+                          ("marking kya hai", None),
+                          ("process kya hai", None),
+                          ("loss reverse kar dijiye", None),
+                          ("loss clear karo", None),
+                          # ── g_qc_process
+                          ("qc process kya hai", "g_qc_process"),
+                          ("secondary qc kya hai", "g_qc_process"),
+                          ("qc ka tarika bata dijiye", "g_qc_process"),
+                          # one word is not a question; a QUANTITY interrogative asks for a
+                          # value rather than a meaning, and a debit question is about a case
+                          ("qc kya hai", None),
+                          ("qc mein kitni photo lagti hai", None),
+                          ("qc fail hone par debit lagta hai kya", None)):
+            ctx = router.Ctx(message=msg, entities={}, context={}, session=None)
+            g = F.glossary_tier(ctx)
+            got = g.data["node"] if g else None
+            check(f"   cold -> {str(got):14s} {msg!r}", got == want,
+                  "" if want else "one word, another queue, or an operation — declines")
+        # An identifier cold is a case, not a definition — the same refusal greetings makes.
+        ctx = router.Ctx(message="hardstop kya hai", entities={"any": True, "awb": "VL0084123456789"},
+                         context={}, session=None)
+        check("   an entity cold refuses even a perfect definition match",
+              F.glossary_tier(ctx) is None, "an AWB means a specific case")
+        # Every node the cold tier can reach must be ungated, or it could render a false premise.
+        cold_reachable = [f for f in F._scope(None)]
+        check(f"   all {len(cold_reachable)} cold-reachable nodes are ungated",
+              all(not f.gates for f in cold_reachable),
+              f"gated: {[f.id for f in cold_reachable if f.gates]}")
 
         # ── 3. an identifier means a new concern, not a follow-up ───────────────
         head("[3] an identifier present means the captain brought evidence, not a question")

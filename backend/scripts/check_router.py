@@ -18,18 +18,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts._contain import contain; contain()   # MUST precede every `app.` import — see _contain.py
+from scripts._harness import FAILED, check, head   # noqa: E402
 
-FAILED: list[str] = []
-
-
-def check(label: str, ok: bool, detail: str = "") -> None:
-    print(f"  {'ok  ' if ok else 'FAIL'} {label}" + (f" — {detail}" if detail else ""))
-    if not ok:
-        FAILED.append(label)
-
-
-def head(n: str) -> None:
-    print(f"\n{'-' * 78}\n{n}\n{'-' * 78}")
 
 
 # ── the golden file ─────────────────────────────────────────────────────────────────────────
@@ -116,6 +106,9 @@ def main() -> int:
             os.environ["PSP_PREROUTER"] = raw
             check(f"PSP_PREROUTER={raw!r} -> {R.mode()}", R.mode() == want, f"expected {want}")
         check("the greeting tier is registered", "greeting" in R.tiers(), str(R.tiers()))
+        check("the glossary tier is registered LAST", R.tiers()[-1] == "glossary",
+              "it is the only tier that fires with no disposition, so greeting must get "
+              "first look at an opening message — see _install_default_tiers")
 
         os.environ["PSP_PREROUTER"] = "off"
         v, tr = R.route(R.Ctx(message="hi", entities=extract("hi"), context={}))
@@ -229,7 +222,10 @@ def main() -> int:
 
         # ── 7. cost: this is the whole point ────────────────────────────────────
         head("[7] the economics")
-        MEASURED_TURN_INR = 4.54          # average measured cost of an LLM turn, scripts/cost_model
+        # Average measured cost of an LLM turn. Measured by scripts/cost_model.py, which was
+        # deleted in 6c3e769 — recover it with `git show 6c3e769^:backend/scripts/cost_model.py`
+        # to re-derive this figure rather than trusting the constant.
+        MEASURED_TURN_INR = 4.54
         n_abs = fires
         print(f"       {n_abs} phrasings answered with ZERO model calls")
         print(f"       at the measured Rs {MEASURED_TURN_INR:.2f}/turn, every absorbed turn is "

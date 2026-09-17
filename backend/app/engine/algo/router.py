@@ -230,6 +230,12 @@ def _install_default_tiers() -> None:
     # the acknowledgement tokens and answer "anything else?" to a captain who asked something.
     register("followup", followups.tier)
     register("greeting", greetings.tier)
+    # GLOSSARY LAST, and that is the safe order rather than an arbitrary one. It is the only tier
+    # that fires with no disposition, so it can never contend with `followup` (which requires
+    # one) — but it CAN contend with `greeting`, and there greeting must win: "hello sir" from a
+    # captain who has said nothing else is a pleasantry, and a definition tier that got first
+    # look at every opening message would be the one deciding what a greeting is.
+    register("glossary", followups.glossary_tier)
 
 
 def register(name: str, fn) -> None:

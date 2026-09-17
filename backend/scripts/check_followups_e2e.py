@@ -20,7 +20,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts._contain import contain; contain()   # MUST precede every `app.` import — see _contain.py
+# provider="demo": this harness drives captain VLMO-CPT-4471, a SEED captain. Under `localdb`
+# (what render.yaml deploys and load_env.sh now exports) that id does not exist, `_run_turn`
+# ends the turn on the unknown-captain check before the pre-router runs, and every assertion
+# here fails on turn one. Declared rather than inherited — see contain()'s docstring.
+from scripts._contain import contain; contain(provider="demo")   # MUST precede every `app.` import
 os.environ["PSP_PREROUTER"] = "on"
 os.environ.pop("PSP_PREROUTER_GREETING", None)
 os.environ.pop("PSP_PREROUTER_FOLLOWUP", None)
@@ -69,6 +73,30 @@ r_digit, _o, t_digit, _c = turn("2")
 print(f"  '2' on channel=chat -> tier={t_digit!r} (None = correctly NOT treated as a tap)")
 assert t_digit != "followup", "a typed digit in the panel was treated as a chip tap"
 # Re-arm for the tap test below: the turn above cleared last_options, as every turn does.
+#
+# ── AND CLEAR `last_action`, WHICH THE TURN ABOVE MAY HAVE SET TO "escalate" ────────────────
+# This was an intermittent failure — roughly one batch run in five — and it took a while to see
+# because the AssertionError goes to stderr while check_all showed the stdout tail, which was a
+# line from a check that had already passed. (check_all now reports the stderr reason instead.)
+#
+# The mechanism: the bare "2" above is deliberately NOT a chip tap, so it falls through to the
+# LLM. That turn is not deterministic inside a contained harness — there is no API key and no
+# network, so it degrades, and on some runs it terminates with action="escalate". `_refusals`
+# then correctly declines the very next turn with "previous turn escalated", and this re-arm
+# got tier=None.
+#
+# The refusal is RIGHT and is asserted on its own at [12]; what was wrong is this line depending
+# on the outcome of an LLM turn it does not control. Clearing the flag restores the precondition
+# the tap test actually needs — a live scope with nothing escalated — without weakening anything.
+# AND THE DISPOSITION, for the same reason and it is the half I missed first time. Clearing
+# `last_action` alone left this still failing about one run in fifteen, because the intervening
+# LLM turn can end without a disposition — `conversation.py` only re-stamps the scope when the
+# turn produced one, and a degraded turn produces none. The e2e's own output says so a few lines
+# up: "session after the dead turn: disposition=None facts={}". No scope, no follow-up tier, by
+# design. So the re-arm restores the precondition in full rather than half of it.
+_s = sessmod.STORE.get_or_create(CONV, CAP)
+_s.last_action = None
+_s.set_disposition("load_planning", FACTS)
 r, o, t, c = turn("kaise theek karun")
 assert t == "followup", t
 

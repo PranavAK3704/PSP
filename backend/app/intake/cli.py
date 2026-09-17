@@ -108,6 +108,68 @@ def cmd_pull(args) -> int:
     return 0
 
 
+def cmd_watch(args) -> int:
+    """Pull every listening channel and run the pipeline, on a loop, until you stop it.
+
+    The gap this closes: `pull` reads Slack into files and `run-all` reads those files, so a
+    message posted after the last pull is invisible — the register looks broken when in fact
+    nothing ran. The live dashboard polls, but it writes to its own store and not to PSP, so it
+    does not help either.
+
+    This is the production shape minus Socket Mode: the same poll the backfill uses, on a timer,
+    into a real sink. Every stage is idempotent and the ticket key comes from the source
+    message, so running it every minute forever creates each ticket exactly once.
+    """
+    import time as _t
+    channels = [c.strip() for spec in args.channel for c in spec.split(",") if c.strip()]
+    if not channels:
+        raise SystemExit("--channel needs at least one channel id")
+    reader = slack_source.SlackReader(pause=0.2)
+    sink = sinks.build(args.sink)
+    if args.sink not in ("dry", "dry_run"):
+        print(f"  !! sink={args.sink} — this CREATES tickets.", file=sys.stderr)
+    print(f"  watching {len(channels)} channel(s) every {args.every}s — ctrl-c to stop\n",
+          flush=True)
+
+    n = 0
+    while True:
+        n += 1
+        stamp = datetime.now().strftime("%H:%M:%S")
+        try:
+            got = 0
+            for ch in channels:
+                recs = reader.fetch(ch, oldest=args.oldest)
+                slack_source.write_ndjson(recs, args.raw)
+                got += len(recs)
+            rid = args.run_id or "watch"
+            con = store.connect()
+            try:
+                loadstage.load(args.raw, run_id=rid, con=con, skip_validate=True)
+                for fn in (noise.run, extract.run, evidence.run, qualify.run, group.run,
+                           register.run, classify.run, dedupe.run):
+                    fn(rid, con=con)
+                r = emit.run(rid, con=con, sink=sink,
+                             require_identifier=args.require_identifier)
+                if hasattr(sink, "report_channels"):
+                    sink.report_channels(rollup.channel_rollup(con, rid))
+            finally:
+                con.close()
+            print(f"  [{stamp}] poll {n}: {got} messages, {r.get('issues', 0)} issues, "
+                  f"{getattr(sink, 'created', 0)} ticket(s) created so far", flush=True)
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:                                            # noqa: BLE001
+            # A transient Slack or PSP failure must not end the watch — that is the one job it
+            # has. Report it and try again on the next tick.
+            print(f"  [{stamp}] poll {n} FAILED: {type(e).__name__}: {e}",
+                  file=sys.stderr, flush=True)
+        try:
+            _t.sleep(args.every)
+        except KeyboardInterrupt:
+            print("\n  stopped")
+            return 0
+
+
 def cmd_explain(args) -> int:
     """THE OUTPUT LAYER: what the pipeline decided about every message, and why.
 
@@ -361,6 +423,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     for name, fn, h, raw in [
             ("pull", cmd_pull, "read a Slack channel LIVE into NDJSON (read-only)", True),
+            ("watch", cmd_watch,
+             "pull + run the pipeline on a loop, so new messages arrive by themselves", True),
             ("explain", cmd_explain, "what the pipeline decided about every message, and why",
              False),
             ("load", cmd_load, "read NDJSON, gate it on tools/validate.js, write SQLite", True),
@@ -389,7 +453,13 @@ def build_parser() -> argparse.ArgumentParser:
         # Also on every subparser, so `run-all --run-id demo` works. On the top level alone it
         # would have to PRECEDE the subcommand, which reads like a typo when it fails.
         s.add_argument("--run-id", help="reuse a run id to re-run one stage over existing rows")
-        if name in ("notify", "run-all"):
+        if name == "watch":
+            s.add_argument("--channel", required=True, action="append",
+                           help="channel id; repeat or comma-separate for several")
+            s.add_argument("--every", type=float, default=60.0,
+                           help="seconds between polls (default 60)")
+            s.add_argument("--oldest", default=None)
+        if name in ("notify", "run-all", "watch"):
             s.add_argument("--notify", default="off",
                            choices=["off", "email-dry", "email"],
                            help="off (default) sends nothing. email-dry renders and records "
@@ -418,7 +488,7 @@ def build_parser() -> argparse.ArgumentParser:
             s.add_argument("--oldest", default=None,
                            help="unix ts to read from. A backfill and a poll are the same call "
                                 "with a different cursor")
-        if name in ("emit", "run-all"):
+        if name in ("emit", "run-all", "watch"):
             s.add_argument("--sink", default="dry",
                            help="dry (default, creates nothing) | psp (PSP's own register) | "
                                 "file. Anything but `dry` CREATES tickets.")

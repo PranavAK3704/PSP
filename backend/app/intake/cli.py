@@ -409,9 +409,8 @@ def build_parser() -> argparse.ArgumentParser:
                                 "with a different cursor")
         if name in ("emit", "run-all"):
             s.add_argument("--sink", default="dry",
-                           help="dry (default, creates nothing) | sheets_api (Sheets API, no "
-                                "public endpoint) | sheet (Apps Script web app) | file. "
-                                "Anything but `dry` CREATES tickets.")
+                           help="dry (default, creates nothing) | psp (PSP's own register) | "
+                                "file. Anything but `dry` CREATES tickets.")
             s.add_argument("--require-identifier", action="store_true",
                            help="hold back issues with no DC code, mobile, waybill or ticket "
                                 "id — nobody outside the conversation can act on those. Off by "

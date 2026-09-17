@@ -39,6 +39,12 @@ def test_the_guarantee_survives_a_fresh_process(tmp_path):
     assert len(p.read_text().strip().splitlines()) == 1
 
 
+def test_the_reference_does_not_change_shape_with_the_backend(tmp_path):
+    """A ref that reads FILE-3 here and VAL-3 there is one nobody can quote in a conversation."""
+    s = sinks.build("file", path=tmp_path / "t.jsonl")
+    assert s.create(_draft()).startswith("VAL-")
+
+
 def test_different_messages_get_different_tickets(tmp_path):
     s = sinks.build("file", path=tmp_path / "t.jsonl")
     assert s.create(_draft("k1")) != s.create(_draft("k2"))
@@ -61,17 +67,6 @@ def test_an_unknown_sink_fails_loudly(tmp_path):
         sinks.build("gogle_sheet")
 
 
-def test_the_sheet_sink_refuses_to_guess_a_url(tmp_path):
-    missing = tmp_path / "nope.txt"
-    with pytest.raises(sinks.SinkError, match="not found"):
-        sinks.read_url(missing)
-
-
-def test_a_non_apps_script_url_is_rejected(tmp_path):
-    p = tmp_path / "url.txt"
-    p.write_text("https://evil.example.com/collect")
-    with pytest.raises(sinks.SinkError, match="does not look like"):
-        sinks.read_url(p)
 
 
 def test_the_dry_run_sink_is_still_the_default_everywhere(tmp_path):
@@ -92,39 +87,7 @@ def test_a_sink_cannot_acquire_the_ability_to_post_to_slack():
         assert banned not in src, f"{banned} appeared in sinks.py — this module must not write"
 
 
-# ── the status link ──────────────────────────────────────────────────────────────────────────
 
-def test_the_sheet_sink_builds_a_per_ticket_status_link():
-    """An acknowledgement is worthless without somewhere to look, and the deployment URL is a
-    WRITE endpoint — so the link a partner gets carries an unguessable per-ticket token rather
-    than a row number anyone could increment."""
-    s = sinks.GoogleSheetTicketSink(url="https://script.google.com/a/x/exec", secret="s")
-    assert s.status_url("abc123") == "https://script.google.com/a/x/exec?t=abc123"
-
-
-def test_the_post_carries_the_secret_so_the_url_alone_cannot_write(monkeypatch):
-    sent = {}
-
-    class R:
-        status_code = 200
-        def json(self): return {"ok": True, "ref": "VAL-1", "created": True, "token": "tk"}
-
-    def fake_post(url, data=None, **kw):
-        sent.update(json.loads(data))
-        return R()
-
-    monkeypatch.setattr(sinks.requests, "post", fake_post)
-    s = sinks.GoogleSheetTicketSink(url="https://x/exec", secret="hunter2")
-    ref = s.create(_draft())
-    assert sent["secret"] == "hunter2", "the sheet must be able to reject an unauthorised post"
-    assert ref == "VAL-1"
-    assert s.status_urls[_draft().idempotency_key] == "https://x/exec?t=tk"
-
-
-def test_a_missing_secret_file_is_not_fatal(tmp_path):
-    """The sheet answers `server_not_configured` with the fix in the message, which is a better
-    error than one raised here before anything was attempted."""
-    assert sinks.read_secret(tmp_path / "nope.txt") == ""
 
 
 def test_both_sinks_expose_status_urls(tmp_path):
@@ -133,38 +96,51 @@ def test_both_sinks_expose_status_urls(tmp_path):
     assert _draft().idempotency_key in f.status_urls
 
 
-# ── the Sheets API path ──────────────────────────────────────────────────────────────────────
+# ── the PSP sink ─────────────────────────────────────────────────────────────────────────────
 
-def test_the_sheets_api_sink_needs_no_public_endpoint():
-    """The reason this path exists: an org-restricted Apps Script Web App cannot be called by a
-    script, and making it public means standing up a writable endpoint. This one authenticates
-    as a real identity and exposes nothing — so it must not reach for the web app's URL or its
-    shared secret, which are the two things that only exist to talk to a public endpoint."""
-    import inspect
-    src = inspect.getsource(sinks.GoogleSheetsApiTicketSink)
-    for banned in ("requests.post", "read_url()", "read_secret()", "URL_FILE", "SECRET_FILE"):
-        assert banned not in src, f"{banned} in the API sink — it needs no endpoint at all"
+def test_the_psp_sink_reports_a_missing_credential_with_the_fix(tmp_path, monkeypatch):
+    monkeypatch.setattr(sinks, "PSP_URL_FILE", tmp_path / "nope.txt")
+    with pytest.raises(sinks.SinkError, match="base URL"):
+        sinks.build("psp")
 
 
-def test_it_refuses_without_a_spreadsheet_id(tmp_path, monkeypatch):
-    monkeypatch.setattr(sinks, "SHEET_ID_FILE", tmp_path / "none.txt")
-    with pytest.raises(sinks.SinkError, match="no spreadsheet id"):
-        sinks.build("sheets_api")
+def test_a_repeat_create_is_the_servers_answer_not_the_clients(monkeypatch, tmp_path):
+    """Idempotency is enforced in PSP's API. The client just reports what came back — a client
+    that deduped locally would still create twice across two machines."""
+    monkeypatch.setattr(sinks, "PSP_URL_FILE", tmp_path / "u.txt")
+    monkeypatch.setattr(sinks, "PSP_TOKEN_FILE", tmp_path / "t.txt")
+    (tmp_path / "u.txt").write_text("https://psp.example")
+    (tmp_path / "t.txt").write_text("tok")
+
+    replies = [{"ok": True, "ref": "VAL-9", "created": True, "status_token": "abc"},
+               {"ok": True, "ref": "VAL-9", "created": False, "status_token": "abc"}]
+
+    class R:
+        status_code = 200
+        def json(self): return replies.pop(0)
+
+    monkeypatch.setattr(sinks.requests, "post", lambda *a, **k: R())
+    s = sinks.build("psp")
+    assert s.create(_draft()) == s.create(_draft()) == "VAL-9"
+    assert s.created == 1 and s.already_existed == 1
+    assert s.status_urls[_draft().idempotency_key] == "https://psp.example/t/abc"
 
 
-def test_a_repeat_create_returns_the_original_reference_without_appending(monkeypatch):
-    """Idempotency moved from the sheet to the client here, so it is worth pinning."""
-    s = sinks.GoogleSheetsApiTicketSink(spreadsheet_id="sid")
-    s._keys = {"abc123": "VAL-7"}                       # pretend the sheet already holds it
+def test_a_rejected_token_says_so_rather_than_failing_obscurely(monkeypatch, tmp_path):
+    monkeypatch.setattr(sinks, "PSP_URL_FILE", tmp_path / "u.txt")
+    monkeypatch.setattr(sinks, "PSP_TOKEN_FILE", tmp_path / "t.txt")
+    (tmp_path / "u.txt").write_text("https://psp.example")
+    (tmp_path / "t.txt").write_text("stale")
 
-    def boom(*a, **k):
-        raise AssertionError("must not touch the API for a key already present")
+    class R:
+        status_code = 401
+        def json(self): return {}
 
-    monkeypatch.setattr(s, "_service", boom)
-    assert s.create(_draft("abc123")) == "VAL-7"
-    assert s.created == 0 and s.already_existed == 1
+    monkeypatch.setattr(sinks.requests, "post", lambda *a, **k: R())
+    with pytest.raises(sinks.SinkError, match="rejected the token"):
+        sinks.build("psp").create(_draft())
 
 
 def test_an_unknown_sink_name_lists_every_real_one():
-    with pytest.raises(sinks.SinkError, match="sheets_api"):
+    with pytest.raises(sinks.SinkError, match="psp"):
         sinks.build("nope")

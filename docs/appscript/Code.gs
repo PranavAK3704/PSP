@@ -31,7 +31,20 @@
  *
  * ── DEPLOY SETTINGS THAT MATTER ────────────────────────────────────────────────────────────
  *   Execute as:      Me
- *   Who has access:  Anyone within <your org>
+ *   Who has access:  Anyone
+ *
+ * "Anyone" looks alarming and is the correct setting here, for two reasons:
+ *
+ *   1. PARTNERS ARE NOT MEESHO EMPLOYEES. They are external logistics partners with no
+ *      meesho.com Google account. "Anyone within Meesho" means the status page shows them a
+ *      login screen they can never pass — the acknowledgement would link to a dead end.
+ *   2. A SCRIPT HAS NO GOOGLE SESSION EITHER. The pipeline's POST gets the same sign-in HTML
+ *      that curl does, so the sink cannot work against an org-restricted deployment at all.
+ *
+ * What makes "Anyone" safe is that the URL is no longer the credential:
+ *   · POST requires INTAKE_SECRET, so knowing the URL does not let you write.
+ *   · GET needs an unguessable per-ticket token, so knowing the URL does not let you read.
+ *   · A bare GET returns {ok:true} and nothing else — no counts, no listing, no ticket.
  *
  * Set the secret once, in the Apps Script editor:
  *   Project Settings -> Script Properties -> add  INTAKE_SECRET = <a long random string>
@@ -205,11 +218,15 @@ function statusPage_(row, rowNum) {
 function doGet(e) {
   const token = e && e.parameter ? e.parameter.t : null;
 
-  // No token: a health check only. It must never list tickets — this URL is shared around.
+  // No token: liveness only. This URL is public, so the bare response must say nothing about
+  // the contents — not even how many tickets exist. Pass the secret to get the real health.
   if (!token) {
-    return json_({ ok: true, sheet: SHEET_NAME,
-                   rows: Math.max(0, sheet_().getLastRow() - 1),
-                   configured: !!secret_() });
+    const want = secret_();
+    if (e && e.parameter && want && e.parameter.health === want) {
+      return json_({ ok: true, sheet: SHEET_NAME,
+                     rows: Math.max(0, sheet_().getLastRow() - 1), configured: true });
+    }
+    return json_({ ok: true, configured: !!want });
   }
 
   const sh = sheet_();

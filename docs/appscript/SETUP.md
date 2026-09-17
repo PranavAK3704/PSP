@@ -30,11 +30,30 @@ first post and freezes the header row.
    |---|---|
    | Description | `intake sink v1` |
    | Execute as | **Me** (`pranav.akella@meesho.com`) |
-   | Who has access | **Anyone within Meesho** |
+   | Who has access | **Anyone** |
 
-   **"Who has access" is the one that matters.** This URL is a write endpoint — anyone holding
-   it can append rows. `Anyone within Meesho` requires a Meesho Google login. Do not pick
-   `Anyone`, which makes it writable by the open internet.
+   **"Anyone" is correct here, and it is worth understanding why before you click it.**
+
+   `Anyone within Meesho` fails for two independent reasons:
+
+   - **Partners are not Meesho employees.** Valmo partners are external; they have no
+     meesho.com Google account. An org-restricted status page shows them a login screen they
+     can never pass, so the acknowledgement links to a dead end.
+   - **A script has no Google session.** The pipeline's POST receives the same sign-in HTML
+     that `curl` does, so the sink cannot talk to an org-restricted deployment at all. If you
+     `curl` the URL and get a page of HTML starting `<!DOCTYPE html>`, this is what happened.
+
+   What makes `Anyone` safe is that **the URL is no longer the credential** — which is exactly
+   what step 2b set up:
+
+   - POST requires `INTAKE_SECRET`, so knowing the URL does not let anyone write.
+   - The status page needs an unguessable per-ticket token, so knowing the URL does not let
+     anyone read a ticket.
+   - A bare GET returns `{"ok":true,"configured":true}` and nothing else — no counts, no
+     listing, no ticket.
+
+   **Do step 2b before deploying.** With `Anyone` and no secret set, the endpoint really would
+   be writable by the internet.
 
 4. **Deploy**. Google will ask you to authorise the script the first time — it wants permission
    to edit this spreadsheet, which is exactly what it does.
@@ -79,14 +98,27 @@ chmod 600 data/appscript_url.txt
 
 ```bash
 curl -sL "$(cat ~/PSP/backend/data/appscript_url.txt)"
-# {"ok":true,"sheet":"tickets","rows":0}
+# {"ok":true,"configured":true}
 ```
 
-`doGet` writes nothing, so this is safe to run any time. `-L` matters: Apps Script redirects to
+`configured:true` is the bit that matters — it means the Script Property saved. If it says
+`false`, redo step 2b.
+
+For the full health check, pass the secret:
+
+```bash
+curl -sL "$(cat ~/PSP/backend/data/appscript_url.txt)?health=$(cat ~/PSP/backend/data/appscript_secret.txt)"
+# {"ok":true,"sheet":"tickets","rows":0,"configured":true}
+```
+
+`doGet` writes nothing, so both are safe to run any time. `-L` matters: Apps Script redirects to
 `googleusercontent.com` to serve the response.
 
-If you get HTML back instead of JSON, the deployment is set to require a login the `curl` does
-not have — re-check step 2's access setting.
+**If you get HTML starting `<!DOCTYPE html>` with "Sign in - Google Accounts"**, the deployment
+still requires a login. Fix it without changing the URL: **Deploy → Manage deployments →** pencil
+icon on the active deployment **→ Who has access: Anyone → Deploy.** Editing the existing
+deployment keeps the same URL; creating a *new* deployment would give you a different one and
+you would have to update `appscript_url.txt`.
 
 ## 5. Run the pipeline into it
 

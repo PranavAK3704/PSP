@@ -21,14 +21,30 @@ def _extract_token(request: Request) -> str | None:
 
 
 def current_user(request: Request) -> dict:
-    """Authenticated user {email, role} from the bearer token, or HTTP 401."""
+    """Authenticated user {email, role, team} from the bearer token, or HTTP 401.
+
+    `role` comes from the SIGNED TOKEN and must — it is an authorisation claim, and reading it
+    from anywhere the client can reach would defeat the signature.
+
+    `team` is read from the STORE instead, and that difference is deliberate. It is not an
+    authorisation claim: the L3 queue is readable by every authenticated user either way, and
+    team only decides which slice opens first. Reading it live means reassigning someone's desk
+    takes effect on their next request rather than at their next login, which for a 12-hour token
+    is the difference between "moved teams" and "moved teams tomorrow".
+    """
     token = _extract_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="authentication required")
     payload = tokens.verify(token)
     if not payload:
         raise HTTPException(status_code=401, detail="invalid or expired token")
-    return {"email": payload.get("email"), "role": payload.get("role")}
+    team = ""
+    try:
+        from . import store
+        team = (store.get_user(payload.get("email") or "") or {}).get("team", "") or ""
+    except Exception:  # noqa: BLE001 — a missing team must never break authentication
+        team = ""
+    return {"email": payload.get("email"), "role": payload.get("role"), "team": team}
 
 
 def require_role(*roles: str):

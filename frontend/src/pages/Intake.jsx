@@ -1,242 +1,312 @@
-/* Intake — the ticket register.
+/* Intake — the ticket register, as a working queue rather than a list.
  *
- * Every row here came from a partner writing in a channel, not from anyone filling a form. The
+ * Every row came from a partner writing in a channel, not from anyone filling a form. The
  * pipeline read the message, decided it was an issue, pulled the identifiers out and created
- * this. An agent's job on this page is to move it along and, when it matters, write a line the
- * raiser will actually see.
+ * this. An agent's job here is to pick the next one, move it along, and — when it matters —
+ * write a line the raiser will actually see.
  *
- * TWO THINGS ON THIS PAGE ARE EASY TO MISREAD, so both are labelled in the UI:
+ * ── THE BIFURCATION IS THE POINT ──────────────────────────────────────────────────────────
+ * A flat list of tickets is unreadable because it hides the only question an agent has: what
+ * needs me next. The queue is split into four, and the FIRST group is not a state at all:
  *
- *   · "raised N×" is RECURRENCE, not duplication. The same issue reported seven times is one
- *     ticket carrying a 7 — not seven tickets, and not six suppressed. The count is the signal;
- *     losing it was the old failure.
+ *   NEEDS A CATEGORY  the matcher refused to classify it. That is a question addressed to a
+ *                     human, not a category — rendering "NOVEL" as though it were one is what
+ *                     made the first version of this page meaningless.
+ *   OPEN              categorised, waiting for someone.
+ *   BEING WORKED ON   somebody has it.
+ *   RESOLVED          collapsed by default; it is history, not work.
+ *
+ * ── TWO THINGS ARE EASY TO MISREAD, so both are labelled in the UI ────────────────────────
+ *   · "raised 7×" is RECURRENCE, not duplication. One ticket carrying a 7 — not seven tickets.
  *   · A note written here is shown to the PARTNER on their status page. It is not an internal
- *     comment, and the placeholder says so, because discovering that afterwards is expensive.
+ *     comment, and the field says so, because discovering that afterwards is expensive.
  */
 import { useEffect, useMemo, useState } from "react";
 import { getIntakeChannels, getIntakeTickets, updateIntakeTicket } from "../lib/api.js";
 
 const STATES = [
-  { k: "open",        label: "Open",            tone: "text-primary bg-primary/10 border-primary/30" },
-  { k: "in_progress", label: "Being worked on", tone: "text-tertiary bg-tertiary/10 border-tertiary/30" },
-  { k: "resolved",    label: "Resolved",        tone: "text-secondary-container bg-secondary-container/10 border-secondary-container/30" },
+  { k: "open", label: "Open" },
+  { k: "in_progress", label: "Being worked on" },
+  { k: "resolved", label: "Resolved" },
 ];
-const toneOf = (s) => (STATES.find((x) => x.k === s) || STATES[0]).tone;
-const labelOf = (s) => (STATES.find((x) => x.k === s) || STATES[0]).label;
+
+const MONO = { fontFamily: "JetBrains Mono", fontVariantNumeric: "tabular-nums" };
+
+function StatePill({ state, needsCategory }) {
+  if (needsCategory) {
+    return (
+      <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wide bg-warn/10 text-warn border border-warn/40"
+        style={MONO}>NEEDS A CATEGORY</span>
+    );
+  }
+  const tone = state === "resolved"
+    ? "bg-secondary-container/10 text-secondary-container border-secondary-container/40"
+    : state === "in_progress"
+      ? "bg-tertiary/10 text-tertiary border-tertiary/40"
+      : "bg-warn/10 text-warn border-warn/40";
+  const label = (STATES.find((s) => s.k === state) || STATES[0]).label;
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wide border ${tone}`}
+      style={MONO}>{label.toUpperCase()}</span>
+  );
+}
 
 export default function Intake() {
   const [data, setData] = useState({ tickets: [], counts: {}, total: 0 });
-  const [filter, setFilter] = useState("");
+  const [chans, setChans] = useState({ channels: [], updated_at: null });
+  const [selRef, setSelRef] = useState(null);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
-  const [open, setOpen] = useState(null);      // ref of the expanded row
-  const [chans, setChans] = useState({ channels: [], updated_at: null });
+  const [showResolved, setShowResolved] = useState(false);
 
-  useEffect(() => { getIntakeChannels().then(setChans).catch(() => {}); }, []);
-
-  async function load() {
+  async function load(keepSel = true) {
     try {
-      setData(await getIntakeTickets({ state: filter, q: q.trim() }));
+      const d = await getIntakeTickets({ q: q.trim() });
+      setData(d);
       setErr("");
-    } catch (e) {
-      setErr(String(e.message || e));
-    }
+      setSelRef((cur) => (keepSel && d.tickets.some((t) => t.ref === cur)
+        ? cur : (d.tickets[0]?.ref ?? null)));
+    } catch (e) { setErr(String(e.message || e)); }
   }
 
-  // Reload on filter/search. Debounced so typing does not fire a request per keystroke.
+  useEffect(() => { getIntakeChannels().then(setChans).catch(() => {}); }, []);
   useEffect(() => {
-    const t = setTimeout(load, q ? 250 : 0);
+    const t = setTimeout(() => load(false), q ? 250 : 0);
     return () => clearTimeout(t);
-  }, [filter, q]);
+  }, [q]);
+  // A ticket created while someone is looking at this page should ARRIVE, not wait for a reload.
+  useEffect(() => {
+    const t = setInterval(() => load(true), 8000);
+    return () => clearInterval(t);
+  }, [q]);
 
   async function patch(ref, body) {
     setBusy(ref);
-    try {
-      await updateIntakeTicket(ref, body);
-      await load();
-    } catch (e) {
-      setErr(String(e.message || e));
-    } finally {
-      setBusy("");
-    }
+    try { await updateIntakeTicket(ref, body); await load(true); }
+    catch (e) { setErr(String(e.message || e)); }
+    finally { setBusy(""); }
   }
 
-  const counts = data.counts || {};
-  const tiles = useMemo(() => ([
-    ["all", data.total || 0, "tickets"],
-    ["open", counts.open || 0, "open"],
-    ["in_progress", counts.in_progress || 0, "being worked on"],
-    ["resolved", counts.resolved || 0, "resolved"],
-  ]), [data]);
+  // `NOVEL` is the matcher declining to answer, so those tickets are their own group — ahead of
+  // everything else, because a human decision unblocks them and nothing else will.
+  const groups = useMemo(() => {
+    const needs = [], open = [], working = [], done = [];
+    for (const t of data.tickets) {
+      const novel = !t.disposition || t.disposition === "NOVEL";
+      if (t.state === "resolved") done.push(t);
+      else if (t.state === "in_progress") working.push(t);
+      else if (novel) needs.push(t);
+      else open.push(t);
+    }
+    return [
+      { key: "needs", label: "Needs a category", rows: needs, accent: "text-warn" },
+      { key: "open", label: "Open", rows: open, accent: "text-on-surface" },
+      { key: "working", label: "Being worked on", rows: working, accent: "text-tertiary" },
+      { key: "done", label: "Resolved", rows: done, accent: "text-on-surface-variant",
+        collapsible: true },
+    ];
+  }, [data]);
+
+  const sel = data.tickets.find((t) => t.ref === selRef) || null;
 
   return (
-    <div className="space-y-lg">
-      {/* ── LISTENING CHANNELS ───────────────────────────────────────────────────────────
-          A channel that is connected but silent looks exactly like one that is broken, and
-          both look like one the gate excluded — all three produce no tickets. So every row
-          shows what arrived, what came of it, and the gate's reason when it excluded one. */}
-      <div>
-        <div className="flex items-baseline gap-sm mb-sm">
-          <h3 className="text-[11px] uppercase tracking-wide text-on-surface-variant">
-            Listening on
-          </h3>
-          {chans.updated_at && (
-            <span className="text-[10px] text-on-surface-variant/70">
-              as of {String(chans.updated_at).slice(0, 16).replace("T", " ")}
+    <div className="space-y-md">
+      {/* ── LISTENING ON — one compact strip. A channel that is connected but silent looks
+            exactly like one that is broken, and both look like one the gate excluded; all
+            three produce zero tickets. So the counts are always on screen. ── */}
+      <div className="flex items-center gap-md flex-wrap rounded-lg border border-on-primary-fixed-variant/15 bg-surface-container-lowest px-md py-sm">
+        <span className="text-[10px] uppercase tracking-wide text-on-surface-variant">Listening on</span>
+        {!chans.channels.length && (
+          <span className="text-[11px] text-on-surface-variant/70">
+            nothing reported yet — the pipeline sends this when it runs
+          </span>
+        )}
+        {chans.channels.map((c) => {
+          const excluded = c.qualified === false;
+          const quiet = !excluded && !c.messages;
+          return (
+            <span key={c.channel_id} className="flex items-center gap-1.5 text-[11.5px]"
+              title={excluded ? `Excluded: ${c.reason || ""}` : ""}>
+              <span className={`inline-block w-[7px] h-[7px] rounded-full ${
+                excluded ? "bg-tertiary" : quiet ? "bg-on-surface-variant/40" : "bg-secondary-container"}`} />
+              <b className="text-on-surface">#{c.name}</b>
+              <span className="text-on-surface-variant" style={MONO}>
+                {c.messages || 0}m · {c.issues || 0}i · {c.tickets || 0}t
+              </span>
+              {excluded && <span className="text-tertiary text-[10px]">excluded</span>}
+              {quiet && <span className="text-on-surface-variant/60 text-[10px]">quiet</span>}
             </span>
-          )}
-        </div>
-        {!chans.channels.length ? (
-          <div className="rounded-lg border border-dashed border-on-primary-fixed-variant/20 p-md text-center text-[12px] text-on-surface-variant">
-            No channel has reported yet — the pipeline sends this when it runs.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-md">
-            {chans.channels.map((c) => {
-              const excluded = c.qualified === false;
-              const quiet = !excluded && !c.messages;
-              const dot = excluded ? "bg-tertiary" : quiet ? "bg-on-surface-variant/40" : "bg-primary";
-              return (
-                <div key={c.channel_id}
-                  className={`rounded-lg border p-md ${excluded
-                    ? "border-tertiary/30 bg-tertiary/5"
-                    : "border-on-primary-fixed-variant/15"}`}>
-                  <div className="flex items-center gap-sm">
-                    <span className={`inline-block w-[7px] h-[7px] rounded-full ${dot}`} />
-                    <span className="text-sm font-semibold truncate">#{c.name}</span>
-                    {c.last_at && (
-                      <span className="ml-auto text-[10px] text-on-surface-variant">
-                        {String(c.last_at).slice(11, 16)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-sm flex gap-md text-[11px] text-on-surface-variant">
-                    <span><b className="text-on-surface">{c.messages || 0}</b> messages</span>
-                    <span><b className="text-on-surface">{c.issues || 0}</b> issues</span>
-                    <span><b className="text-on-surface">{c.tickets || 0}</b> tickets</span>
-                  </div>
-                  {(c.gated || c.not_an_issue) ? (
-                    <div className="mt-1 text-[10px] text-on-surface-variant/70">
-                      {c.gated || 0} gated · {c.not_an_issue || 0} not an issue
-                    </div>
-                  ) : null}
-                  {excluded && (
-                    <div className="mt-sm text-[10px] text-tertiary leading-relaxed">
-                      excluded by the qualification gate — {String(c.reason || "").slice(0, 110)}
-                    </div>
-                  )}
-                  {quiet && (
-                    <div className="mt-sm text-[10px] text-on-surface-variant/70">
-                      connected, nothing yet
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          );
+        })}
+        {chans.updated_at && (
+          <span className="ml-auto text-[10px] text-on-surface-variant/60" style={MONO}>
+            {String(chans.updated_at).slice(0, 16).replace("T", " ")}
+          </span>
         )}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-md">
-        {tiles.map(([k, n, label]) => (
-          <button key={k} onClick={() => setFilter(k === "all" ? "" : k)}
-            className={`text-left rounded-lg border p-md transition ${
-              (k === "all" ? filter === "" : filter === k)
-                ? "border-primary/50 bg-primary/5" : "border-on-primary-fixed-variant/15"}`}>
-            <div className="text-2xl font-semibold">{n}</div>
-            <div className="text-[11px] uppercase tracking-wide text-on-surface-variant">{label}</div>
-          </button>
-        ))}
-      </div>
+      {err && <div className="rounded-md border border-error/40 bg-error/10 p-sm text-[12px]">{err}</div>}
 
-      <input value={q} onChange={(e) => setQ(e.target.value)}
-        placeholder="Search title, DC code, raiser, category…"
-        className="w-full rounded-md border border-on-primary-fixed-variant/20 bg-surface px-md py-sm text-sm" />
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,380px)_1fr] gap-md items-start">
+        {/* ── THE QUEUE ── */}
+        <div className="space-y-md">
+          <input value={q} onChange={(e) => setQ(e.target.value)}
+            placeholder="Search title, DC code, raiser…"
+            className="w-full rounded-md border border-on-primary-fixed-variant/20 bg-surface-container-lowest px-md py-sm text-[13px]" />
 
-      {err && <div className="rounded-md border border-error/40 bg-error/10 p-md text-sm">{err}</div>}
-
-      {!data.tickets.length && !err && (
-        <div className="rounded-lg border border-dashed border-on-primary-fixed-variant/20 p-xl text-center text-sm text-on-surface-variant">
-          Nothing here yet. Tickets appear as the pipeline reads the listening channels.
-        </div>
-      )}
-
-      <div className="space-y-sm">
-        {data.tickets.map((t) => (
-          <div key={t.ref} className="rounded-lg border border-on-primary-fixed-variant/15 bg-surface p-md">
-            <div className="flex items-start gap-sm flex-wrap">
-              <span className="font-mono text-[11px] text-on-surface-variant pt-1">{t.ref}</span>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${toneOf(t.state)}`}>
-                {labelOf(t.state)}
-              </span>
-              {t.occurrence_count > 1 && (
-                /* Recurrence, not duplication — spelled out because "7" alone reads as a bug. */
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded border text-tertiary bg-tertiary/10 border-tertiary/30"
-                  title="The same issue raised this many times. One ticket, not several.">
-                  raised {t.occurrence_count}×
-                </span>
-              )}
-              {t.dc_code && <span className="text-[10px] px-2 py-0.5 rounded border border-on-primary-fixed-variant/20">{t.dc_code}</span>}
-              <span className="text-[10px] px-2 py-0.5 rounded border border-on-primary-fixed-variant/20 text-on-surface-variant">
-                {t.disposition || "uncategorised"}
-              </span>
-              <button onClick={() => setOpen(open === t.ref ? null : t.ref)}
-                className="ml-auto text-[11px] text-on-surface-variant hover:text-on-surface">
-                {open === t.ref ? "less" : "more"}
-              </button>
-            </div>
-
-            <div className="mt-sm text-sm leading-relaxed">{t.title}</div>
-            <div className="mt-1 text-[11px] text-on-surface-variant">
-              {t.raiser || "unknown"} · {(t.first_raised_at || "").slice(0, 16)}
-              {t.permalink && <> · <a href={t.permalink} target="_blank" rel="noreferrer"
-                className="underline hover:text-primary">open in Slack</a></>}
-            </div>
-
-            {open === t.ref && (
-              <div className="mt-md space-y-sm border-t border-on-primary-fixed-variant/10 pt-md">
-                {t.description && (
-                  <pre className="whitespace-pre-wrap text-[12px] text-on-surface-variant font-sans">{t.description}</pre>
+          {groups.map((g) => {
+            if (!g.rows.length) return null;
+            const collapsed = g.collapsible && !showResolved;
+            return (
+              <div key={g.key}>
+                <button
+                  onClick={() => g.collapsible && setShowResolved((v) => !v)}
+                  className={`w-full flex items-baseline gap-sm mb-1 ${g.collapsible ? "cursor-pointer" : "cursor-default"}`}>
+                  <span className={`text-[10px] uppercase tracking-wide font-bold ${g.accent}`}>
+                    {g.label}
+                  </span>
+                  <span className="text-[10px] text-on-surface-variant" style={MONO}>{g.rows.length}</span>
+                  {g.collapsible && (
+                    <span className="ml-auto text-[10px] text-on-surface-variant">
+                      {collapsed ? "show" : "hide"}
+                    </span>
+                  )}
+                </button>
+                {!collapsed && (
+                  <div className="space-y-1">
+                    {g.rows.map((t) => {
+                      const active = t.ref === selRef;
+                      return (
+                        <button key={t.ref} onClick={() => setSelRef(t.ref)}
+                          className={`w-full text-left rounded-lg border px-md py-sm transition ${active
+                            ? "border-secondary-container/60 bg-secondary-container/10"
+                            : "border-on-primary-fixed-variant/12 bg-surface-container-lowest hover:border-on-primary-fixed-variant/30"}`}>
+                          <div className="flex items-center gap-sm">
+                            <span className="text-[10px] text-on-surface-variant" style={MONO}>{t.ref}</span>
+                            {t.dc_code && (
+                              <span className="text-[10px] px-1.5 rounded border border-on-primary-fixed-variant/25 text-on-surface-variant" style={MONO}>
+                                {t.dc_code}
+                              </span>
+                            )}
+                            {t.occurrence_count > 1 && (
+                              <span className="text-[10px] font-bold text-tertiary" title="Raised this many times — one ticket, not several">
+                                ×{t.occurrence_count}
+                              </span>
+                            )}
+                            <span className="ml-auto text-[10px] text-on-surface-variant/70" style={MONO}>
+                              {String(t.first_raised_at || "").slice(5, 10)}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-[13px] leading-snug line-clamp-2">{t.title}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
-                {!!(t.flags || []).length && (
-                  <div className="text-[11px] text-tertiary">flags: {t.flags.join("; ")}</div>
-                )}
-                <div className="flex gap-sm flex-wrap items-center">
-                  {STATES.map((s) => (
-                    <button key={s.k} disabled={busy === t.ref || t.state === s.k}
-                      onClick={() => patch(t.ref, { state: s.k })}
-                      className={`text-[11px] px-3 py-1 rounded border disabled:opacity-40 ${s.tone}`}>
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-                <NoteBox ticket={t} busy={busy === t.ref}
-                  onSave={(note) => patch(t.ref, { status_note: note })} />
               </div>
-            )}
+            );
+          })}
+
+          {!data.tickets.length && (
+            <div className="rounded-lg border border-dashed border-on-primary-fixed-variant/20 p-lg text-center text-[12.5px] text-on-surface-variant">
+              Nothing yet. Tickets appear as the pipeline reads the listening channels.
+            </div>
+          )}
+        </div>
+
+        {/* ── THE SELECTED TICKET ── */}
+        {sel ? <Detail t={sel} busy={busy === sel.ref} onPatch={patch} /> : (
+          <div className="rounded-lg border border-dashed border-on-primary-fixed-variant/20 p-xl text-center text-[12.5px] text-on-surface-variant">
+            Pick a ticket.
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
 }
 
-function NoteBox({ ticket, busy, onSave }) {
-  const [note, setNote] = useState(ticket.status_note || "");
-  useEffect(() => { setNote(ticket.status_note || ""); }, [ticket.ref, ticket.status_note]);
+function Detail({ t, busy, onPatch }) {
+  const [note, setNote] = useState(t.status_note || "");
+  useEffect(() => { setNote(t.status_note || ""); }, [t.ref, t.status_note]);
+  const novel = !t.disposition || t.disposition === "NOVEL";
+  const ents = Object.entries(t.entities || {}).filter(([, v]) => (v || []).length);
+
   return (
-    <div>
-      <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
-        /* The placeholder carries the warning: this text leaves the building. */
-        placeholder="Update for the partner — they see this on their status page. Not an internal note."
-        className="w-full rounded-md border border-on-primary-fixed-variant/20 bg-surface px-md py-sm text-[12px]" />
-      <div className="flex items-center gap-sm mt-1">
-        <button disabled={busy || note === (ticket.status_note || "")} onClick={() => onSave(note)}
-          className="text-[11px] px-3 py-1 rounded border border-primary/40 text-primary disabled:opacity-40">
+    <div className="rounded-lg border border-on-primary-fixed-variant/15 bg-surface-container-lowest p-lg space-y-md">
+      <div className="flex items-center gap-sm flex-wrap">
+        <span className="text-[11px] text-on-surface-variant" style={MONO}>{t.ref}</span>
+        <StatePill state={t.state} needsCategory={novel && t.state !== "resolved"} />
+        {!novel && (
+          <span className="text-[10px] px-2 py-0.5 rounded border border-on-primary-fixed-variant/25 text-on-surface-variant">
+            {t.disposition}
+          </span>
+        )}
+        {t.occurrence_count > 1 && (
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-tertiary/10 text-tertiary border-tertiary/40"
+            title="The same issue raised this many times. One ticket, not several.">
+            raised {t.occurrence_count}× — counted, not duplicated
+          </span>
+        )}
+      </div>
+
+      <h2 className="text-[17px] leading-snug font-semibold">{t.title}</h2>
+
+      <div className="text-[11.5px] text-on-surface-variant flex gap-md flex-wrap">
+        <span>{t.raiser || "unknown"}</span>
+        <span style={MONO}>{String(t.first_raised_at || "").slice(0, 16).replace("T", " ")}</span>
+        {t.reply_count > 0 && <span>{t.reply_count} repl{t.reply_count === 1 ? "y" : "ies"}</span>}
+        {t.permalink && (
+          <a href={t.permalink} target="_blank" rel="noreferrer"
+            className="underline hover:text-secondary-container">open in Slack</a>
+        )}
+      </div>
+
+      {t.description && t.description !== t.title && (
+        <pre className="whitespace-pre-wrap font-sans text-[12.5px] leading-relaxed text-on-surface-variant border-l-2 border-on-primary-fixed-variant/20 pl-md">
+          {t.description}
+        </pre>
+      )}
+
+      {!!ents.length && (
+        <div className="flex gap-sm flex-wrap">
+          {ents.map(([kind, vals]) => (vals || []).map((v, i) => (
+            <span key={`${kind}${i}`} className="text-[10px] px-2 py-0.5 rounded border border-secondary-container/40 bg-secondary-container/10 text-secondary-container"
+              style={MONO}>{kind}: {typeof v === "object" ? v.value : v}</span>
+          )))}
+        </div>
+      )}
+
+      {!!(t.flags || []).length && (
+        <div className="text-[11px] text-warn">flags: {t.flags.join(" · ")}</div>
+      )}
+
+      <div className="border-t border-on-primary-fixed-variant/10 pt-md space-y-sm">
+        <div className="text-[10px] uppercase tracking-wide text-on-surface-variant">Move it along</div>
+        <div className="flex gap-sm flex-wrap">
+          {STATES.map((s) => (
+            <button key={s.k} disabled={busy || t.state === s.k}
+              onClick={() => onPatch(t.ref, { state: s.k })}
+              className="text-[11.5px] px-3 py-1.5 rounded-md border border-on-primary-fixed-variant/25 hover:border-secondary-container/60 disabled:opacity-35 disabled:hover:border-on-primary-fixed-variant/25">
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t border-on-primary-fixed-variant/10 pt-md">
+        <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1">
+          Update for the partner
+        </div>
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
+          /* The label carries the warning: this text leaves the building. */
+          placeholder="They see this on their status page — not an internal note."
+          className="w-full rounded-md border border-on-primary-fixed-variant/20 bg-surface px-md py-sm text-[12.5px]" />
+        <button disabled={busy || note === (t.status_note || "")}
+          onClick={() => onPatch(t.ref, { status_note: note })}
+          className="mt-1 text-[11.5px] px-3 py-1.5 rounded-md border border-secondary-container/50 text-secondary-container disabled:opacity-35">
           Save update
         </button>
-        <span className="text-[10px] text-on-surface-variant">shown to the person who raised it</span>
       </div>
     </div>
   );

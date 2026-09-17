@@ -38,21 +38,23 @@ export default function L3Workspace() {
   // NOWHERE on this page before. An L3 member was being handed a concern with no record of what
   // the engine already checked, so the first thing they did was re-check it.
   const [trace, setTrace] = useState({ id: null, events: [] });
+  // null = "let the server open on my team". "*" = all teams, chosen deliberately.
+  const [team, setTeam] = useState(null);
 
   function load(keepSel) {
-    return getL3().then((d) => {
+    return getL3(team).then((d) => {
       const items = [...(d.items || [])].sort((a, b) => (b.breached - a.breached) || (b.age_hours - a.age_hours));
       setData({ items, teams: d.teams || [], meta: d.meta || {} });
       setSelId((c) => (keepSel && items.some((i) => i.concern_id === c) ? c : items[0]?.concern_id || null));
     });
   }
-  useEffect(() => { load(false); }, []);
+  useEffect(() => { load(false); }, [team]);
 
   // Refresh every 6s so a case escalated during a demo ARRIVES rather than requiring a reload.
   useEffect(() => {
     const t = setInterval(() => load(true), 6000);
     return () => clearInterval(t);
-  }, []);
+  }, [team]);
 
   // Fetch the trace when the selection changes. Cheap, cached by the browser, and it is the one
   // thing that makes this desk different from a ticket queue.
@@ -125,7 +127,33 @@ export default function L3Workspace() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-gutter">
         <Metric icon="inbox" label="Active Escalations" value={data.items.length} sub={`${breached} breached`} tone="text-secondary-container" danger={breached > 0} />
         <Metric icon="gpp_maybe" label="Breached / At-Risk" value={breached} sub="past SLA" tone="text-warn" />
-        <Metric icon="diversity_3" label="Functional Teams" value={data.teams.length} sub="engaged" tone="text-on-surface" />
+        {/* This tile used to render `data.teams.length` — a COUNT — while `team_metrics()` was
+            already returning {team, open, breached, sla_hours} per team and the rest was thrown
+            away. It is now the switcher, opening on the caller's own team. */}
+        <div className="glass-card rounded-xl p-lg flex flex-col justify-between">
+          <div className="flex items-center gap-sm text-[10px] uppercase tracking-[0.13em] text-on-surface-variant"
+            style={{ fontFamily: "JetBrains Mono" }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>diversity_3</span>
+            {data.meta?.showing_team === "*" ? "All teams" : "Your queue"}
+          </div>
+          <select value={data.meta?.showing_team || "*"} onChange={(e) => setTeam(e.target.value)}
+            className="mt-sm w-full bg-surface-variant/30 rounded-lg px-sm py-1.5 text-[13px]
+                       text-on-surface border border-on-primary-fixed-variant/25">
+            <option value="*">All teams — {data.meta?.total_all_teams ?? 0} open</option>
+            {(data.teams || []).map((t) => (
+              <option key={t.team} value={t.team}>
+                {t.team} — {t.open} open{t.breached ? ` · ${t.breached} breached` : ""}
+              </option>
+            ))}
+          </select>
+          {data.meta?.my_team
+            ? <div className="text-[10.5px] text-on-surface-variant/70 mt-xs">
+                you are on <b className="text-on-surface">{data.meta.my_team}</b>
+              </div>
+            : <div className="text-[10.5px] text-on-surface-variant/70 mt-xs">
+                no team assigned — showing everything
+              </div>}
+        </div>
         <Metric icon="timer" label="Mean Age" value={`${avgAge}h`} sub="in queue" tone="text-tertiary" />
       </div>
 
@@ -251,6 +279,75 @@ export default function L3Workspace() {
                       <dt className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mb-xs"
                         style={{ fontFamily: "JetBrains Mono" }}>Why the engine could not resolve it</dt>
                       <dd className="text-on-surface-variant leading-relaxed">{sel.escalation_reason}</dd>
+                    </div>
+                  )}
+                  {/* ── WHAT WE TRIED, AND WHAT WE RULED OUT ──────────────────────────────
+                      The reason above says where the engine stopped. This says what it did
+                      before stopping, which is the difference between "the machine gave up" and
+                      "five things were checked and here is the one that failed". Absent on cases
+                      logged before the engine started keeping it — stated as such, not hidden. */}
+                  {sel.escalation_why && (
+                    <div>
+                      <dt className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mb-xs"
+                        style={{ fontFamily: "JetBrains Mono" }}>What the engine tried first</dt>
+                      <dd className="space-y-xs">
+                        {(sel.escalation_why.checks_run || []).map((c, i) => (
+                          <div key={i} className="flex gap-sm items-baseline text-[11.5px]">
+                            <span className={c.passed ? "text-tertiary" : "text-warn"}>
+                              {c.passed ? "✓" : "✗"}</span>
+                            <span className="text-on-surface">{c.description || c.id}</span>
+                            <span className="text-on-surface-variant/80">{c.result}</span>
+                          </div>
+                        ))}
+                        {sel.escalation_why.gate && (
+                          <div className="text-[11.5px] pt-xs">
+                            <span className={sel.escalation_why.gate.passed ? "text-tertiary" : "text-warn"}>
+                              {sel.escalation_why.gate.passed ? "✓" : "✗"}</span>{" "}
+                            <span className="text-on-surface">trust gate</span>{" "}
+                            <span className="text-on-surface-variant/80"
+                              style={{ fontVariantNumeric: "tabular-nums" }}>
+                              confidence {sel.escalation_why.gate.confidence ?? "—"} against{" "}
+                              {sel.escalation_why.gate.threshold ?? "—"}
+                              {(sel.escalation_why.gate.blocks || []).length > 0
+                                && ` · ${sel.escalation_why.gate.blocks.join("; ")}`}
+                            </span>
+                          </div>
+                        )}
+                        {sel.escalation_why.verifier_agrees === false && (
+                          <div className="text-[11.5px]">
+                            <span className="text-warn">✗</span>{" "}
+                            <span className="text-on-surface">adversarial verifier</span>{" "}
+                            <span className="text-on-surface-variant/80">refuted the decision</span>
+                          </div>
+                        )}
+                      </dd>
+                    </div>
+                  )}
+                  {/* The second opinion. A hit here means the case may not have needed you. */}
+                  {sel.escalation_why?.preflight?.found?.length > 0 && (
+                    <div className="rounded-lg border border-warn/40 bg-warn/5 p-md">
+                      <dt className="text-[10px] uppercase tracking-[0.1em] text-warn mb-xs"
+                        style={{ fontFamily: "JetBrains Mono" }}>
+                        Before escalating, we also found</dt>
+                      <dd className="space-y-xs text-[11.5px] text-on-surface-variant">
+                        {sel.escalation_why.preflight.found.map((f, i) => (
+                          <div key={i}>
+                            <b className="text-on-surface">{f.value}</b>
+                            {f.detail && <div className="text-on-surface-variant/75">{f.detail}</div>}
+                          </div>
+                        ))}
+                      </dd>
+                    </div>
+                  )}
+                  {(sel.escalation_why?.preflight?.checked || []).length > 0 && (
+                    <div>
+                      <dt className="text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mb-xs"
+                        style={{ fontFamily: "JetBrains Mono" }}>And ruled out</dt>
+                      <dd className="space-y-xs text-[11.5px] text-on-surface-variant/85">
+                        {sel.escalation_why.preflight.checked.map((c, i) => (
+                          <div key={i}><b className="text-on-surface/80">{c.check}</b> — {c.result}</div>
+                        ))}
+                      </dd>
                     </div>
                   )}
                   {Object.keys(sel.entities || {}).length > 0 && (

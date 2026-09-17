@@ -550,7 +550,13 @@ def _run_turn(conversation_id: str, captain_id: str, message: str, channel: str,
             try:
                 result, events, concern, action = tools.dispatch(
                     name, cargs, captain_id, context, channel, attachments=attachments,
-                    turn=tm, source=source, message=message)
+                    turn=tm, source=source, message=message,
+                    # Threaded for the same reason `source` and `message` are: an escalation
+                    # record needs it and it cannot be reached from inside tools.py. Without it
+                    # `l3.inbox()`'s `has_trace` is `bool(conversation_id)` and was therefore
+                    # False on 180 of 180 escalations — so "Why this reached you" has never
+                    # rendered, despite the whole path being wired.
+                    conversation_id=conversation_id)
             except Exception as e:  # noqa: BLE001 — a tool bug must not poison the conversation
                 result, events, concern, action = {"error": f"{type(e).__name__}: {str(e)[:150]}"}, [], None, None
                 yield _y(_evt("explain", f"Tool {name} failed", status="blocked", tier="fast", detail=str(e)[:200]))

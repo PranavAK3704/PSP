@@ -311,7 +311,8 @@ def _attachment_evidence(attachments: list | None) -> list:
 
 
 def dispatch(name: str, args: dict, captain_id: str, context: dict, channel: str = "chat",
-             attachments: list | None = None, turn=None, source: str = "", message: str = ""):
+             attachments: list | None = None, turn=None, source: str = "", message: str = "",
+             conversation_id: str = ""):
     """`turn` is the caller's per-turn spend meter, threaded through to apply_policy because
     the adversarial verifier it runs is an LLM call INSIDE the turn — see verifier.verify.
 
@@ -367,7 +368,8 @@ def dispatch(name: str, args: dict, captain_id: str, context: dict, channel: str
 
     if name == "apply_policy":
         return _apply_policy(args, captain_id, context, channel, attachments=attachments,
-                             turn=turn, source=source, message=message)
+                             turn=turn, source=source, message=message,
+                             conversation_id=conversation_id)
 
     if name == "escalate_case":
         # `source=` is NOT optional here even though the parameter has a default. This is the
@@ -377,7 +379,8 @@ def dispatch(name: str, args: dict, captain_id: str, context: dict, channel: str
         # The default exists so a harness can call the function directly; every production
         # caller passes.
         return _escalate_case(args, captain_id, context, channel, attachments=attachments,
-                              source=source)
+                              source=source, message=message,
+                              conversation_id=conversation_id)
 
     # An unknown tool name left NO trace event at all, so the one failure mode that means
     # "the model called something that doesn't exist" was the one invisible to a reviewer.
@@ -387,8 +390,104 @@ def dispatch(name: str, args: dict, captain_id: str, context: dict, channel: str
                   data={"tool": name})], None, None)
 
 
+def escalation_preflight(message: str, disposition: str, *, entities: dict | None = None,
+                         searched: list | None = None) -> dict:
+    """Before we hand a case to a person, check whether it was solvable after all.
+
+    ── WHY THIS EXISTS ───────────────────────────────────────────────────────────────────────
+    Nothing tried. `policy_exec` returns on the FIRST failing check, so a case escalated the
+    moment anything blocked and checks 2-5 never ran; and the concern record kept none of the
+    reasoning anyway. Measured across the 180 open escalations: 5 carried a real reason, 103
+    rendered a DATA FACT under a "why the engine could not resolve it" heading
+    ("damage · rto · leg LM · men"), and 72 were blank.
+
+    So an L3 agent opening a case saw the captain's sentence and, at best, a fragment. Not what
+    was tried, not what was ruled out, not whether anyone had looked.
+
+    ── WHAT IT CHECKS, AND WHY THESE THREE ───────────────────────────────────────────────────
+    Each one asks a different question about solvability, and each is recorded whether it HITS
+    or MISSES — a miss is evidence too ("we looked, there is no SOP for this" is worth knowing).
+
+      1. deterministic — would an authored node have answered this outright? A hit means the
+         engine escalated something the router already knows, which is a routing bug and should
+         be visible as one rather than absorbed as an escalation.
+      2. sop — does the corpus hold something the model never retrieved? Compared against what
+         `search_sops` actually pulled THIS turn, so a hit means unused knowledge, not just
+         "knowledge exists".
+      3. data — was the data source reachable at all? This separates "we looked and it is
+         genuinely hard" from "we could not look", which are different cases for a human and
+         currently read identically.
+
+    NEVER RAISES and never changes the decision. It is a read-only second opinion attached to
+    the record; a failure here must not turn an escalation into an exception.
+    """
+    out: dict = {"checked": [], "found": []}
+    ents = entities or {}
+
+    # 1 · would the deterministic layer have answered?
+    try:
+        from .algo import followups as _fu
+        node, why = _fu.resolve(message or "", disposition or None)
+        if node is not None:
+            out["found"].append({"check": "deterministic",
+                                 "value": f"authored node '{node.id}' answers this",
+                                 "detail": why, "actionable": True})
+        else:
+            out["checked"].append({"check": "deterministic", "result": why[:120]})
+    except Exception as e:  # noqa: BLE001
+        out["checked"].append({"check": "deterministic", "result": f"unavailable: {type(e).__name__}"})
+
+    # 2 · does the corpus hold an SOP the model did not use?
+    try:
+        from ..knowledge import store as _store
+        hits = _store.retrieve(message or "", k=3)
+        used = {str(h) for h in (searched or [])}
+        fresh = [h for h in hits if str(h.get("id")) not in used]
+        if fresh:
+            # Only claim "not retrieved" when the caller actually told us what it retrieved.
+            # `searched=None` means unknown, and asserting unused knowledge on a guess would put
+            # a false lead in front of an L3 agent — the precise failure this whole function is
+            # meant to end.
+            claim = (f"{len(fresh)} SOP chunk(s) match and were NOT retrieved this turn"
+                     if searched is not None else
+                     f"{len(fresh)} SOP chunk(s) match this message "
+                     f"(whether the model read them this turn is not recorded)")
+            out["found"].append({"check": "sop", "value": claim,
+                                 "detail": "; ".join(f"{h.get('id')}: {str(h.get('title'))[:60]}"
+                                                     for h in fresh[:2]),
+                                 "actionable": searched is not None})
+        else:
+            out["checked"].append({"check": "sop",
+                                   "result": "no unused corpus match" if hits else "no corpus match at all"})
+    except Exception as e:  # noqa: BLE001
+        out["checked"].append({"check": "sop", "result": f"unavailable: {type(e).__name__}"})
+
+    # 3 · could we read the data at all?
+    try:
+        from ..substrate import loss_db as _ldb
+        if not _ldb.available():
+            out["found"].append({"check": "data",
+                                 "value": "the loss data source was NOT reachable this turn",
+                                 "detail": "the escalation may be an outage, not a hard case",
+                                 "actionable": True})
+        elif ents.get("awb"):
+            row = _ldb.get_loss_by_awb(str(ents["awb"]))
+            out["checked"].append({
+                "check": "data",
+                "result": (f"AWB found in {row.get('_src')}" if row
+                           else "AWB is in no loss table — the captain may have mistyped it")})
+        else:
+            out["checked"].append({"check": "data", "result": "source reachable; no AWB to look up"})
+    except Exception as e:  # noqa: BLE001
+        out["checked"].append({"check": "data", "result": f"unavailable: {type(e).__name__}"})
+
+    out["solvable_signal"] = bool(out["found"])
+    return out
+
+
 def _escalate_case(args: dict, captain_id: str, context: dict, channel: str,
-                   attachments: list | None = None, source: str = ""):
+                   attachments: list | None = None, source: str = "", message: str = "",
+                   conversation_id: str = ""):
     """Structured hand-to-human: file a fully-worked case to the accountable team inbox
     and return a reference id + ETA so the agent can reassure the captain. Never a dead-end."""
     from ..l3 import platform as l3   # reuse TEAM_SLA (single source of ETA truth)
@@ -413,6 +512,7 @@ def _escalate_case(args: dict, captain_id: str, context: dict, channel: str,
         evidence.append({"label": _LABELS.get(k, k) + " (captain-provided)", "value": str(v), "source": "captain_input"})
     evidence += _attachment_evidence(attachments)
     concern = {
+        **({"conversation_id": conversation_id} if conversation_id else {}),
         "id": "CNC-" + uuid.uuid4().hex[:8].upper(), "captain_id": captain_id, "channel": channel,
         # Empty is NOT "partner": it falls through to `concern_log._provenance`, which ends at
         # `unclassified`. A caller that forgets to say who it is produces a visibly unlabelled
@@ -425,6 +525,20 @@ def _escalate_case(args: dict, captain_id: str, context: dict, channel: str,
         "evidence_trail": evidence,
         "attachments": attachments or [],
         "escalation_team": team,
+        # See `escalation_why` in `_apply_policy` for the argument. This path has no policy, no
+        # gate and no verifier — the MODEL decided it could not proceed — so what a human needs
+        # here is different: the model's stated reason, and an independent second opinion on
+        # whether it was right. The pre-flight is that second opinion, and it earns its place on
+        # this path most of all: `category="no_sop"` is the model asserting the corpus has
+        # nothing, and the pre-flight is the only thing that checks.
+        "escalation_why": {
+            "engine_reason": reason or intent,
+            "category": category,
+            "checks_run": [],          # this path runs none — stated, not implied by absence
+            "gate": None,              # no policy was executed, so no gate ran
+            "verifier_agrees": None,
+            "preflight": escalation_preflight(message or intent, domain, entities=entities),
+        },
     }
     stored = concern_log.append(concern)
 
@@ -450,7 +564,8 @@ def _capture_gap(intent: str, reason: str, captain_id: str):
 
 
 def _apply_policy(args: dict, captain_id: str, context: dict, channel: str,
-                  attachments: list | None = None, turn=None, source: str = "", message: str = ""):
+                  attachments: list | None = None, turn=None, source: str = "", message: str = "",
+                  conversation_id: str = ""):
     disposition = args.get("disposition", "")
     entities = {k: args.get(k) for k in ("awb", "amount_inr", "txn_id") if args.get(k) is not None}
     events = []
@@ -570,9 +685,38 @@ def _apply_policy(args: dict, captain_id: str, context: dict, channel: str,
         # without having to reconstruct which build was deployed at the time.
         "write_mode": write_mode.mode(),
     }
+    if conversation_id:
+        # Repairs `l3.inbox()`'s `has_trace`, which is `bool(conversation_id)` and was therefore
+        # False on every escalation ever logged — so the fully-wired "Why this reached you"
+        # TraceView on the L3 page had never rendered once.
+        concern["conversation_id"] = conversation_id
     if action == "escalate":
         concern["escalation_team"] = (decision.get("policy") or {}).get("escalation", {}).get(
             "team", "Losses & Debits (L2)")
+        # ── WHY THIS REACHED A HUMAN, on the record ──────────────────────────────────────────
+        # Every field below was already computed this turn and then discarded: `checks_run` and
+        # the engine's own `reason` went onto a trace event, the gate verdict went onto another,
+        # and the concern kept a templated relay line that says nothing about the decision. So
+        # the L3 agent got the captain's sentence and a fragment.
+        #
+        # Nothing new is calculated here except the pre-flight. These are simply kept.
+        concern["escalation_why"] = {
+            "engine_reason": decision.get("reason"),
+            "checks_run": decision.get("checks_run", []),
+            # `blocks` and `reasons` are OPPOSITES in the verdict — blocks are why it failed,
+            # reasons are why it passed. Falling back from one to the other would print pass
+            # reasons under a "blocked because" heading on the ~9% of escalations where the gate
+            # passed and something else (a policy action, or the verifier) sent it to a human.
+            "gate": {"passed": verdict.get("passed"),
+                     "confidence": decision.get("confidence"),
+                     "threshold": verdict.get("threshold"),
+                     "blocks": verdict.get("blocks") or [],
+                     "passed_because": verdict.get("reasons") or [],
+                     "constitution": verdict.get("constitution")},
+            "verifier_agrees": verifier_agrees,
+            "preflight": escalation_preflight(message or "", decision.get("disposition") or disposition,
+                                              entities=entities),
+        }
         # What the captain was actually told, on the record. `l3.inbox()` reads `reply` to render
         # "What the partner was told" — and measured across every escalation ever logged, it was
         # set on ZERO of them, so that panel has never once rendered. It is the escalation-truthful

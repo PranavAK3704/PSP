@@ -166,12 +166,25 @@ def inbox(include_test: bool = False) -> list[dict]:
             "entities": c.get("entities") or {},
             "attachments": c.get("attachments") or [],
             "conversation_id": c.get("conversation_id") or "",
-            # The engine's own sentence for why it could not resolve this. `_escalate_case` writes
-            # it as the first evidence row; pull it out so the UI does not have to know that.
-            "escalation_reason": next(
-                (e.get("value") for e in (c.get("evidence_trail") or [])
-                 if str(e.get("source") or "") == "escalate_case"),
-                (c.get("evidence_trail") or [{}])[0].get("value", "") if c.get("evidence_trail") else ""),
+            # ── The engine's own sentence for why it could not resolve this ─────────────────
+            #
+            # THE FALLBACK WAS WORSE THAN NOTHING. It read `evidence_trail[0].value` when no real
+            # reason existed — and `evidence_trail[0]` is the "Loss record" row, a data fact.
+            # Measured across the 180 open escalations: 5 real reasons, 72 blank, and 103 showing
+            # a string like "damage · rto · leg LM · men" under a heading that reads "Why the
+            # engine could not resolve it". A data fact presented as a rationale is not a partial
+            # answer, it is a wrong one, and it is worse than an honest blank.
+            #
+            # Order now: the structured `escalation_why.engine_reason` written by both escalation
+            # paths, then the `escalate_case` evidence row for rows written before that existed,
+            # then nothing.
+            "escalation_reason": (
+                ((c.get("escalation_why") or {}).get("engine_reason") or "").strip()
+                or next((e.get("value") for e in (c.get("evidence_trail") or [])
+                         if str(e.get("source") or "") == "escalate_case"), "")),
+            # The full forensics: checks run, gate verdict, verifier, and the pre-flight's second
+            # opinion on whether it was solvable. Absent on rows written before this shipped.
+            "escalation_why": c.get("escalation_why") or None,
             "confidence": c.get("confidence"),
             "has_trace": bool(c.get("conversation_id")),
         })

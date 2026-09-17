@@ -334,6 +334,25 @@ CREATE TABLE IF NOT EXISTS ticket_drafts (
 );
 CREATE INDEX IF NOT EXISTS ix_drafts_key ON ticket_drafts(idempotency_key);
 
+-- One row per acknowledgement actually sent. NOT scoped to a run: the whole point is that a
+-- re-run must not send again. The live dashboard polls every few seconds, so without this the
+-- same partner would be emailed every few seconds — the exact "seven canned replies" failure
+-- this project exists to fix, rebuilt by accident and aimed at real people.
+--
+-- The PK is (idempotency_key, channel), so a ticket can be acknowledged once by email and once
+-- by DM, but never twice by either.
+CREATE TABLE IF NOT EXISTS notifications (
+  idempotency_key   TEXT NOT NULL,
+  channel           TEXT NOT NULL,       -- email | slack_dm
+  recipient         TEXT,
+  status_url        TEXT,
+  sent_at           TEXT NOT NULL,
+  ok                INTEGER NOT NULL,
+  error             TEXT,
+  redirected_from   TEXT,                -- set when --notify-to overrode the real recipient
+  PRIMARY KEY (idempotency_key, channel)
+);
+
 CREATE TABLE IF NOT EXISTS meta (
   k TEXT PRIMARY KEY,
   v TEXT

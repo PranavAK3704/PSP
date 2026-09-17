@@ -30,7 +30,7 @@ if str(BACKEND) not in sys.path:
 
 from app.intake import (  # noqa: E402
     classify, dedupe, emit, evaluate, evidence, extract, group, labels, loadstage, noise,
-    qualify, register, report, sinks, slack_source, store,
+    notify, qualify, register, report, sinks, slack_source, store,
 )
 
 DEFAULT_RAW = BACKEND / "data" / "intake" / "raw"
@@ -269,6 +269,29 @@ def cmd_labels(args) -> int:
     return 0
 
 
+def _notifier(args):
+    """Build the acknowledgement channel, or None. Default is OFF — telling real people
+    something is not a thing that should happen because a flag was forgotten."""
+    if args.notify in (None, "off"):
+        return None
+    if args.notify not in ("email", "email-dry"):
+        raise SystemExit(f"--notify must be one of: off, email-dry, email (got {args.notify!r})")
+    return notify.EmailNotifier(
+        dry_run=(args.notify == "email-dry"),
+        redirect_to=args.notify_to,
+        allow_domains=tuple(d for d in (args.notify_allow or "").split(",") if d))
+
+
+def cmd_notify(args) -> int:
+    n = _notifier(args)
+    if n is None:
+        print("--notify is off. Use --notify email-dry to see what would be sent.",
+              file=sys.stderr)
+        return 2
+    _show("notify", notify.run(_run_id(args), n, max_sends=args.notify_max))
+    return 0
+
+
 def cmd_run_all(args) -> int:
     rid = _run_id(args)
     print(f"run_id: {rid}   store: {store.db_path()}")
@@ -296,6 +319,15 @@ def cmd_run_all(args) -> int:
     if r.get("CAVEAT"):
         print(f"\n!! {r['CAVEAT']}\n")
     _show("evaluate", r)
+    # Acknowledgement runs LAST and reads the sink's status links, because a message with
+    # nowhere to look is exactly what was rejected in the first place.
+    _n = _notifier(args)
+    if _n is not None:
+        if not _n.dry_run and not _n.redirect_to:
+            print("\n  !! acknowledgements will be sent to REAL raisers.\n", file=sys.stderr)
+        _show("11 notify", notify.run(rid, _n,
+                                      status_urls=getattr(_sink, "status_urls", {}),
+                                      max_sends=args.notify_max))
     made = getattr(_sink, "created", 0)
     print(f"\nrun_id {rid} — stage 6 (adjudicate) was NOT run, so zero API calls were made. "
           + (f"Sink={args.sink}: {made} ticket(s) CREATED."
@@ -337,6 +369,8 @@ def build_parser() -> argparse.ArgumentParser:
              "draft a ticket per issue — creates NOTHING, dry-run sink only", False),
             ("report", cmd_report, "write the xlsx", False),
             ("evaluate", cmd_evaluate, "score against golden labels", False),
+            ("notify", cmd_notify,
+             "tell each raiser their ticket exists, with a link to its status", False),
             ("labels", cmd_labels,
              "what humans confirmed, and whether the index has caught up", False),
             ("run-all", cmd_run_all, "every implemented stage, in order", True)]:
@@ -344,6 +378,20 @@ def build_parser() -> argparse.ArgumentParser:
         # Also on every subparser, so `run-all --run-id demo` works. On the top level alone it
         # would have to PRECEDE the subcommand, which reads like a typo when it fails.
         s.add_argument("--run-id", help="reuse a run id to re-run one stage over existing rows")
+        if name in ("notify", "run-all"):
+            s.add_argument("--notify", default="off",
+                           choices=["off", "email-dry", "email"],
+                           help="off (default) sends nothing. email-dry renders and records "
+                                "nothing. email actually sends.")
+            s.add_argument("--notify-to",
+                           help="REDIRECT every acknowledgement to this one address instead of "
+                                "the real raisers. Use it for any demo against a live channel — "
+                                "without it you mail actual partners.")
+            s.add_argument("--notify-allow", default="",
+                           help="comma-separated domains that may receive real mail. Empty and "
+                                "with no --notify-to means nobody: this fails closed.")
+            s.add_argument("--notify-max", type=int, default=20,
+                           help="hard cap on sends per run (default 20)")
         if name == "labels":
             s.add_argument("--export", help="write confirmations to a file so they can leave "
                                             "this machine (they are gitignored)")

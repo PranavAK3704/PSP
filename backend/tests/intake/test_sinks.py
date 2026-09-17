@@ -90,3 +90,44 @@ def test_a_sink_cannot_acquire_the_ability_to_post_to_slack():
     src = inspect.getsource(sinks)
     for banned in ("slack_sdk", "WebClient", "chat.postMessage", "xoxb", "slack_bot_token"):
         assert banned not in src, f"{banned} appeared in sinks.py — this module must not write"
+
+
+# ── the status link ──────────────────────────────────────────────────────────────────────────
+
+def test_the_sheet_sink_builds_a_per_ticket_status_link():
+    """An acknowledgement is worthless without somewhere to look, and the deployment URL is a
+    WRITE endpoint — so the link a partner gets carries an unguessable per-ticket token rather
+    than a row number anyone could increment."""
+    s = sinks.GoogleSheetTicketSink(url="https://script.google.com/a/x/exec", secret="s")
+    assert s.status_url("abc123") == "https://script.google.com/a/x/exec?t=abc123"
+
+
+def test_the_post_carries_the_secret_so_the_url_alone_cannot_write(monkeypatch):
+    sent = {}
+
+    class R:
+        status_code = 200
+        def json(self): return {"ok": True, "ref": "VAL-1", "created": True, "token": "tk"}
+
+    def fake_post(url, data=None, **kw):
+        sent.update(json.loads(data))
+        return R()
+
+    monkeypatch.setattr(sinks.requests, "post", fake_post)
+    s = sinks.GoogleSheetTicketSink(url="https://x/exec", secret="hunter2")
+    ref = s.create(_draft())
+    assert sent["secret"] == "hunter2", "the sheet must be able to reject an unauthorised post"
+    assert ref == "VAL-1"
+    assert s.status_urls[_draft().idempotency_key] == "https://x/exec?t=tk"
+
+
+def test_a_missing_secret_file_is_not_fatal(tmp_path):
+    """The sheet answers `server_not_configured` with the fix in the message, which is a better
+    error than one raised here before anything was attempted."""
+    assert sinks.read_secret(tmp_path / "nope.txt") == ""
+
+
+def test_both_sinks_expose_status_urls(tmp_path):
+    f = sinks.build("file", path=tmp_path / "t.jsonl")
+    f.create(_draft())
+    assert _draft().idempotency_key in f.status_urls

@@ -41,6 +41,28 @@ first post and freezes the header row.
 5. Copy the **Web app URL**. It looks like
    `https://script.google.com/a/macros/meesho.com/s/AKfy…/exec`.
 
+## 2b. Set the shared secret
+
+The deployment URL has to be **shareable** — the status page a partner opens lives at the same
+address. So the URL cannot also be the thing that authorises writes.
+
+1. In the Apps Script editor: **Project Settings → Script Properties → Add script property**
+2. Name `INTAKE_SECRET`, value a long random string. Generate one:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+3. Save the same value locally:
+
+```bash
+cd ~/PSP/backend
+printf '%s' 'THE_SAME_STRING' > data/appscript_secret.txt
+chmod 600 data/appscript_secret.txt
+```
+
+Without this, every POST is refused with `server_not_configured`.
+
 ## 3. Give the pipeline the URL
 
 The URL is a credential. It goes in a file, at mode 600, never in a commit or a chat:
@@ -83,6 +105,30 @@ To test the wiring without touching Google at all:
 ```
 
 ---
+
+## The status page — what a partner actually opens
+
+Every created ticket gets an unguessable random token, returned by the sheet and stored by the
+sink. The acknowledgement carries a link built from it:
+
+```
+https://script.google.com/a/macros/meesho.com/s/AKfy…/exec?t=9f3c1a…
+```
+
+That page shows **one** ticket: reference, title, state (Received / Being worked on / Resolved),
+who raised it, when, how many times it has been raised, DC, and category. It lists nothing else
+and links nowhere else.
+
+Two things make it safe to send outside the team:
+
+- **A row number would be enumerable.** `?ref=VAL-48` would read somebody else's ticket. A
+  random token cannot be incremented into a neighbour's.
+- **The same URL accepts POSTs**, so without the shared secret above, handing a partner the
+  status link would hand them the ability to create tickets.
+
+To move a ticket along, edit the `state` column in the sheet — `open`, `in_progress`,
+`resolved` — and optionally write a line in `status_note`. The page reflects it on next load.
+That is the whole workflow until a real backend exists.
 
 ## The guarantee, and how to see it for yourself
 

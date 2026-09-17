@@ -71,9 +71,20 @@ Three options, and I'd pick (b):
 
 | | Option | Cost | Effect |
 |---|---|---|---|
-| a | Leave as is | none | precision stays ~65%; routing stays unreliable for 5 classes |
-| b | **Collapse to one `money` class, sub-typed later from structured data** (deduction records, COD ledger) rather than from text | ~1 day | **precision → ~87%**; the split moves to where the answer actually lives |
-| c | Keep five, and require a disambiguating question before routing | ongoing human cost | precise, slow, needs a reply path that does not exist yet |
+| a | Leave as is | none | precision stays ~68%; routing stays unreliable for 5 classes |
+| b | **Collapse to one `money` class, sub-typed later from structured data** (deduction records, COD ledger) rather than from text | ~1 day | **68.4% → 86.3%, measured, at zero coverage cost** |
+| c | Keep five, require a disambiguating question before routing | ongoing human cost | precise, slow, needs a reply path that does not exist yet |
+
+**Measured on a held-out TEST half that nothing was tuned against** (`scripts/score_levers.py`):
+
+| Configuration | Precision | Coverage |
+|---|---|---|
+| As it ships today | 68.4% | 79.6% |
+| **+ money classes merged** | **86.3%** | **79.6%** |
+| + also gate the 2 untrusted classes | 87.4% | 75.5% |
+
+**+17.9 points for zero coverage.** Gating adds ~1 point of precision for ~4 of coverage —
+measured and *not* recommended; it is recorded so it does not get re-litigated.
 
 **Done when:** you tell me which, and I re-score.
 
@@ -100,8 +111,11 @@ noise. I will generate the sheet when you are ready.
 ### 4. Kapture export — partner's first inbound text + disposition
 **Owner: you · Blocks: scaling exemplars beyond 1,814**
 
-The *partner's* words, not the agent's summary. Takes exemplars from 1,814 to tens of thousands,
-which is the cheapest available lift for the weak classes.
+The *partner's* words, not the agent's summary. Takes exemplars from 1,814 to tens of thousands.
+
+**Measured learning curve** (`score_levers.py`): **+3.5 precision points per 10× exemplars**, and
+the curve is still rising at 1,259 — so another 10× plausibly puts this near 90%. Real, but
+slow: worth acquiring, not the big lever. Item 1 is worth five times as much and costs a day.
 
 ### 5. Residency answer + is there a CPU pod in `asia-south1`
 **Owner: you · Blocks: hosted vs local. Nothing is waiting on it** — local-first is the design.
@@ -174,7 +188,7 @@ held-out data.
 
 | Metric | Now | Target | Where |
 |---|---|---|---|
-| Disposition precision (answered) | **65.2%** *(silver)* | ~87% with item 1 | `score_classifier.py` |
+| Disposition precision (answered) | **65.2%** full holdout · **68.4%** test half *(silver)* | **86.3%** with item 1, measured | `score_classifier.py`, `score_levers.py` |
 | Disposition coverage | **82.4%** | — | `score_classifier.py` |
 | Taxonomy coverage (NOVEL rate) | **13.7%** *(silver)* | falling as the queue is worked | `build_corpus_from_audits.py` |
 | Messages reaching a human | **8 / 56** | falls as exemplars grow | `evaluate` → `funnel` |
@@ -195,6 +209,9 @@ held-out data.
 3. **Every score here is silver until item 3 is done.** They measure agreement with the old
    classifier, not correctness. Do not quote them externally yet.
 4. **A confidently wrong disposition is invisible; a NOVEL is not.** That is why the matcher
-   refuses rather than guesses, and why the refusal rate is a feature, not a defect.
+   refuses rather than guesses, and why the refusal rate is a feature, not a defect. **But
+   refusing harder is not a fix here** — pushing `min_margin` 0.15 → 0.60 cost 51 points of
+   coverage to buy 13 of precision. The money-class errors are *confident*, not borderline, so
+   no threshold reaches them. Only the taxonomy does.
 5. **Human confirmations are the only data here nothing can regenerate.** They are gitignored and
    live on one machine. `cli.py labels --export` is the backup path.

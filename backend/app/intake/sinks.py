@@ -34,9 +34,12 @@ from pathlib import Path
 import requests
 
 _BACKEND = Path(__file__).resolve().parents[2]
-#: Where PSP lives, and the token to reach it with. Both mode 600 and gitignored by data/*.txt.
+#: Where PSP lives, and the credentials to reach it with. Mode 600, gitignored by data/*.txt.
 PSP_URL_FILE = _BACKEND / "data" / "psp_url.txt"
-PSP_TOKEN_FILE = _BACKEND / "data" / "psp_token.txt"
+#: email:password for a dedicated PSP account with the `agent` role. NOT a pasted token —
+#: PSP's session tokens expire after 12 hours, so a token in a file means the pipeline works
+#: today and fails silently tomorrow night. The sink logs in and re-logs in on its own.
+PSP_LOGIN_FILE = _BACKEND / "data" / "psp_login.txt"
 
 
 class SinkError(RuntimeError):
@@ -67,18 +70,40 @@ class PspTicketSink:
 
     name = "psp"
 
-    def __init__(self, base_url: str | None = None, token: str | None = None, *,
+    def __init__(self, base_url: str | None = None, *, login: str | None = None,
                  timeout: float = 30.0, dry_run: bool = False):
         self.base_url = (base_url or _read(
             PSP_URL_FILE, "put PSP's base URL there, e.g. https://valmo-psp.onrender.com")
         ).rstrip("/")
-        self.token = token or _read(
-            PSP_TOKEN_FILE, "log into PSP and put an auth token there")
+        cred = login if login is not None else _read(
+            PSP_LOGIN_FILE, "put email:password for a PSP account with the `agent` role there")
+        if ":" not in cred:
+            raise SinkError(f"{PSP_LOGIN_FILE} must hold email:password")
+        self.email, self.password = cred.split(":", 1)
+        self.token: str | None = None
         self.timeout = timeout
         self.dry_run = dry_run
         self.created = 0
         self.already_existed = 0
         self.status_urls: dict[str, str] = {}
+
+    def _login(self) -> str:
+        r = requests.post(f"{self.base_url}/api/auth/login",
+                          json={"email": self.email, "password": self.password},
+                          timeout=self.timeout)
+        if r.status_code == 401:
+            raise SinkError(
+                f"PSP rejected these credentials. Check {PSP_LOGIN_FILE}, and that the account "
+                f"exists with the `agent` role.")
+        try:
+            tok = r.json().get("token")
+        except ValueError:
+            raise SinkError(f"PSP login returned non-JSON (HTTP {r.status_code}): "
+                            f"{r.text[:200]!r}")
+        if not tok:
+            raise SinkError(f"PSP login returned no token (HTTP {r.status_code})")
+        self.token = tok
+        return tok
 
     def create(self, draft) -> str:
         payload = asdict(draft) if hasattr(draft, "__dataclass_fields__") else dict(draft)
@@ -86,13 +111,24 @@ class PspTicketSink:
         if self.dry_run:
             return f"DRYPSP-{key[:12]}"
 
-        r = requests.post(f"{self.base_url}/api/intake/tickets", json=payload,
-                          headers={"Authorization": f"Bearer {self.token}"},
-                          timeout=self.timeout)
+        def post():
+            return requests.post(f"{self.base_url}/api/intake/tickets", json=payload,
+                                 headers={"Authorization": f"Bearer {self.token}"},
+                                 timeout=self.timeout)
+
+        if self.token is None:
+            self._login()
+        r = post()
+        if r.status_code in (401, 403):
+            # The 12h token expired mid-run, or this is a long-lived process. Log in once more
+            # and retry; only a second failure is a real one. Re-POSTing is safe because the
+            # server deduplicates on the idempotency key.
+            self._login()
+            r = post()
         if r.status_code in (401, 403):
             raise SinkError(
-                f"PSP rejected the token (HTTP {r.status_code}). Log in again and refresh "
-                f"{PSP_TOKEN_FILE}.")
+                f"PSP refused the request after re-authenticating (HTTP {r.status_code}). "
+                f"Check the account in {PSP_LOGIN_FILE} still has the `agent` role.")
         try:
             body = r.json()
         except ValueError:

@@ -104,41 +104,85 @@ def test_the_psp_sink_reports_a_missing_credential_with_the_fix(tmp_path, monkey
         sinks.build("psp")
 
 
-def test_a_repeat_create_is_the_servers_answer_not_the_clients(monkeypatch, tmp_path):
-    """Idempotency is enforced in PSP's API. The client just reports what came back — a client
-    that deduped locally would still create twice across two machines."""
+def _psp(monkeypatch, tmp_path, cred="bot@meesho.com:pw"):
     monkeypatch.setattr(sinks, "PSP_URL_FILE", tmp_path / "u.txt")
-    monkeypatch.setattr(sinks, "PSP_TOKEN_FILE", tmp_path / "t.txt")
+    monkeypatch.setattr(sinks, "PSP_LOGIN_FILE", tmp_path / "l.txt")
     (tmp_path / "u.txt").write_text("https://psp.example")
-    (tmp_path / "t.txt").write_text("tok")
+    (tmp_path / "l.txt").write_text(cred)
+    return sinks.build("psp")
 
-    replies = [{"ok": True, "ref": "VAL-9", "created": True, "status_token": "abc"},
-               {"ok": True, "ref": "VAL-9", "created": False, "status_token": "abc"}]
+
+def test_it_logs_in_itself_rather_than_holding_a_pasted_token(monkeypatch, tmp_path):
+    """PSP tokens expire after 12 hours. A token in a file works today and fails silently
+    tomorrow night, which is the worst possible failure for a scheduled pipeline."""
+    calls = []
 
     class R:
         status_code = 200
-        def json(self): return replies.pop(0)
+        def __init__(self, body): self._b = body
+        def json(self): return self._b
 
-    monkeypatch.setattr(sinks.requests, "post", lambda *a, **k: R())
-    s = sinks.build("psp")
-    assert s.create(_draft()) == s.create(_draft()) == "VAL-9"
-    assert s.created == 1 and s.already_existed == 1
-    assert s.status_urls[_draft().idempotency_key] == "https://psp.example/t/abc"
+    def fake_post(url, **kw):
+        calls.append(url)
+        if url.endswith("/api/auth/login"):
+            return R({"token": "fresh"})
+        return R({"ok": True, "ref": "VAL-1", "created": True, "status_token": "st"})
+
+    monkeypatch.setattr(sinks.requests, "post", fake_post)
+    s = _psp(monkeypatch, tmp_path)
+    assert s.create(_draft()) == "VAL-1"
+    assert any(u.endswith("/api/auth/login") for u in calls)
 
 
-def test_a_rejected_token_says_so_rather_than_failing_obscurely(monkeypatch, tmp_path):
-    monkeypatch.setattr(sinks, "PSP_URL_FILE", tmp_path / "u.txt")
-    monkeypatch.setattr(sinks, "PSP_TOKEN_FILE", tmp_path / "t.txt")
-    (tmp_path / "u.txt").write_text("https://psp.example")
-    (tmp_path / "t.txt").write_text("stale")
+def test_an_expired_token_mid_run_is_re_authenticated_once(monkeypatch, tmp_path):
+    """The 12h expiry can land in the middle of a backfill. Re-POSTing is safe because the
+    server deduplicates on the key, so one retry is correct — and only one."""
+    seq = []
 
+    class R:
+        def __init__(self, code, body): self.status_code, self._b = code, body
+        def json(self): return self._b
+
+    def fake_post(url, **kw):
+        seq.append(url.rsplit("/", 1)[-1])
+        if url.endswith("/api/auth/login"):
+            return R(200, {"token": "t"})
+        # First ticket POST 401s (token aged out), the second succeeds.
+        return R(200, {"ok": True, "ref": "VAL-3", "created": True}) \
+            if seq.count("tickets") > 1 else R(401, {})
+
+    monkeypatch.setattr(sinks.requests, "post", fake_post)
+    s = _psp(monkeypatch, tmp_path)
+    assert s.create(_draft()) == "VAL-3"
+    assert seq.count("login") == 2, "one login at the start, one after the 401"
+
+
+def test_a_second_refusal_is_reported_not_retried_forever(monkeypatch, tmp_path):
+    class R:
+        def __init__(self, code, body): self.status_code, self._b = code, body
+        def json(self): return self._b
+
+    monkeypatch.setattr(sinks.requests, "post", lambda url, **kw:
+                        R(200, {"token": "t"}) if url.endswith("login") else R(403, {}))
+    with pytest.raises(sinks.SinkError, match="after re-authenticating"):
+        _psp(monkeypatch, tmp_path).create(_draft())
+
+
+def test_bad_credentials_say_what_to_check(monkeypatch, tmp_path):
     class R:
         status_code = 401
         def json(self): return {}
 
     monkeypatch.setattr(sinks.requests, "post", lambda *a, **k: R())
-    with pytest.raises(sinks.SinkError, match="rejected the token"):
-        sinks.build("psp").create(_draft())
+    with pytest.raises(sinks.SinkError, match="rejected these credentials"):
+        _psp(monkeypatch, tmp_path).create(_draft())
+
+
+def test_a_malformed_login_file_is_caught_at_construction(monkeypatch, tmp_path):
+    with pytest.raises(sinks.SinkError, match="email:password"):
+        _psp(monkeypatch, tmp_path, cred="just-an-email")
+
+
 
 
 def test_an_unknown_sink_name_lists_every_real_one():

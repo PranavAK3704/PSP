@@ -126,3 +126,27 @@ def test_partner_text_is_escaped_on_the_status_page(client):
                       headers=_token("agent")).json()["status_token"]
     page = client.get(f"/t/{tok}").text
     assert "<script>alert(1)</script>" not in page and "&lt;script&gt;" in page
+
+
+def test_the_agent_role_is_actually_creatable(client):
+    """It was not, at first. `agent` existed in the backend and in the nav filter but was
+    missing from the admin form's role list, so the account the pipeline signs in as could not
+    be created through the UI and the sink could never authenticate. The server side is pinned
+    here; the dropdown that feeds it is ADMIN_ROLES in App.jsx."""
+    from app.auth import store as auth_store
+    assert "agent" in auth_store.ROLES
+
+    r = client.post("/api/auth/users", headers=_token("approver"),
+                    json={"email": "bot@meesho.com", "name": "Intake pipeline",
+                          "role": "agent", "password": "a-long-password"})
+    assert r.status_code == 200, r.text
+    assert r.json()["user"]["role"] == "agent"
+
+    # And it can immediately do the one thing it exists to do.
+    login = client.post("/api/auth/login",
+                        json={"email": "bot@meesho.com", "password": "a-long-password"})
+    assert login.status_code == 200
+    tok = {"Authorization": f"Bearer {login.json()['token']}"}
+    assert client.post("/api/intake/tickets", json=_draft("via-bot"),
+                       headers=tok).status_code == 200
+    assert client.get("/api/connectors", headers=tok).status_code == 403

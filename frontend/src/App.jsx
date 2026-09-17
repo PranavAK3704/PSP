@@ -203,7 +203,10 @@ function Login() {
 /* ══════════════════════════════════════════════════════════════════════════
    TEAM ADMIN — approver-only. List + add team members (email, name, role, temp pw).
    ══════════════════════════════════════════════════════════════════════════ */
-const ADMIN_ROLES = ["viewer", "author", "approver"];
+// `agent` last because it is the narrowest — intake only, no access to the rest of PSP. It has
+// to be here: the intake pipeline signs in as an `agent` account, so without this row there is
+// no way to create one and the sink cannot authenticate at all.
+const ADMIN_ROLES = ["viewer", "author", "approver", "agent"];
 function TeamAdmin({ onClose }) {
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState({ email: "", name: "", role: "approver", password: "" });

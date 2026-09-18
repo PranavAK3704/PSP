@@ -29,12 +29,23 @@ function mkSheet(name) {
   S.getName = () => name;
   S.getLastRow = () => S.data.length;
   S.getLastColumn = () => S.data.reduce((m, r) => Math.max(m, r.length), 0);
-  S.getMaxColumns = () => Math.max(S.getLastColumn(), 30);
+  // A real new sheet is created with 26 columns — the default that made every wide getRange
+  // throw. The mock reproduces it so the widening is actually exercised.
+  S.cols = 26;
+  S.getMaxColumns = () => S.cols;
+  S.insertColumnsAfter = (after, n) => { S.cols = Math.max(S.cols, after + n); };
   S.setFrozenRows = n => { S.frozen = n; return S; };
   S.hideSheet = () => { S.hidden = true; return S; };
   S.deleteRows = (start, n) => { S.data.splice(start - 1, n); };
   S.getRange = (r, c, nr, nc) => {
     nr = nr === undefined ? 1 : nr; nc = nc === undefined ? 1 : nc;
+    // The real API THROWS when a range runs past the grid; it does not clip. Reproducing that
+    // is the whole point — a mock that quietly returns empties would have let runPipeline's
+    // fatal getRange(…, 38) on a 26-column sheet pass every test while dying in production.
+    if (c + nc - 1 > S.cols) {
+      throw new Error('Those columns are out of bounds. (asked for ' + (c + nc - 1) +
+                      ', sheet "' + name + '" has ' + S.cols + ')');
+    }
     return {
       getValues() {
         const out = [];

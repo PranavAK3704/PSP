@@ -397,6 +397,7 @@
 
   /** Health, said the way a person would say it. */
   function friendlyHealth(h){
+    if (h.label==='PIPELINE') return 'Nothing is being sorted';
     if (h.label==='INTENT')  return h.ok?'Sorting works':'Sorting is off';
     if (h.label==='POLLING') return h.ok?'Listening':'Not listening';
     if (h.label==='ACK')     return h.ok?'Partners told':'Nobody told yet';

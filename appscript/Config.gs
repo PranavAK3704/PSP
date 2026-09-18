@@ -306,14 +306,34 @@ function withLock_(fn) {
 function ss_() { return SpreadsheetApp.getActiveSpreadsheet(); }
 
 /** The tab, created with `header` if absent. */
+/**
+ * Widen a sheet so a range of `n` columns is addressable.
+ *
+ * A new sheet is created with 26 columns. getRange(1, 1, 1, 38) on it does not silently clip —
+ * it THROWS, and a throw inside a time-driven trigger is invisible unless you open the
+ * executions list. That is exactly how runPipeline died on every run while pollSlack carried on
+ * happily: messages kept landing in raw_messages and nothing ever became a ticket.
+ *
+ * Headers grow as features land, so this is not a one-off — it has to be checked on every
+ * access, not just at creation.
+ */
+function ensureCols_(sh, n) {
+  var have = sh.getMaxColumns();
+  if (have < n) sh.insertColumnsAfter(have, n - have);
+  return sh;
+}
+
 function sheet_(name, header) {
   var sh = ss_().getSheetByName(name);
   if (!sh) {
     sh = ss_().insertSheet(name);
     if (header && header.length) {
+      ensureCols_(sh, header.length);
       sh.getRange(1, 1, 1, header.length).setValues([header]).setFontWeight('bold');
       sh.setFrozenRows(1);
     }
+  } else if (header && header.length) {
+    ensureCols_(sh, header.length);        // the header grew since this tab was made
   }
   return sh;
 }
@@ -349,7 +369,7 @@ function readTabObjects_(name) {
 function readTabSlice_(name, fromDataRow, count) {
   var sh = ss_().getSheetByName(name);
   if (!sh) return { header: [], rows: [] };
-  var last = sh.getLastRow(), cols = sh.getLastColumn();
+  var last = sh.getLastRow(), cols = Math.min(sh.getLastColumn(), sh.getMaxColumns());
   if (last < 2 || cols < 1) return { header: [], rows: [] };
   var header = sh.getRange(1, 1, 1, cols).getValues()[0];
   var startSheetRow = fromDataRow + 1;                       // +1 for the header
@@ -364,6 +384,7 @@ function appendRows_(name, header, rows) {
   if (!rows || !rows.length) return 0;
   var sh = sheet_(name, header);
   var cols = Math.max(sh.getLastColumn(), header ? header.length : 0);
+  ensureCols_(sh, cols);
   var padded = rows.map(function (r) {
     var out = r.slice(0, cols);
     while (out.length < cols) out.push('');
@@ -377,6 +398,7 @@ function appendRows_(name, header, rows) {
 function replaceRows_(name, header, rows) {
   var sh = sheet_(name, header);
   var cols = header.length;
+  ensureCols_(sh, cols);
   if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, sh.getMaxColumns()).clearContent();
   if (!rows || !rows.length) return 0;
   var padded = rows.map(function (r) {
@@ -406,6 +428,7 @@ function writeRowsBatched_(name, width, updates, firstCol) {
   var sh = ss_().getSheetByName(name);
   if (!sh) return 0;
   var col = firstCol || 1;
+  ensureCols_(sh, col + width - 1);
   var sorted = updates.slice().sort(function (a, b) { return a.row - b.row; });
 
   var calls = 0, i = 0;

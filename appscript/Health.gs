@@ -26,6 +26,14 @@ function healthSummary_() {
   var exSh = ss_().getSheetByName(CFG().tabs.exemplars);
   if (exSh) exRows = Math.max(0, exSh.getLastRow() - 1);
   var classified = String(stateGet_('pipe:classified', ''));
+  var pipeErr = String(stateGet_('pipe:last_error', ''));
+  // A crashing pipeline looks exactly like a quiet one from the outside — messages arrive, the
+  // poll is green, and nothing becomes a ticket. Say so first, before anything else.
+  if (pipeErr) {
+    out.push({ label: 'PIPELINE', ok: false, warn: false,
+               detail: 'crashing since ' + String(stateGet_('pipe:last_error_at', '?')) +
+                       ' — ' + pipeErr.slice(0, 120) });
+  }
   if (!exRows) {
     out.push({ label: 'INTENT', ok: false, warn: false,
                detail: 'no exemplars — import seed/_exemplars.csv into the ' +

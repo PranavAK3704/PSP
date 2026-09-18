@@ -81,6 +81,10 @@ function openIssues_() {
   if (!sh || sh.getLastRow() < 2) return [];
   var last = sh.getLastRow();
   var from = Math.max(2, last - CFG().issueTailRows + 1);
+  // Clamp to what the sheet actually has. Asking for more columns than exist throws, and a
+  // throw here kills the whole run — silently, because trigger failures only surface in the
+  // executions list.
+  ensureCols_(sh, ISSUE_HEADER.length);
   var vals = sh.getRange(from, 1, last - from + 1, ISSUE_HEADER.length).getValues();
 
   var maxWindow = CFG().grouping.defaultWindowS;
@@ -129,6 +133,25 @@ function runPipeline() {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(0)) return { skipped: 'another run holds the lock' };
   try {
+    return runPipelineInner_();
+  } catch (e) {
+    // A throw inside a time-driven trigger is INVISIBLE — no email, no log, nothing on screen.
+    // runPipeline once died on every single run for hours while pollSlack carried on happily,
+    // and the only symptom was that messages stopped becoming tickets. Record it where
+    // healthCheck() and the UI can both see it, then rethrow so it also lands in the
+    // executions list.
+    try {
+      stateSetAll_({ 'pipe:last_error': String(e.message || e).slice(0, 300),
+                     'pipe:last_error_at': istStamp(Date.now() / 1000) });
+    } catch (e2) { /* if even this fails, the rethrow is all we have */ }
+    throw e;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function runPipelineInner_() {
+  {
     var t0 = Date.now();
     var startRow = Number(stateGet_('pipe:last_row', 0)) || 0;
     var slice = readTabSlice_(CFG().tabs.raw, startRow + 1, CFG().maxMessagesPerRun);
@@ -384,6 +407,7 @@ function runPipeline() {
     }
 
     stateSetAll_({
+      'pipe:last_error': '', 'pipe:last_error_at': '',
       'pipe:last_row': startRow + slice.rows.length,
       'pipe:last_at': istStamp(Date.now() / 1000),
       'pipe:last_processed': slice.rows.length,
@@ -399,8 +423,6 @@ function runPipeline() {
              rows_updated: updates.length + ticketUpdates.length,
              write_calls: issueCalls + ticketCalls,
              ms: Date.now() - t0 };
-  } finally {
-    lock.releaseLock();
   }
 }
 

@@ -250,7 +250,7 @@ function ticketRow_(key) {
  * write last. The previous version issued four separate setValue calls and did exactly that.
  */
 function writeDesk_(row, patch) {
-  var sh = ss_().getSheetByName(CFG().tabs.tickets);
+  var sh = sheet_(CFG().tabs.tickets, TICKET_HEADER);   // widens if the header grew
   var width = TICKET_HEADER.length - TICKET_PIPELINE_COLS;
   var cur = sh.getRange(row, TICKET_DESK_START, 1, width).getValues()[0];
   var vals = cur.slice();

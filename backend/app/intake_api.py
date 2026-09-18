@@ -59,6 +59,11 @@ intake_access = require_role("agent", "viewer", "author", "approver")
 #: Only these may move a ticket along. A viewer reads; an agent is here to work.
 intake_write = require_role("agent", "author", "approver")
 
+#: Destructive or configuration-changing actions — clearing the register, replacing the
+#: classifier's exemplar index. Approver only, and the destructive ones additionally demand an
+#: explicit confirmation rather than just the right role.
+intake_admin = require_role("approver")
+
 STATES = ("open", "in_progress", "resolved")
 
 
@@ -233,6 +238,53 @@ def list_channels(user: dict = Depends(intake_access)) -> dict:
     return read_json_from(durable_path(CHANNELS), {"channels": [], "updated_at": None})
 
 
+EXEMPLARS = "intake_exemplars.json"
+
+
+@router.post("/api/intake/exemplars")
+def upload_exemplars(payload: dict = Body(...), user: dict = Depends(intake_admin)) -> dict:
+    """Upload the disposition exemplar index.
+
+    It cannot ship in the image and must not: every exemplar is a real partner's own sentence,
+    which is why `.gitignore:73` keeps it out of the repo and `.dockerignore` keeps
+    `backend/data/*` out of the build. Without it `classify.load_matcher()` returns None and the
+    deployed pipeline does not classify AT ALL — which is a very different thing from refusing
+    to classify, and looked identical on the page.
+
+    So it travels the same way any other partner data would: uploaded once over authenticated
+    HTTPS by an approver, held in the durable store, never in git and never in the image.
+    """
+    rows = payload.get("exemplars")
+    if not isinstance(rows, list) or not rows:
+        raise HTTPException(status_code=400, detail="exemplars must be a non-empty list")
+    bad = [i for i, r in enumerate(rows[:50])
+           if not isinstance(r, dict) or not r.get("text") or not r.get("disposition")]
+    if bad:
+        raise HTTPException(status_code=400,
+                            detail=f"rows {bad[:5]} lack text or disposition")
+    durable_path(EXEMPLARS).write_text(json.dumps(
+        {"exemplars": rows, "uploaded_at": _now(), "uploaded_by": user.get("email"),
+         "count": len(rows)}, ensure_ascii=False))
+    dispositions = sorted({r["disposition"] for r in rows})
+    return {"ok": True, "count": len(rows), "dispositions": dispositions}
+
+
+def exemplar_index() -> dict:
+    """The stored index, or an empty one. Used by the poller, not served to anyone."""
+    return read_json_from(durable_path(EXEMPLARS), {"exemplars": []})
+
+
+@router.get("/api/intake/exemplars")
+def exemplars_info(user: dict = Depends(intake_access)) -> dict:
+    """Metadata only. The exemplars themselves are partner sentences and are never served —
+    knowing the classifier is loaded does not require reading what it was taught."""
+    d = exemplar_index()
+    rows = d.get("exemplars") or []
+    return {"loaded": bool(rows), "count": len(rows),
+            "dispositions": sorted({r.get("disposition") for r in rows if r.get("disposition")}),
+            "uploaded_at": d.get("uploaded_at"), "uploaded_by": d.get("uploaded_by")}
+
+
 @router.get("/api/intake/poller")
 def poller_status(user: dict = Depends(intake_access)) -> dict:
     """What the listener has been doing.
@@ -286,11 +338,6 @@ def update_ticket(ref: str, payload: dict = Body(...),
         target["updated_by"] = user.get("email")
         _save(data)
         return {"ok": True, "ticket": _public(target)}
-
-
-#: Clearing the register is destructive and irreversible — there is no undo and no archive —
-#: so it is approver-only and needs an explicit confirmation, not just the right role.
-intake_admin = require_role("approver")
 
 
 @router.delete("/api/intake/tickets/{ref}")

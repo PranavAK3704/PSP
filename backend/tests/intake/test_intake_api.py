@@ -332,3 +332,51 @@ def test_references_do_not_restart_after_a_delete(client):
     client.delete("/api/intake/tickets/VAL-2", headers=_token("approver"))
     r = client.post("/api/intake/tickets", json=_draft("c"), headers=_token("agent"))
     assert r.json()["ref"] == "VAL-3"
+
+
+# ── the exemplar index ───────────────────────────────────────────────────────────────────────
+
+def test_the_index_uploads_and_reports_itself(client):
+    """It cannot ship in the image — every exemplar is a real partner's sentence — so it
+    travels over authenticated HTTPS and lives in the durable store."""
+    rows = [{"text": "paisa nahi aaya", "disposition": "payment_not_received"},
+            {"text": "captain panel down", "disposition": "capacity_panel_issue"}]
+    r = client.post("/api/intake/exemplars", json={"exemplars": rows},
+                    headers=_token("approver"))
+    assert r.status_code == 200 and r.json()["count"] == 2
+    info = client.get("/api/intake/exemplars", headers=_token("agent")).json()
+    assert info["loaded"] is True and info["count"] == 2
+    assert info["dispositions"] == ["capacity_panel_issue", "payment_not_received"]
+
+
+def test_the_exemplars_themselves_are_never_served(client):
+    """Knowing the classifier is loaded does not require reading what it was taught, and what
+    it was taught is partner text."""
+    client.post("/api/intake/exemplars", headers=_token("approver"),
+                json={"exemplars": [{"text": "a partner's own words", "disposition": "x"}]})
+    body = client.get("/api/intake/exemplars", headers=_token("agent")).text
+    assert "a partner's own words" not in body
+
+
+def test_only_an_approver_can_replace_the_classifier(client):
+    """Replacing the index changes how every future ticket is categorised."""
+    rows = [{"text": "t", "disposition": "d"}]
+    assert client.post("/api/intake/exemplars", json={"exemplars": rows},
+                       headers=_token("agent")).status_code == 403
+    assert client.post("/api/intake/exemplars", json={"exemplars": rows},
+                       headers=_token("viewer")).status_code == 403
+
+
+def test_a_malformed_index_is_refused(client):
+    for bad in ({"exemplars": []}, {"exemplars": "nope"},
+                {"exemplars": [{"text": "t"}]},
+                {"exemplars": [{"disposition": "d"}]}):
+        assert client.post("/api/intake/exemplars", json=bad,
+                           headers=_token("approver")).status_code == 400
+
+
+def test_an_absent_index_reports_not_loaded_rather_than_empty(client):
+    """'Classification is off' and 'the matcher refused' are different states, and a ticket
+    shows them identically unless the page can ask which it is."""
+    info = client.get("/api/intake/exemplars", headers=_token("agent")).json()
+    assert info["loaded"] is False and info["count"] == 0

@@ -54,17 +54,41 @@ def load_config(path: Path = CONFIG) -> dict:
     """Load and pre-compile. Every list is coerced to str — YAML 1.1 turns a bare `no`, `yes`,
     `on` or `off` into a boolean, which has already broken this codebase three times."""
     spec = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    # Devanagari terms live in their own config keys so the list stays readable and its
+    # provenance stays visible — it is a small guess, not a measured lexicon — but they score
+    # identically, because "पेमेंट" and "payment" name the same thing and a partner should not
+    # need to switch script to be heard.
+    for key in ("ops_nouns", "problem_markers", "request_markers"):
+        extra = spec.get(f"devanagari_{key}") or []
+        if extra:
+            spec[key] = list(spec.get(key) or []) + list(extra)
+
     for key in ("ops_nouns", "problem_markers", "request_markers", "urgency_markers",
                 "followup_markers"):
         terms = [str(t).lower() for t in (spec.get(key) or [])]
         spec[key] = terms
         # Word-boundary match for alphanumeric terms; literal for punctuation like "??".
+        #
+        # NOT `\b`, which is defined through `\w` and therefore excludes Devanagari combining
+        # marks: `\bपेमेंट\b` matches, but `\bनहीं\b` never does, because नहीं ends in the
+        # anusvara ं (category Mn, not a word character) so the trailing boundary can never be
+        # satisfied. The effect is silent and selective — Hindi terms ending in a consonant work,
+        # ones ending in a matra or anusvara are invisible — so adding Devanagari vocabulary to
+        # the config would have appeared to do nothing for half of it, with no error anywhere.
+        #
+        # The lookarounds below treat any Devanagari codepoint as part of a word, so a term is
+        # still matched whole and not as a fragment of a longer one.
         pats = []
         for t in terms:
-            pats.append(rf"\b{re.escape(t)}\b" if t[:1].isalnum() else re.escape(t))
+            pats.append(rf"(?<!{_WORDISH}){re.escape(t)}(?!{_WORDISH})"
+                        if t[:1].isalnum() else re.escape(t))
         spec[f"_{key}_re"] = re.compile("|".join(pats), re.I) if pats else None
     return spec
 
+
+#: What counts as "inside a word" for the boundary test above. `[^\W_]` is any alphanumeric,
+#: and the Devanagari block is added explicitly because its combining marks are not alphanumeric.
+_WORDISH = r"(?:[^\W_]|[\u0900-\u097F])"
 
 _PUNCT_ONLY = re.compile(r"^[\W_]+$", re.UNICODE)
 

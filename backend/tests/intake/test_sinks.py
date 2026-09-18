@@ -188,3 +188,16 @@ def test_a_malformed_login_file_is_caught_at_construction(monkeypatch, tmp_path)
 def test_an_unknown_sink_name_lists_every_real_one():
     with pytest.raises(sinks.SinkError, match="psp"):
         sinks.build("nope")
+
+
+def test_an_identical_repost_in_one_channel_is_counted_not_duplicated():
+    """MEASURED FAILURE on the live channel: the same sentence posted twice, forty minutes
+    apart, by one person became two tickets. Dedupe skipped same-channel pairs entirely and
+    deferred them to grouping — but grouping joins on IDENTIFIERS, and these messages had none,
+    so they fell through both stages. Recurrence is the signal the design exists to preserve."""
+    from app.intake import dedupe
+    assert dedupe.SAME_CHANNEL_SIMILARITY > dedupe.TEXT_SIMILARITY, \
+        "a same-channel pair must be held to a HIGHER bar — splitting is the safer default"
+    assert dedupe.SAME_CHANNEL_SIMILARITY >= 0.9, \
+        "merely-similar must not merge: two different problems from one person in one hour " \
+        "is ordinary, and merging those is the worse error"

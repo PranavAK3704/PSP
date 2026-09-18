@@ -231,3 +231,35 @@ def test_weather_after_an_ops_topic_with_no_ask_stays_informational():
     rules = noise.load_rules()
     d = noise.classify("manpower short today because of rain", None, False, rules)
     assert d["informational"] is True and d["borderline"] is True
+
+
+# ── Devanagari ───────────────────────────────────────────────────────────────────────────────
+
+def test_a_devanagari_message_is_recognised_as_an_issue():
+    """MEASURED FAILURE on the live channel: "मेरा पेमेंट नहीं आया" produced no ticket at all.
+    WhatsApp traffic will be heavily Devanagari, so silence there is not a small gap."""
+    from app.intake import evidence
+    cfg = evidence.load_config()
+    d = evidence.score("मेरा पेमेंट नहीं आया", {}, cfg)
+    assert d["decision"] == "issue", d
+
+
+def test_the_word_boundary_works_on_combining_marks():
+    r"""THE LATENT BUG UNDERNEATH. `\b` is defined through `\w`, so a term ending in a matra or
+    anusvara could never match: `\bपेमेंट\b` works (ends in a consonant) but `\bनहीं\b` never
+    does. Adding Hindi vocabulary would have silently worked for half of it and no error would
+    have appeared anywhere."""
+    import re
+    from app.intake import evidence
+    assert re.search(evidence._WORDISH, "क")
+    rx = re.compile(rf"(?<!{evidence._WORDISH})नहीं(?!{evidence._WORDISH})")
+    assert rx.search("मेरा पेमेंट नहीं आया")
+    # and it still refuses a fragment of a longer word
+    assert not re.compile(rf"(?<!{evidence._WORDISH})पे(?!{evidence._WORDISH})").search("पेमेंट")
+
+
+def test_a_devanagari_greeting_is_still_not_an_issue():
+    """The fix must not turn every Hindi sentence into a ticket."""
+    from app.intake import evidence
+    cfg = evidence.load_config()
+    assert evidence.score("नमस्ते", {}, cfg)["decision"] == "not_an_issue"

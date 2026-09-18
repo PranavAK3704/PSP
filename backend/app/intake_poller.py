@@ -83,6 +83,14 @@ def status() -> dict:
         "SMTP_USERNAME": os.environ.get("SMTP_USERNAME", "") or "MISSING",
         "SMTP_PASSWORD": "set" if os.environ.get("SMTP_PASSWORD", "").strip() else "MISSING",
     }
+    # Whether the classifier can run at all. Without this the page cannot tell "the matcher
+    # refused" from "there is no matcher", and those look identical on a ticket.
+    try:
+        from . import intake_api
+        n = len(intake_api.exemplar_index().get("exemplars") or [])
+    except Exception:                                                     # noqa: BLE001
+        n = 0
+    env["EXEMPLAR_INDEX"] = f"{n} exemplars" if n else "MISSING — classification is OFF"
     return {**_state, "running": bool(_thread is not None and _thread.is_alive()),
             "env": env, "start_reason": _state.get("start_reason")}
 
@@ -141,12 +149,20 @@ def _poll_once(channels: list[str], raw_dir: Path, run_id: str) -> dict:
             marks[ch] = max([float(r["ts_epoch"]) for r in recs] + [float(marks.get(ch, 0) or 0)])
     _save_watermarks(marks)
 
+    # The exemplar index is partner text, so it is neither in git nor in the image — it is
+    # uploaded once and lives in the durable store. Materialised to a file here because
+    # classify.run already takes a path, which keeps app/intake decoupled from PSP: the caller
+    # supplies the index, the package never reaches into PSP's storage to find one.
+    ex_path = _materialise_exemplars(raw_dir.parent)
+
     con = store.connect()
     try:
         loadstage.load(str(raw_dir), run_id=run_id, con=con, skip_validate=True)
         for fn in (noise.run, extract.run, evidence.run, qualify.run, group.run,
-                   register.run, classify.run, dedupe.run):
+                   register.run):
             fn(run_id, con=con)
+        cls = classify.run(run_id, con=con, exemplars=ex_path) if ex_path else {"skipped": True}
+        dedupe.run(run_id, con=con)
         sink = InProcessTicketSink()
         r = emit.run(run_id, con=con, sink=sink)
         channels_out = rollup.channel_rollup(con, run_id)
@@ -157,7 +173,33 @@ def _poll_once(channels: list[str], raw_dir: Path, run_id: str) -> dict:
     intake_api.store_channels(channels_out, by="intake-poller")
     acked = _acknowledge(run_id)
     return {"messages": got, "issues": r.get("issues", 0), "created": sink.created,
-            "channels": len(channels_out), "acknowledged": acked}
+            "channels": len(channels_out), "acknowledged": acked,
+            "classified": not cls.get("skipped"),
+            "novel": cls.get("novel", 0)}
+
+
+def _materialise_exemplars(base: Path) -> Path | None:
+    """Write the uploaded index to a file classify.run can read, or None if none is stored.
+
+    Rewritten only when the stored copy is newer, so the common case is a cheap timestamp
+    comparison rather than a 366 KB write every minute.
+    """
+    from . import intake_api
+    d = intake_api.exemplar_index()
+    rows = d.get("exemplars") or []
+    if not rows:
+        return None
+    path = base / "exemplars.json"
+    stamp = d.get("uploaded_at") or ""
+    marker = base / ".exemplars-stamp"
+    if path.exists() and marker.exists() and marker.read_text() == stamp:
+        return path
+    import json as _json
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_json.dumps({"exemplars": rows}, ensure_ascii=False))
+    marker.write_text(stamp)
+    log.info("exemplar index materialised: %d rows uploaded %s", len(rows), stamp)
+    return path
 
 
 def _acknowledge(run_id: str) -> int:
@@ -249,10 +291,12 @@ def _loop(channels: list[str], every: float) -> None:
                           messages=r["messages"], issues=r["issues"],
                           tickets=_state["tickets"] + r["created"],
                           acknowledged=_state["acknowledged"] + r.get("acknowledged", 0),
+                          classified=r.get("classified", False),
                           notify=os.environ.get(ENV_NOTIFY, "off"))
             log.info("intake poll %d: %d messages, %d issues, %d new ticket(s), "
-                     "%d acknowledged", _state["polls"], r["messages"], r["issues"],
-                     r["created"], r.get("acknowledged", 0))
+                     "%d acknowledged, classifier=%s", _state["polls"], r["messages"],
+                     r["issues"], r["created"], r.get("acknowledged", 0),
+                     "on" if r.get("classified") else "OFF (no exemplar index)")
         except Exception as e:                                            # noqa: BLE001
             # A transient Slack or store failure must never end the loop — staying up is the
             # only thing it does. Record it so the page can show it rather than showing silence.

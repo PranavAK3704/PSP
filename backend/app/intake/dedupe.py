@@ -31,6 +31,20 @@ from . import store
 WINDOW_S = 3600.0          # cross-posts are minutes apart, not days
 TEXT_SIMILARITY = 0.72
 
+#: The bar for two messages in the SAME channel. Much higher, and deliberately so.
+#:
+#: This block used to skip same-channel pairs entirely, deferring them to stage 5 — but stage 5
+#: joins on shared IDENTIFIERS, and a message with no DC code, waybill or mobile has nothing to
+#: join on. So an identifier-less repost fell through both stages and became a second ticket.
+#: That happened on the live channel: the same sentence posted twice, forty minutes apart, from
+#: the same person, produced two tickets instead of one carrying a count of 2 — and recurrence
+#: is the signal this whole design is built to preserve.
+#:
+#: 0.95 rather than 0.72 because stage 5's bias toward splitting is right and must survive: two
+#: DIFFERENT problems raised in one channel by one person within the hour is ordinary, and
+#: merging those would be the worse error. Near-verbatim is not ambiguous; merely similar is.
+SAME_CHANNEL_SIMILARITY = 0.95
+
 
 class KaptureDedupeSource(Protocol):
     """The seam. `known_ticket_ids(issue)` returns Kapture ids already covering this issue.
@@ -124,20 +138,21 @@ def run(run_id: str, *, con: sqlite3.Connection | None = None,
             key = tuple(sorted((a["issue_id"], b["issue_id"])))
             if key in seen_pairs:
                 continue
-            # Same author is guaranteed by the bucket key. Same-channel pairs belong to
-            # stage 5, not here.
-            if a["anchor_channel_id"] == b["anchor_channel_id"]:
-                continue
+            # Same author is guaranteed by the bucket key. A same-channel pair is held to a
+            # much higher bar — see SAME_CHANNEL_SIMILARITY for why it is not simply skipped.
+            same_channel = a["anchor_channel_id"] == b["anchor_channel_id"]
+            floor = SAME_CHANNEL_SIMILARITY if same_channel else TEXT_SIMILARITY
             dt = abs(b["ts_epoch"] - a["ts_epoch"])
             if dt > WINDOW_S:
                 continue
             if a["dc_code"] and b["dc_code"] and a["dc_code"] != b["dc_code"]:
                 continue
             sim = SequenceMatcher(None, _norm(a["text"]), _norm(b["text"])).ratio()
-            if sim >= TEXT_SIMILARITY:
+            if sim >= floor:
                 seen_pairs.add(key)
                 pairs.append((
-                    b["issue_id"], a["issue_id"], "dc_intent_author_window",
+                    b["issue_id"], a["issue_id"],
+                    "same_channel_repost" if same_channel else "dc_intent_author_window",
                     round(min(0.9, sim), 3),
                     f"same author, dc={a['dc_code']}, {dt:.0f}s apart, "
                     f"text similarity {sim:.2f}, across "

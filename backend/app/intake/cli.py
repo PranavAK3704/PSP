@@ -354,6 +354,36 @@ def cmd_notify(args) -> int:
     return 0
 
 
+def cmd_push_exemplars(args) -> int:
+    """Upload the exemplar index to a deployed PSP.
+
+    It cannot ship in the image and must not: every exemplar is a real partner's sentence. So it
+    travels over authenticated HTTPS once, and lives in PSP's durable store — never in git, never
+    in a build. Without it the deployed pipeline does not classify at all, which on the page
+    looks exactly like a classifier that refused.
+    """
+    import requests
+    path = Path(args.exemplars or classify.EXEMPLARS)
+    if not path.exists():
+        raise SystemExit(f"{path} not found — run scripts/build_exemplars.py first")
+    rows = json.loads(path.read_text(encoding="utf-8")).get("exemplars") or []
+    if not rows:
+        raise SystemExit(f"{path} has no exemplars")
+
+    sink = sinks.PspTicketSink(login=args.login)   # reuses psp_url.txt and the re-login logic
+    sink._login()
+    r = requests.post(f"{sink.base_url}/api/intake/exemplars",
+                      headers={"Authorization": f"Bearer {sink.token}"},
+                      json={"exemplars": rows}, timeout=180)
+    if r.status_code == 403:
+        raise SystemExit("PSP refused: uploading the index needs an APPROVER account, and "
+                         "data/psp_login.txt holds the agent one. Use an approver here.")
+    if r.status_code != 200:
+        raise SystemExit(f"PSP refused (HTTP {r.status_code}): {r.text[:200]}")
+    _show("push-exemplars", {"uploaded": len(rows), "to": sink.base_url, **r.json()})
+    return 0
+
+
 def cmd_run_all(args) -> int:
     rid = _run_id(args)
     print(f"run_id: {rid}   store: {store.db_path()}")
@@ -446,6 +476,9 @@ def build_parser() -> argparse.ArgumentParser:
             ("evaluate", cmd_evaluate, "score against golden labels", False),
             ("notify", cmd_notify,
              "tell each raiser their ticket exists, with a link to its status", False),
+            ("push-exemplars", cmd_push_exemplars,
+             "upload the disposition index to a deployed PSP (it cannot ship in the image)",
+             False),
             ("labels", cmd_labels,
              "what humans confirmed, and whether the index has caught up", False),
             ("run-all", cmd_run_all, "every implemented stage, in order", True)]:
@@ -473,6 +506,11 @@ def build_parser() -> argparse.ArgumentParser:
                                 "with no --notify-to means nobody: this fails closed.")
             s.add_argument("--notify-max", type=int, default=20,
                            help="hard cap on sends per run (default 20)")
+        if name == "push-exemplars":
+            s.add_argument("--exemplars", help="path to exemplars.json "
+                                               "(default: data/intake/corpus/exemplars.json)")
+            s.add_argument("--login", help="email:password for an APPROVER on the target PSP; "
+                                           "defaults to data/psp_login.txt")
         if name == "labels":
             s.add_argument("--export", help="write confirmations to a file so they can leave "
                                             "this machine (they are gitignored)")

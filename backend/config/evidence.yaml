@@ -64,6 +64,26 @@ problem_markers:
    band, ruka, atka, galat, kam, nikal, gadbad, dikkat, pareshan, samasya,
    breach, short, shortfall, deducted, rejected, denied, expired, crash, hang, slow]
 
+# ── DEVANAGARI ────────────────────────────────────────────────────────────────────────────────
+# A deliberately SMALL seed, and the smallness is the point: these were chosen because they are
+# the words in the one real Devanagari message we have seen, plus their obvious neighbours. They
+# are a guess at a register we have almost no samples of — the corpus holds 5 Devanagari messages
+# out of 1,814 — and a guessed lexicon that looks thorough is worse than one that looks thin,
+# because it invites trust it has not earned. Replace this wholesale from real WhatsApp traffic.
+#
+# Note these could not have worked before the word-boundary fix in evidence.py: `\b` is defined
+# through `\w`, so any term ending in a matra or anusvara (नहीं) was unmatchable regardless of
+# what the config said.
+devanagari_ops_nouns:
+  [पेमेंट, भुगतान, पैसा, पैसे, ऑर्डर, शिपमेंट, डिलीवरी, पार्सल, हब, गाड़ी, वाहन,
+   अकाउंट, खाता, पैनल, ऐप, लॉगिन, आईडी, कोड, टिकट, रिटर्न, नुकसान, कटौती]
+
+devanagari_problem_markers:
+  [नहीं, नही, गलत, खराब, बंद, रुका, अटका, फेल, दिक्कत, समस्या, परेशानी, देरी]
+
+devanagari_request_markers:
+  [कृपया, प्लीज, चाहिए, करो, करें, कीजिए, दीजिए, मदद, सहायता, जल्दी, कब, क्यों]
+
 # ── ASKING FOR SOMETHING ──────────────────────────────────────────────────────────────────────
 # Present in "can we go to play arena?" too — which is exactly why it cannot create evidence.
 request_markers:

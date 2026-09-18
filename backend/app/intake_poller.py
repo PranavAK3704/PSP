@@ -161,7 +161,8 @@ def _poll_once(channels: list[str], raw_dir: Path, run_id: str) -> dict:
         for fn in (noise.run, extract.run, evidence.run, qualify.run, group.run,
                    register.run):
             fn(run_id, con=con)
-        cls = classify.run(run_id, con=con, exemplars=ex_path) if ex_path else {"skipped": True}
+        cls = (classify.run(run_id, con=con, exemplars=ex_path) if ex_path
+               else {"skipped": True, "_warning": "no exemplar index materialised"})
         dedupe.run(run_id, con=con)
         sink = InProcessTicketSink()
         r = emit.run(run_id, con=con, sink=sink)
@@ -175,6 +176,13 @@ def _poll_once(channels: list[str], raw_dir: Path, run_id: str) -> dict:
     return {"messages": got, "issues": r.get("issues", 0), "created": sink.created,
             "channels": len(channels_out), "acknowledged": acked,
             "classified": not cls.get("skipped"),
+            # The REASON, not just the fact. "classification is off" has several causes — no
+            # index uploaded, an index that failed to materialise, a path classify could not
+            # read — and they are indistinguishable from a boolean.
+            "classify_note": cls.get("_warning") or
+                             f"{cls.get('exemplars', 0)} exemplars, "
+                             f"{cls.get('novel', 0)} novel of {cls.get('issues', 0)}",
+            "exemplar_path": str(ex_path) if ex_path else None,
             "novel": cls.get("novel", 0)}
 
 
@@ -292,6 +300,8 @@ def _loop(channels: list[str], every: float) -> None:
                           tickets=_state["tickets"] + r["created"],
                           acknowledged=_state["acknowledged"] + r.get("acknowledged", 0),
                           classified=r.get("classified", False),
+                          classify_note=r.get("classify_note"),
+                          exemplar_path=r.get("exemplar_path"),
                           notify=os.environ.get(ENV_NOTIFY, "off"))
             log.info("intake poll %d: %d messages, %d issues, %d new ticket(s), "
                      "%d acknowledged, classifier=%s", _state["polls"], r["messages"],

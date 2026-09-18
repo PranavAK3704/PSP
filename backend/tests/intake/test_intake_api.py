@@ -441,6 +441,7 @@ def test_the_index_round_trips_through_compression(client):
     assert r.status_code == 200, r.text
     assert r.json()["packed_bytes"] < 20_000, "compression should beat the raw size heavily"
 
+    from app import intake_api
     back = intake_api.exemplar_index()["exemplars"]
     assert len(back) == 200
     assert back[0]["text"] == rows[0]["text"]
@@ -452,6 +453,7 @@ def test_the_index_round_trips_through_compression(client):
 def test_a_corrupt_blob_reads_as_no_index_rather_than_crashing(client, monkeypatch):
     """Classification reporting itself as off is recoverable; a poll that raises every minute
     is not."""
+    from app import intake_api
     from app.durable_state import durable_path
     durable_path(intake_api.EXEMPLARS).write_text('{"packed": "not-valid-base64-gzip"}')
     assert intake_api.exemplar_index()["exemplars"] == []

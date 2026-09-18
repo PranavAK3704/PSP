@@ -91,6 +91,21 @@ def status() -> dict:
     except Exception:                                                     # noqa: BLE001
         n = 0
     env["EXEMPLAR_INDEX"] = f"{n} exemplars" if n else "MISSING — classification is OFF"
+
+    # Whether the durable mirror can be READ. Its failure mode is asymmetric and vicious: reads
+    # return blocked while writes still succeed, so a store saves happily, reports success, and
+    # comes back empty on the next container. That is not a theory here — the exemplar index was
+    # uploaded three times, verified each time, and was absent after every redeploy.
+    try:
+        from .durable_state import _init as _d_init, durable_path as _dp
+        if not _d_init():
+            env["DURABLE_MIRROR"] = "not configured — local file only, WIPED on every deploy"
+        else:
+            env["DURABLE_MIRROR"] = ("UNREADABLE — writes appear to succeed and vanish"
+                                     if _dp("intake_tickets.json").read_failed()
+                                     else "readable")
+    except Exception as e:                                                # noqa: BLE001
+        env["DURABLE_MIRROR"] = f"check failed: {type(e).__name__}"
     return {**_state, "running": bool(_thread is not None and _thread.is_alive()),
             "env": env, "start_reason": _state.get("start_reason")}
 

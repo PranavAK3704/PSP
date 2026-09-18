@@ -148,7 +148,10 @@ function getQueue(opts) {
       raiser: String(t.raiser || ''), intent: String(t.intent || ''),
       state: effectiveState_(t), assigned_to: assignee, flags: flags,
       occurrence_count: Number(t.occurrence_count || 1),
-      acknowledged: !!t.acknowledged_at, last_raised_at: String(t.last_raised_at || ''),
+      acknowledged: !!t.acknowledged_at, dc_told: !!t.dc_notified_at,
+      last_raised_at: String(t.last_raised_at || ''),
+      first_raised_at: String(t.first_raised_at || ''),
+      margin: t.intent_margin === '' ? null : Number(t.intent_margin),
       has_note: !!String(t.agent_note || '')
     });
   }
@@ -182,6 +185,11 @@ function getTicket(key) {
       dc_code: String(t.dc_code || ''), intent: String(t.intent || ''),
       state: effectiveState_(t), pipeline_state: String(t.pipeline_state || ''),
       permalink: String(t.source_permalink || ''),
+      // The classifier's own uncertainty. On a NOVEL these are the two categories it could not
+      // separate — which is exactly the choice to put in front of a human.
+      margin: t.intent_margin === '' ? null : Number(t.intent_margin),
+      runner_up: String(t.intent_runner_up || ''),
+      dc: dcContact_(String(t.dc_code || '')),
       flags: parse(t.flags_json, '[]'), tokens: parse(t.entity_tokens_json, '{}'),
       occurrences: parse(t.occurrences_json, '[]'),
       occurrence_count: Number(t.occurrence_count || 1),
@@ -199,6 +207,16 @@ function getTicket(key) {
     };
   }
   throw new Error('No such ticket.');
+}
+
+/** Who the delivery centre actually is, for the two-party status. A code with no contact row
+ *  is the answer that matters most — it means that centre is hearing nothing. */
+function dcContact_(code) {
+  if (!code) return null;
+  var c = contacts_().get(String(code).toUpperCase());
+  if (!c) return { code: code, name: '', known: false };
+  return { code: c.code, name: c.name, known: true,
+           email: c.email, mobile: c.mobile ? c.mobile.slice(0, 2) + 'XXXXX' + c.mobile.slice(-3) : '' };
 }
 
 function knownDispositions_() {
@@ -285,6 +303,13 @@ function setAssignee(key, email) {
     SpreadsheetApp.flush();
     return { ok: true, assigned_to: email };
   });
+}
+
+/** Take it yourself. The commonest assignment by far is "mine", and making an agent find their
+ *  own name in a list of twenty is friction for the one action they do most. */
+function claimTicket(key) {
+  var me = requireAgent_();
+  return setAssignee(key, me.email);
 }
 
 /** Assign several at once — the realistic way a lead distributes a morning backlog. */

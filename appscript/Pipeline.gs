@@ -22,7 +22,11 @@ var ISSUE_HEADER = [
   'raiser_email', 'dc_code', 'entity_tokens_json', 'intent', 'intent_source', 'informational',
   'kapture_ticket_ids_json', 'first_response_latency_s', 'latency_excluded_reason',
   'reply_count', 'replies_from_raiser', 'state', 'duplicate_of', 'ts_epoch', 'ts_iso',
-  'anchor_text', 'source_system', 'updated_at'
+  'anchor_text', 'source_system', 'updated_at',
+  // What the classifier was UNSURE about. Computed on every run and previously discarded — but
+  // it is the only thing that tells a human WHY the machine refused, and which two categories
+  // it was torn between. Without it the queue says "needs a category" and nothing more.
+  'intent_margin', 'intent_runner_up'
 ];
 
 /**
@@ -51,6 +55,7 @@ var TICKET_HEADER = [
   'flags_json', 'kapture_ticket_ids_json', 'reply_count', 'first_response_latency_s',
   'pipeline_state', 'duplicate_of', 'suppressed', 'suppressed_reason', 'occurrence_count',
   'occurrences_json', 'first_raised_at', 'last_raised_at', 'public_token',
+  'intent_margin', 'intent_runner_up',
   // ── desk-owned: THE PIPELINE NEVER WRITES PAST THIS LINE ──
   'desk_state', 'assigned_to', 'assigned_at', 'agent_note', 'updated_by', 'updated_at',
   'acknowledged_at', 'acknowledge_error', 'dc_notified_at', 'dc_notify_error'
@@ -264,6 +269,10 @@ function runPipeline() {
       if (c.skipped) { skipped = true; return; }
       iss.intent = c.disposition;
       iss.intent_source = 'bm25';
+      iss.intent_margin = c.margin;
+      // On a NOVEL the runner_up is the OTHER candidate it could not separate from — exactly
+      // the second button a human wants. On a confident match it is what was almost chosen.
+      iss.intent_runner_up = c.runner_up || '';
       iss._dirty = true;
       classified++;
       if (c.disposition === 'NOVEL') novel++;
@@ -336,6 +345,8 @@ function runPipeline() {
         occurrences_json: JSON.stringify(d.occurrences),
         first_raised_at: d.first_raised_at, last_raised_at: d.last_raised_at,
         public_token: publicToken_(d.idempotency_key),
+        intent_margin: iss.intent_margin === undefined ? '' : iss.intent_margin,
+        intent_runner_up: iss.intent_runner_up || '',
         // desk block, blank on creation and never touched again by this file
         desk_state: '', assigned_to: '', assigned_at: '', agent_note: '', updated_by: '',
         updated_at: '', acknowledged_at: '', acknowledge_error: '',

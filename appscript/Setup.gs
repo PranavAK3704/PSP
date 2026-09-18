@@ -67,6 +67,55 @@ function setup() {
   return msg;
 }
 
+/**
+ * Bring existing tabs up to the current header, without losing a row.
+ *
+ * `setup()` only CREATES tabs — it will not add a column to one that already exists, and simply
+ * writing a new header over an old one would leave every existing row's values under the wrong
+ * labels. So this rebuilds each row BY COLUMN NAME: new columns arrive empty, removed ones are
+ * dropped, and reordered ones follow their name rather than their position.
+ *
+ * Run it from the editor after pasting a version that changed a header. It is safe to run when
+ * nothing has changed — it rewrites identical values.
+ */
+function migrateSchema() {
+  return withLock_(function () {
+    var out = [];
+    [[CFG().tabs.raw, RAW_HEADER], [CFG().tabs.issues, ISSUE_HEADER],
+     [CFG().tabs.tickets, TICKET_HEADER], [CFG().tabs.channels, CHANNEL_HEADER],
+     [CFG().tabs.agents, AGENT_HEADER], [CFG().tabs.contacts, CONTACT_HEADER]].forEach(function (p) {
+      var name = p[0], want = p[1];
+      var sh = ss_().getSheetByName(name);
+      if (!sh) { sheet_(name, want); out.push(name + ': created'); return; }
+      var last = sh.getLastRow(), cols = sh.getLastColumn();
+      if (last < 1 || cols < 1) { sh.getRange(1, 1, 1, want.length).setValues([want]);
+                                  out.push(name + ': header written'); return; }
+      var all = sh.getRange(1, 1, last, cols).getValues();
+      var have = all[0].map(String);
+      if (have.length === want.length && have.every(function (h, i) { return h === want[i]; })) {
+        out.push(name + ': already current'); return;
+      }
+      var idx = {};
+      have.forEach(function (h, i) { idx[h] = i; });
+      var rebuilt = all.slice(1).map(function (row) {
+        return want.map(function (h) {
+          return idx.hasOwnProperty(h) && row[idx[h]] !== undefined ? row[idx[h]] : '';
+        });
+      });
+      sh.clear();
+      sh.getRange(1, 1, 1, want.length).setValues([want]).setFontWeight('bold');
+      if (rebuilt.length) sh.getRange(2, 1, rebuilt.length, want.length).setValues(rebuilt);
+      sh.setFrozenRows(1);
+      out.push(name + ': migrated ' + rebuilt.length + ' rows, ' +
+               have.length + ' -> ' + want.length + ' columns');
+    });
+    SpreadsheetApp.flush();
+    var msg = out.join('\n');
+    Logger.log(msg);
+    return msg;
+  });
+}
+
 /** Replace this script's triggers. Replacing rather than adding is deliberate — duplicate
  *  1-minute triggers are invisible in the editor and double the daily runtime bill. */
 function installTriggers() {

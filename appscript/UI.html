@@ -1,508 +1,603 @@
 <!--
   UI.html — the agent queue.
 
-  ── THE THREE THINGS THAT MADE THE LAST VERSION UNUSABLE ──────────────────────────────────────
-  1. A 60-second poll re-rendered the detail pane from server values, so a note an agent had
-     been typing for a minute vanished mid-sentence with no error. Now the refresh SKIPS the
-     detail pane whenever focus is inside it, and unsent text is held in a per-ticket dirty
-     buffer that survives refreshes and switching away and back.
-  2. Every action waited for a Sheets round trip before the screen changed, which reads as
-     "nothing happened" and gets clicked twice. Now every action applies locally first and
-     rolls back with a visible reason if the server refuses.
-  3. It fetched every ticket ever written, with full descriptions, to every agent every minute.
-     Now the list carries ten short fields and detail is fetched for the one ticket open.
+  ── WHAT THE VISUAL DESIGN IS FOR ─────────────────────────────────────────────────────────────
+  Deep slate, muted semantic accents, monospace on every data-bearing value. Not decoration: the
+  people using this are on it for ten hours, and the palette is chosen to keep text razor-sharp
+  while staying low-glare. Amber means — and only means — "a human has to decide something".
+  Emerald means somebody was actually told. Crimson means nobody owns it.
 
-  Keyboard: j/k move, 1/2/3 set state, a assign, m mine, / search, r refresh, Esc close.
+  ── THREE BEHAVIOURS THAT LOOK LIKE STYLE AND ARE ACTUALLY BUG FIXES ──────────────────────────
+  Do not lose these in a redesign; each shipped as a defect first.
+  1. The refresh NEVER re-renders the detail pane while focus is inside it, and unsent note text
+     lives in a dirty buffer. A note typed over 60 seconds used to vanish mid-sentence.
+  2. Every action applies locally before the server confirms, and rolls back with a reason. A
+     button that waits on a Sheets round trip looks dead and gets clicked twice.
+  3. Group, search and "mine" filter in the browser. They were a 2-second round trip each.
+
+  ── THE IDEA WORTH MOST ───────────────────────────────────────────────────────────────────────
+  When the classifier refuses, it knows WHICH TWO categories it could not separate and by how
+  little. That was computed on every run and thrown away. Showing it turns "needs a category"
+  from an open-ended chore into one keystroke between two named candidates.
 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg:#fbfbfa; --panel:#fff; --line:#e7e5e2; --ink:#191918; --muted:#78736c;
-    --accent:#1a1a1a; --warn:#b4530a; --warnbg:#fdf4e9; --ok:#2d6a4f; --okbg:#ecf5f0;
-    --sel:#eeedea; --blue:#1f4f8f; --bluebg:#eef3fa;
+    --bg:#0f172a; --panel:#1e293b; --panel2:#152031; --line:#334155; --line2:#263143;
+    --ink:#f8fafc; --dim:#94a3b8; --faint:#64748b;
+    --sky:#38bdf8; --indigo:#818cf8; --amber:#f59e0b; --emerald:#10b981; --crimson:#ef4444;
+    --amberbg:#2a1f07; --crimsonbg:#2b1315; --emeraldbg:#0d241c; --skybg:#0c2634;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
   }
   * { box-sizing:border-box; }
   html,body { height:100%; }
   body { margin:0; background:var(--bg); color:var(--ink); overflow:hidden;
-         font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
-  button,input,select,textarea { font:inherit; }
+         font:13px/1.55 var(--sans); font-variant-numeric:tabular-nums; }
+  button,input,select,textarea { font:inherit; color:inherit; }
+  ::selection { background:var(--sky); color:#00354a; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:var(--line); border-radius:5px; }
+  ::-webkit-scrollbar-track { background:transparent; }
 
-  header { background:var(--panel); border-bottom:1px solid var(--line); padding:10px 18px;
-           display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
-  h1 { font-size:15px; margin:0; letter-spacing:-.01em; white-space:nowrap; }
+  header { background:var(--panel2); border-bottom:1px solid var(--line); padding:9px 16px;
+           display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .brand { font:700 12px var(--mono); letter-spacing:.12em; color:var(--sky); white-space:nowrap; }
+  .who { font:11px var(--mono); color:var(--faint); }
   .grow { flex:1; }
-  .who { font-size:12px; color:var(--muted); }
-  .chip { font-size:11.5px; padding:3px 9px; border-radius:99px; border:1px solid var(--line);
-          background:#fafafa; color:var(--muted); white-space:nowrap; }
-  .chip.ok  { background:var(--okbg);   color:var(--ok);   border-color:#cfe5d9; }
-  .chip.bad { background:var(--warnbg); color:var(--warn); border-color:#f0dcc0; }
+  .chip { font:11px var(--mono); padding:3px 9px; border-radius:3px; border:1px solid var(--line);
+          background:var(--panel); color:var(--dim); white-space:nowrap; }
+  .chip.ok  { background:var(--emeraldbg); color:var(--emerald); border-color:#14532d; }
+  .chip.bad { background:var(--amberbg);   color:var(--amber);   border-color:#713f12; }
 
-  .tabs { display:flex; gap:2px; padding:0 18px; background:var(--panel);
+  .tabs { display:flex; padding:0 16px; background:var(--panel2);
           border-bottom:1px solid var(--line); overflow-x:auto; }
-  .tab { padding:8px 13px; font-size:12.5px; border:0; background:none; cursor:pointer;
-         color:var(--muted); border-bottom:2px solid transparent; white-space:nowrap; }
+  .tab { padding:9px 14px; font:11px var(--mono); letter-spacing:.06em; border:0; background:none;
+         cursor:pointer; color:var(--faint); border-bottom:2px solid transparent;
+         white-space:nowrap; text-transform:uppercase; }
   .tab:hover { color:var(--ink); }
-  .tab.on { color:var(--ink); font-weight:600; border-bottom-color:var(--accent); }
-  .tab.urgent { color:var(--warn); }
-  .tab .n { display:inline-block; margin-left:6px; font-size:11px; background:#efeeeb;
-            border-radius:99px; padding:0 6px; color:var(--muted); }
-  .tab.on .n { background:var(--accent); color:#fff; }
+  .tab.on { color:var(--ink); border-bottom-color:var(--sky); }
+  .tab.urgent { color:var(--amber); }
+  .tab.urgent.on { border-bottom-color:var(--amber); }
+  .tab .n { margin-left:7px; padding:0 5px; border-radius:2px; background:var(--line2); color:var(--dim); }
+  .tab.on .n { background:var(--sky); color:#00354a; }
+  .tab.urgent.on .n { background:var(--amber); color:#472a00; }
 
-  .bar { display:flex; gap:8px; align-items:center; padding:8px 18px; background:var(--panel);
+  .bar { display:flex; gap:8px; align-items:center; padding:7px 16px; background:var(--panel2);
          border-bottom:1px solid var(--line); flex-wrap:wrap; }
-  .bar input[type=text] { flex:1; min-width:140px; padding:5px 10px; border:1px solid var(--line);
-                          border-radius:6px; }
-  .toggle { font-size:12.5px; padding:5px 11px; border:1px solid var(--line); border-radius:6px;
-            background:var(--panel); cursor:pointer; color:var(--muted); }
-  .toggle.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .bar input[type=text] { flex:1; min-width:150px; padding:5px 10px; border:1px solid var(--line);
+    border-radius:3px; background:var(--bg); font-family:var(--mono); font-size:12px; }
+  .bar input:focus { outline:none; border-color:var(--sky); }
+  .toggle { font:11px var(--mono); padding:5px 10px; border:1px solid var(--line);
+            border-radius:3px; background:var(--panel); cursor:pointer; color:var(--dim); }
+  .toggle:hover { border-color:var(--sky); color:var(--ink); }
+  .toggle.on { background:var(--sky); color:#00354a; border-color:var(--sky); font-weight:700; }
+  .stat { font:11px var(--mono); color:var(--faint); }
 
-  .wrap { display:grid; grid-template-columns:minmax(290px,400px) 1fr;
-          height:calc(100vh - 118px); }
-  .list { overflow-y:auto; border-right:1px solid var(--line); background:var(--panel); }
-  .detail { overflow-y:auto; padding:22px 26px 60px; }
+  .wrap { display:grid; grid-template-columns:minmax(300px,390px) 1fr; height:calc(100vh - 116px); }
+  .list { overflow-y:auto; border-right:1px solid var(--line); background:var(--panel2); }
+  .detail { overflow-y:auto; padding:18px 24px 70px; }
 
-  .item { padding:10px 14px 10px 12px; border-bottom:1px solid var(--line); cursor:pointer;
-          display:flex; gap:9px; align-items:flex-start; }
-  .item:hover { background:#f8f7f5; }
-  .item.sel { background:var(--sel); box-shadow:inset 3px 0 0 var(--accent); }
-  .item input[type=checkbox] { margin-top:3px; }
+  .item { padding:9px 13px 9px 11px; border-bottom:1px solid var(--line2); cursor:pointer;
+          display:flex; gap:9px; align-items:flex-start; border-left:2px solid transparent; }
+  .item:hover { background:var(--panel); }
+  .item.sel { background:var(--panel); border-left-color:var(--sky); }
+  .item.decide { border-left-color:var(--amber); }
+  .item.orphan { border-left-color:var(--crimson); }
   .item .body { min-width:0; flex:1; }
-  .item .t { font-weight:600; margin-bottom:3px; overflow:hidden; text-overflow:ellipsis;
-             white-space:nowrap; }
-  .item .m { font-size:11.5px; color:var(--muted); display:flex; gap:7px; flex-wrap:wrap;
-             align-items:center; }
-  .pill { font-size:10.5px; background:#efeeeb; border-radius:4px; padding:1px 6px; }
-  .pill.rep  { background:var(--warnbg); color:var(--warn); font-weight:600; }
-  .pill.mine { background:var(--bluebg); color:var(--blue); font-weight:600; }
-  .pill.un   { background:#fff; border:1px dashed var(--line); color:var(--muted); }
-  .dot { width:6px; height:6px; border-radius:50%; background:var(--warn); flex:none; }
+  .item .t { font-weight:600; margin-bottom:4px; overflow:hidden; text-overflow:ellipsis;
+             white-space:nowrap; font-size:13px; }
+  .item .m2 { font:10.5px var(--mono); color:var(--faint); display:flex; gap:7px;
+              flex-wrap:wrap; align-items:center; }
+  .tag { padding:1px 5px; border-radius:2px; background:var(--line2); color:var(--dim); }
+  .tag.dc   { background:var(--skybg); color:var(--sky); }
+  .tag.rep  { background:var(--amberbg); color:var(--amber); font-weight:700; }
+  .tag.mine { background:#1e1b4b; color:var(--indigo); font-weight:700; }
+  .tag.un   { background:transparent; border:1px dashed var(--line); color:var(--faint); }
+  .tag.flag { background:var(--crimsonbg); color:var(--crimson); }
 
-  .detail h2 { font-size:19px; margin:0 0 4px; line-height:1.35; }
-  .ref { font:600 11px ui-monospace,SFMono-Regular,monospace; letter-spacing:.08em; color:var(--muted); }
-  .desc { white-space:pre-wrap; background:var(--panel); border:1px solid var(--line);
-          border-radius:8px; padding:13px 15px; margin:14px 0; font-size:13px; }
-  dl.meta { display:grid; grid-template-columns:auto 1fr; gap:5px 18px; margin:16px 0; font-size:13px; }
-  dl.meta dt { color:var(--muted); } dl.meta dd { margin:0; }
+  .ref { font:700 11px var(--mono); letter-spacing:.12em; color:var(--faint); }
+  h2 { font-size:17px; margin:5px 0 12px; line-height:1.35; font-weight:600; }
 
-  .actions { display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin:16px 0 8px; }
-  button.b { font-size:13px; padding:6px 13px; border-radius:6px; border:1px solid var(--line);
-             background:var(--panel); cursor:pointer; }
-  button.b:hover { background:#f3f2f0; }
-  button.b.on { background:var(--accent); color:#fff; border-color:var(--accent); }
-  button.b:disabled { opacity:.45; cursor:default; }
-  select, textarea { padding:6px 9px; border:1px solid var(--line); border-radius:6px;
-                     background:var(--panel); font-size:13px; }
-  textarea { width:100%; min-height:72px; resize:vertical; }
-  label.f { display:block; font-size:12px; color:var(--muted); margin:14px 0 5px; }
-  .kbd { font:11px ui-monospace,monospace; background:#f0efec; border:1px solid var(--line);
-         border-radius:3px; padding:0 4px; color:var(--muted); }
+  .banner { border-radius:4px; padding:9px 13px; margin:0 0 14px; font:11.5px var(--mono);
+            letter-spacing:.02em; }
+  .banner.rep { background:var(--amberbg); color:var(--amber); border:1px solid #713f12; }
+  .banner.dup { background:var(--panel); color:var(--dim); border:1px solid var(--line); }
 
-  .novel { background:var(--warnbg); border:1px solid #f0dcc0; border-radius:8px;
-           padding:13px 15px; margin:16px 0; }
-  .novel h3 { margin:0 0 3px; font-size:13px; color:var(--warn); }
-  .novel p  { margin:0 0 9px; font-size:12px; color:var(--muted); }
-  .row { display:flex; gap:7px; flex-wrap:wrap; }
-  .flags { display:flex; gap:5px; flex-wrap:wrap; margin-top:7px; }
-  .flag { font:10.5px ui-monospace,monospace; background:var(--warnbg); color:var(--warn);
-          border-radius:4px; padding:2px 6px; }
-  .empty { color:var(--muted); padding:44px 16px; text-align:center; font-size:13px; }
+  /* The partner's own words, treated as a quote and not as a data field — because that is what
+     it is. Everything else on this screen was inferred from it. */
+  .quote { background:var(--panel); border:1px solid var(--line); border-left:2px solid var(--indigo);
+           border-radius:4px; padding:13px 15px; margin:0 0 14px; }
+  .quote .src { font:10.5px var(--mono); color:var(--faint); display:flex; gap:10px;
+                flex-wrap:wrap; margin-bottom:8px; }
+  .quote .txt { white-space:pre-wrap; font-size:13.5px; line-height:1.6; color:var(--ink); }
 
-  /* A tab that has to fetch must SAY so. A pane that goes blank for two seconds reads as
-     broken, and the honest signal costs nothing. */
-  .spin { display:inline-block; width:13px; height:13px; border:2px solid var(--line);
-          border-top-color:var(--muted); border-radius:50%; animation:sp .7s linear infinite;
-          vertical-align:-2px; margin-right:7px; }
-  @keyframes sp { to { transform:rotate(360deg); } }
-  .skel { padding:10px 14px; border-bottom:1px solid var(--line); }
-  .skel div { height:11px; background:linear-gradient(90deg,#f0efec,#f7f6f4,#f0efec);
-              background-size:200% 100%; animation:sh 1.1s linear infinite; border-radius:3px; }
-  .skel div:first-child { width:70%; margin-bottom:7px; }
-  .skel div:last-child  { width:38%; height:9px; }
-  @keyframes sh { to { background-position:-200% 0; } }
-  button.refreshing { animation:sp .7s linear infinite; }
-  .bulk { position:sticky; bottom:0; background:var(--accent); color:#fff; padding:9px 14px;
-          display:flex; gap:9px; align-items:center; font-size:13px; }
-  .bulk select { color:var(--ink); }
-  .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
-           background:var(--accent); color:#fff; padding:9px 18px; border-radius:99px;
-           font-size:13px; opacity:0; transition:opacity .18s; pointer-events:none; z-index:9;
+  .decide-box { background:var(--amberbg); border:1px solid #713f12; border-radius:4px;
+                padding:14px 16px; margin:0 0 16px; }
+  .decide-box h3 { margin:0 0 3px; font:700 11px var(--mono); letter-spacing:.1em;
+                   color:var(--amber); text-transform:uppercase; }
+  .decide-box .sub { font-size:12px; color:var(--dim); margin:0 0 12px; }
+  .conf { margin:0 0 6px; }
+  .conf .lab { font:10.5px var(--mono); color:var(--faint); display:flex;
+               justify-content:space-between; margin-bottom:5px; }
+  .conf .track { height:5px; background:var(--line2); border-radius:3px; position:relative; }
+  .conf .fill { height:100%; background:var(--amber); border-radius:3px; }
+  .conf .floor { position:absolute; top:-3px; bottom:-3px; width:1px; background:var(--dim); }
+  .cands { display:flex; gap:8px; flex-wrap:wrap; }
+  .cand { flex:1; min-width:150px; text-align:left; padding:9px 12px; border-radius:3px;
+          border:1px solid var(--line); background:var(--panel); cursor:pointer; }
+  .cand:hover { border-color:var(--amber); }
+  .cand b { display:block; font:600 12.5px var(--mono); color:var(--ink); }
+  .cand span { font:10px var(--mono); color:var(--faint); }
+
+  .parties { display:grid; gap:7px; margin:0 0 16px; }
+  .party { display:flex; gap:10px; align-items:center; padding:8px 12px; border-radius:3px;
+           background:var(--panel); border:1px solid var(--line); font-size:12px; }
+  .party .role { font:10px var(--mono); color:var(--faint); text-transform:uppercase;
+                 letter-spacing:.08em; width:52px; flex:none; }
+  .party .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .party .st { font:10.5px var(--mono); white-space:nowrap; }
+  .party.told .st { color:var(--emerald); }
+  .party.untold .st { color:var(--amber); }
+  .party.unknown { border-style:dashed; }
+  .party.unknown .st { color:var(--crimson); }
+
+  dl.meta { display:grid; grid-template-columns:auto 1fr; gap:5px 18px; margin:0 0 16px; font-size:12px; }
+  dl.meta dt { color:var(--faint); font:10.5px var(--mono); text-transform:uppercase;
+               letter-spacing:.06em; padding-top:2px; }
+  dl.meta dd { margin:0; font-family:var(--mono); font-size:12px; }
+
+  .actions { display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin:0 0 10px; }
+  button.b { font:12px var(--mono); padding:6px 12px; border-radius:3px; border:1px solid var(--line);
+             background:var(--panel); cursor:pointer; color:var(--dim); }
+  button.b:hover { border-color:var(--sky); color:var(--ink); }
+  button.b.on { background:var(--sky); color:#00354a; border-color:var(--sky); font-weight:700; }
+  button.b.claim { border-color:var(--indigo); color:var(--indigo); }
+  button.b:disabled { opacity:.4; cursor:default; }
+  select { padding:6px 9px; border:1px solid var(--line); border-radius:3px; background:var(--panel);
+           font:12px var(--mono); }
+  textarea { width:100%; min-height:76px; resize:vertical; padding:10px 12px; border-radius:3px;
+             border:1px solid var(--line); background:var(--panel); font:13px var(--sans); line-height:1.55; }
+  textarea:focus { outline:none; border-color:var(--sky); }
+  label.f { display:flex; justify-content:space-between; align-items:baseline;
+            font:10.5px var(--mono); color:var(--faint); margin:16px 0 6px;
+            text-transform:uppercase; letter-spacing:.06em; }
+  .kbd { font:10px var(--mono); background:var(--line2); border:1px solid var(--line);
+         border-radius:2px; padding:1px 5px; color:var(--faint); }
+  .flags { display:flex; gap:5px; flex-wrap:wrap; margin:0 0 14px; }
+  .flag { font:10px var(--mono); background:var(--crimsonbg); color:var(--crimson);
+          border-radius:2px; padding:2px 6px; }
+  .empty { color:var(--faint); padding:46px 16px; text-align:center; font:12px var(--mono); }
+  .bulk { position:sticky; bottom:0; background:var(--sky); color:#00354a; padding:9px 13px;
+          display:flex; gap:9px; align-items:center; font:12px var(--mono); font-weight:600; }
+  .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--panel);
+           border:1px solid var(--sky); color:var(--ink); padding:9px 18px; border-radius:3px;
+           font:12px var(--mono); opacity:0; transition:opacity .16s; pointer-events:none; z-index:9;
            max-width:70vw; }
   .toast.show { opacity:1; }
-  .toast.bad { background:#8a2f12; }
-  .saving { font-size:11.5px; color:var(--muted); }
-  a { color:inherit; }
-  details.ch summary { cursor:pointer; font-size:12px; color:var(--muted); }
-  table.ch { border-collapse:collapse; margin-top:7px; font-size:12px; width:100%; }
-  table.ch th,table.ch td { text-align:left; padding:4px 12px 4px 0; border-bottom:1px solid var(--line); }
-  table.ch th { color:var(--muted); font-weight:500; }
-  td.err { color:var(--warn); }
+  .toast.bad { border-color:var(--crimson); color:#fecaca; }
+
+  .spin { display:inline-block; width:12px; height:12px; border:2px solid var(--line2);
+          border-top-color:var(--sky); border-radius:50%; animation:sp .7s linear infinite;
+          vertical-align:-2px; margin-right:8px; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  .skel { padding:10px 13px; border-bottom:1px solid var(--line2); }
+  .skel div { height:10px; background:linear-gradient(90deg,#1e293b,#263143,#1e293b);
+              background-size:200% 100%; animation:sh 1.1s linear infinite; border-radius:2px; }
+  .skel div:first-child { width:72%; margin-bottom:8px; }
+  .skel div:last-child { width:40%; height:8px; }
+  @keyframes sh { to { background-position:-200% 0; } }
+  button.refreshing { animation:sp .7s linear infinite; }
+  a { color:var(--sky); }
 </style>
 
 <header>
-  <h1>Partner Intake</h1>
+  <span class="brand">PARTNER INTAKE</span>
   <span class="who" id="who"></span>
   <span class="grow"></span>
-  <span class="health" id="health"></span>
+  <span id="health"></span>
   <button class="toggle" id="refreshBtn" onclick="refresh(true)" title="Refresh (r)">↻</button>
 </header>
 
 <div class="tabs" id="tabs"></div>
 
 <div class="bar">
-  <input type="text" id="q" placeholder="Search title, DC code, raiser…  ( / )" oninput="debouncedSearch()">
-  <button class="toggle" id="mineBtn" onclick="toggleMine()">Assigned to me</button>
-  <span class="saving" id="meta"></span>
+  <input type="text" id="q" placeholder="search title · dc · raiser · ref   ( / )" oninput="debouncedSearch()">
+  <button class="toggle" id="mineBtn" onclick="toggleMine()">MINE</button>
+  <span class="stat" id="meta"></span>
 </div>
 
 <div class="wrap">
-  <div class="list" id="list"><div class="empty">loading…</div></div>
-  <div class="detail" id="detail"><div class="empty">Select a ticket</div></div>
+  <div class="list" id="list"></div>
+  <div class="detail" id="detail"><div class="empty">select a ticket</div></div>
 </div>
 <div class="toast" id="toast"></div>
 
 <script>
-  var DATA = null;            // last getQueue payload (ALL active groups, unfiltered)
-  var TICKET = null;          // full detail of the open ticket
-  var SEL = null;             // selected ticket key
-  var VIEW = { group: 'NEEDS A CATEGORY', mine: false, q: '' };
+  var DATA = null, TICKET = null, SEL = null;
+  var VIEW = { group:'NEEDS A CATEGORY', mine:false, q:'' };
   var NOTES = {};             // key -> unsent note text. The dirty buffer.
-  var CHECKED = {};           // key -> true, for bulk assign
-  var BUSY = false;
-  var LOADING = false;        // a fetch is in flight and the list cannot be filtered locally
-  var GROUPS = ['NEEDS A CATEGORY', 'Open', 'Being worked on', 'Resolved', 'Withheld'];
-  var STATES = [['OPEN','Open','1'], ['WORKING','Being worked on','2'], ['RESOLVED','Resolved','3']];
+  var CHECKED = {}, BUSY = false, LOADING = false;
+  var GROUPS = ['NEEDS A CATEGORY','Open','Being worked on','Resolved','Withheld'];
+  var ARCHIVE = ['Resolved','Withheld'];
+  var STATES = [['OPEN','OPEN','1'],['WORKING','WORKING','2'],['RESOLVED','RESOLVED','3']];
+  var MARGIN_FLOOR = 0.15;    // CFG().classify.minMargin — shown so the bar means something
 
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,
     function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
-  function toast(m, bad){
-    var t=document.getElementById('toast');
+  function toast(m,bad){ var t=document.getElementById('toast');
     t.textContent=m; t.className='toast show'+(bad?' bad':'');
-    clearTimeout(t._h); t._h=setTimeout(function(){ t.className='toast'+(bad?' bad':''); }, bad?5000:2200);
+    clearTimeout(t._h); t._h=setTimeout(function(){ t.className='toast'+(bad?' bad':''); },bad?5000:2200); }
+  function shortName(e){ return String(e||'').split('@')[0]; }
+
+  /** "22m", "3h", "2d". Unowned TIME is what actually goes wrong, so it belongs on screen
+   *  rather than in a timestamp nobody subtracts in their head. */
+  function ago(iso){
+    if (!iso) return '';
+    var t=Date.parse(String(iso)); if (isNaN(t)) return '';
+    var m=Math.max(0,Math.round((Date.now()-t)/60000));
+    if (m<60) return m+'m';
+    if (m<1440) return Math.round(m/60)+'h';
+    return Math.round(m/1440)+'d';
+  }
+  function monthsBetween(a,b){
+    var x=Date.parse(a), y=Date.parse(b);
+    if (isNaN(x)||isNaN(y)) return 0;
+    return Math.max(0,Math.round((y-x)/(30*86400000)));
   }
 
-  // ── loading ────────────────────────────────────────────────────────────────────────────────
   function refresh(loud){
-    var btn = document.getElementById('refreshBtn');
-    if (btn) btn.className = 'toggle refreshing';
+    var btn=document.getElementById('refreshBtn');
+    if (btn) btn.className='toggle refreshing';
     google.script.run
-      .withSuccessHandler(function(d){
-        DATA = d; LOADING = false;
-        if (btn) btn.className = 'toggle';
-        renderAll(); if (loud) toast('Refreshed');
-      })
-      .withFailureHandler(function(e){
-        LOADING = false;
-        if (btn) btn.className = 'toggle';
-        document.getElementById('list').innerHTML =
-          '<div class="empty">'+esc(e.message)+'</div>';
-      })
+      .withSuccessHandler(function(d){ DATA=d; LOADING=false;
+        if(btn) btn.className='toggle'; renderAll(); if(loud) toast('refreshed'); })
+      .withFailureHandler(function(e){ LOADING=false; if(btn) btn.className='toggle';
+        document.getElementById('list').innerHTML='<div class="empty">'+esc(e.message)+'</div>'; })
       .getQueue(VIEW);
   }
 
   function openTicket(key){
-    SEL = key; TICKET = null; renderList();
-    // Detail is one round trip, so say so rather than leaving the old ticket on screen — which
-    // is worse than blank, because it looks like the click selected the wrong row.
-    document.getElementById('detail').innerHTML =
-      '<div class="empty"><span class="spin"></span>Loading…</div>';
+    SEL=key; TICKET=null; renderList();
+    document.getElementById('detail').innerHTML='<div class="empty"><span class="spin"></span>loading…</div>';
     google.script.run
       .withSuccessHandler(function(t){ TICKET=t; renderDetail(); })
       .withFailureHandler(function(e){
-        document.getElementById('detail').innerHTML = '<div class="empty">'+esc(e.message)+'</div>';
-        toast(e.message, true); })
+        document.getElementById('detail').innerHTML='<div class="empty">'+esc(e.message)+'</div>';
+        toast(e.message,true); })
       .getTicket(key);
   }
 
-  // ── render ─────────────────────────────────────────────────────────────────────────────────
-  function renderAll(){ renderChrome(); renderList(); if (SEL && !TICKET) openTicket(SEL); }
-
-  function renderChrome(){
-    document.getElementById('who').textContent = DATA.me ? 'Signed in as '+DATA.me.email : '';
-    document.getElementById('health').innerHTML = (DATA.health||[]).map(function(h){
-      return '<span class="chip '+(h.ok?'ok':'bad')+'">'+esc(h.label)+' · '+esc(h.detail)+'</span>';
-    }).join(' ');
-
-    document.getElementById('tabs').innerHTML = GROUPS.map(function(g){
-      var n = (DATA.counts||{})[g]||0;
-      return '<button class="tab'+(VIEW.group===g?' on':'')+(g==='NEEDS A CATEGORY'?' urgent':'')+
-             '" onclick="setGroup(\''+g+'\')">'+esc(g)+'<span class="n">'+n+'</span></button>';
-    }).join('');
-
-    document.getElementById('mineBtn').className = 'toggle'+(VIEW.mine?' on':'');
-    document.getElementById('mineBtn').textContent = 'Assigned to me ('+(DATA.mine||0)+')';
-    document.getElementById('meta').textContent =
-      visible().length+' shown · '+(DATA.unassigned||0)+' unassigned · '+(DATA.total||0)+
-      ' total'+(DATA.capped?' · list capped':'');
-  }
-
-  /**
-   * Filter the server's list in the BROWSER. Switching tabs, toggling "mine" and typing in the
-   * search box all used to be a Sheets round trip — about two seconds before the tab even
-   * highlighted, which reads as a dead button. The server sends every active group at once now,
-   * so all three are instant and only an explicit refresh touches the network.
-   */
+  /** Group, "mine" and search all filter HERE. Each was a 2-second server round trip. */
   function visible(){
-    var q = (VIEW.q||'').toLowerCase();
+    var q=(VIEW.q||'').toLowerCase();
     return (DATA.tickets||[]).filter(function(t){
-      if (t.group !== VIEW.group) return false;
-      if (VIEW.mine && (!DATA.me || t.assigned_to !== DATA.me.email)) return false;
-      if (q) {
-        var hay = (t.title+' '+t.dc_code+' '+t.raiser+' '+t.ref+' '+t.intent).toLowerCase();
-        if (hay.indexOf(q) < 0) return false;
-      }
+      if (t.group!==VIEW.group) return false;
+      if (VIEW.mine && (!DATA.me||t.assigned_to!==DATA.me.email)) return false;
+      if (q){ var h=(t.title+' '+t.dc_code+' '+t.raiser+' '+t.ref+' '+t.intent).toLowerCase();
+              if (h.indexOf(q)<0) return false; }
       return true;
     });
   }
 
-  function renderList(){
-    if (LOADING) {
-      document.getElementById('list').innerHTML =
-        '<div class="skel"><div></div><div></div></div>'.repeat(5) +
-        '<div class="empty"><span class="spin"></span>Loading ' + esc(VIEW.group) + '…</div>';
-      return;
-    }
-    var ts = visible();
-    if (!ts.length) {
-      document.getElementById('list').innerHTML =
-        '<div class="empty">Nothing here.<br>'+
-        (VIEW.q||VIEW.mine ? 'Try clearing the filters.' : 'Tickets appear as the pipeline runs.')+
-        '</div>';
-      return;
-    }
-    var nChecked = Object.keys(CHECKED).filter(function(k){return CHECKED[k];}).length;
-    var html = ts.map(function(t){
-      return '<div class="item'+(SEL===t.key?' sel':'')+'" onclick="pick(event,\''+t.key+'\')">'+
-        '<input type="checkbox" '+(CHECKED[t.key]?'checked':'')+
-          ' onclick="event.stopPropagation();check(\''+t.key+'\',this.checked)">'+
-        '<div class="body"><div class="t">'+esc(t.title)+'</div><div class="m">'+
-        '<span class="ref">'+esc(t.ref)+'</span>'+
-        (t.dc_code?'<span class="pill">'+esc(t.dc_code)+'</span>':'')+
-        (t.occurrence_count>1?'<span class="pill rep">×'+t.occurrence_count+'</span>':'')+
-        (t.flags?'<span class="pill">'+t.flags+'⚑</span>':'')+
-        (t.assigned_to
-          ? '<span class="pill '+(DATA.me&&t.assigned_to===DATA.me.email?'mine':'')+'">'+
-            esc(shortName(t.assigned_to))+'</span>'
-          : '<span class="pill un">unassigned</span>')+
-        (t.has_note?'<span class="pill">note</span>':'')+
-        (!t.acknowledged&&t.group!=='Withheld'?'<span class="dot" title="not acknowledged yet"></span>':'')+
-        '</div></div></div>';
+  function renderAll(){ renderChrome(); renderList(); if (SEL && !TICKET) openTicket(SEL); }
+
+  function renderChrome(){
+    document.getElementById('who').textContent = DATA.me ? DATA.me.email : '';
+    document.getElementById('health').innerHTML = (DATA.health||[]).map(function(h){
+      return '<span class="chip '+(h.ok?'ok':'bad')+'">'+esc(h.label)+' '+esc(h.detail)+'</span>';
+    }).join(' ');
+    document.getElementById('tabs').innerHTML = GROUPS.map(function(g){
+      var n=(DATA.counts||{})[g]||0;
+      return '<button class="tab'+(VIEW.group===g?' on':'')+(g==='NEEDS A CATEGORY'?' urgent':'')+
+             '" onclick="setGroup(\''+g+'\')">'+esc(g==='NEEDS A CATEGORY'?'needs decision':g)+
+             '<span class="n">'+n+'</span></button>';
     }).join('');
-    if (nChecked) {
-      html += '<div class="bulk">'+nChecked+' selected '+
-        '<select id="bulkTo"><option value="">— assign to —</option>'+
-        (DATA.roster||[]).map(function(a){return '<option value="'+esc(a.email)+'">'+esc(a.name)+'</option>';}).join('')+
-        '</select><button class="b" onclick="bulkAssign()">Assign</button>'+
-        '<button class="b" onclick="CHECKED={};renderList()">Clear</button></div>';
-    }
-    document.getElementById('list').innerHTML = html;
+    var mb=document.getElementById('mineBtn');
+    mb.className='toggle'+(VIEW.mine?' on':''); mb.textContent='MINE ('+(DATA.mine||0)+')';
+    document.getElementById('meta').textContent =
+      visible().length+' shown · '+(DATA.unassigned||0)+' unowned · '+(DATA.total||0)+' total'+
+      (DATA.capped?' · capped':'');
   }
 
-  function shortName(email){ return String(email||'').split('@')[0]; }
+  function renderList(){
+    if (LOADING){
+      document.getElementById('list').innerHTML =
+        '<div class="skel"><div></div><div></div></div>'.repeat(6)+
+        '<div class="empty"><span class="spin"></span>loading '+esc(VIEW.group.toLowerCase())+'…</div>';
+      return;
+    }
+    var ts=visible();
+    if (!ts.length){
+      document.getElementById('list').innerHTML='<div class="empty">'+
+        (VIEW.q||VIEW.mine ? 'nothing matches — clear the filters' : 'nothing here')+'</div>';
+      return;
+    }
+    var nChecked=Object.keys(CHECKED).filter(function(k){return CHECKED[k];}).length;
+    var html=ts.map(function(t){
+      var cls='item'+(SEL===t.key?' sel':'')+
+              (t.group==='NEEDS A CATEGORY'?' decide':(!t.assigned_to&&t.group!=='Withheld'?' orphan':''));
+      return '<div class="'+cls+'" onclick="pick(event,\''+t.key+'\')">'+
+        '<input type="checkbox" '+(CHECKED[t.key]?'checked':'')+
+          ' onclick="event.stopPropagation();check(\''+t.key+'\',this.checked)">'+
+        '<div class="body"><div class="t">'+esc(t.title)+'</div><div class="m2">'+
+        '<span>'+esc(t.ref)+'</span>'+
+        (t.dc_code?'<span class="tag dc">'+esc(t.dc_code)+'</span>':'')+
+        (t.occurrence_count>1?'<span class="tag rep">'+t.occurrence_count+'× RAISED</span>':'')+
+        (t.flags?'<span class="tag flag">'+t.flags+'</span>':'')+
+        (t.assigned_to
+          ? '<span class="tag'+(DATA.me&&t.assigned_to===DATA.me.email?' mine':'')+'">'+
+            esc(shortName(t.assigned_to))+'</span>'
+          : '<span class="tag un">unowned '+ago(t.last_raised_at)+'</span>')+
+        (t.has_note?'<span class="tag">note</span>':'')+
+        '</div></div></div>';
+    }).join('');
+    if (nChecked){
+      html+='<div class="bulk">'+nChecked+' SELECTED'+
+        '<select id="bulkTo"><option value="">assign to…</option>'+
+        (DATA.roster||[]).map(function(a){return '<option value="'+esc(a.email)+'">'+esc(a.name)+'</option>';}).join('')+
+        '</select><button class="b" onclick="bulkAssign()">GO</button>'+
+        '<button class="b" onclick="CHECKED={};renderList()">CLEAR</button></div>';
+    }
+    document.getElementById('list').innerHTML=html;
+  }
+
+  function party(role,name,status,cls){
+    return '<div class="party '+cls+'"><span class="role">'+role+'</span>'+
+           '<span class="nm">'+esc(name)+'</span><span class="st">'+esc(status)+'</span></div>';
+  }
 
   /**
-   * The detail pane. Two rules keep an agent's work safe:
-   *   · never re-render while focus is inside it — that is what destroyed notes mid-sentence
-   *   · always seed the textarea from the dirty buffer, so unsent text survives switching away
+   * The decision panel.
+   *
+   * The classifier knows exactly which two categories it could not separate, and by how little.
+   * Putting the REAL margin and the REAL runner-up on screen turns this from an open-ended
+   * chore into one keystroke. Every number here is computed, never illustrative.
    */
+  function decidePanel(t){
+    var margin=(t.margin==null?0:t.margin);
+    var pct=Math.min(100,Math.round(margin*100));
+    var cands=[];
+    if (t.runner_up) cands.push(t.runner_up);
+    (DATA.dispositions||[]).forEach(function(d){ if (cands.indexOf(d)<0 && cands.length<2) cands.push(d); });
+
+    var reason = t.margin==null
+      ? 'no score recorded for this one yet'
+      : (margin===0
+          ? 'no lexical overlap with anything labelled before — Devanagari does this, and it is why it asks rather than guesses'
+          : 'the top two are '+(margin*100).toFixed(1)+'% apart, under the '+(MARGIN_FLOOR*100)+
+            '% it needs to call it');
+
+    var h='<div class="decide-box"><h3>◈ human decision required</h3>'+
+      '<p class="sub">It stopped rather than guess. Naming it writes a gold exemplar, which counts '+
+      '<b>3×</b> a machine-assigned one — so this decides the next similar message too.</p>';
+
+    if (t.margin!=null){
+      h+='<div class="conf"><div class="lab"><span>SEPARATION '+(margin*100).toFixed(1)+'%</span>'+
+         '<span>NEEDS '+(MARGIN_FLOOR*100)+'%</span></div>'+
+         '<div class="track"><div class="fill" style="width:'+pct+'%"></div>'+
+         '<div class="floor" style="left:'+(MARGIN_FLOOR*100)+'%"></div></div></div>';
+    }
+    h+='<p class="sub">'+esc(reason)+'</p>';
+    h+='<div class="cands">'+cands.map(function(c,i){
+      return '<button class="cand" onclick="nameIt(\''+esc(c)+'\')">'+
+             '<b>'+esc(c)+'</b><span>press '+(i+1)+'</span></button>'; }).join('')+'</div>';
+    h+='<div class="actions" style="margin-top:10px">'+
+       '<select id="disp"><option value="">other category…</option>'+
+       (DATA.dispositions||[]).map(function(x){return '<option value="'+esc(x)+'">'+esc(x)+'</option>';}).join('')+
+       '</select>'+
+       '<input type="text" id="dispNew" placeholder="or a new one" style="padding:6px 9px;'+
+       'border:1px solid var(--line);border-radius:3px;background:var(--panel);font:12px var(--mono)">'+
+       '<button class="b" onclick="nameIt()">SAVE</button></div></div>';
+    return h;
+  }
+
   function renderDetail(){
     if (!TICKET) return;
-    var d = document.getElementById('detail');
-    if (d.contains(document.activeElement) && document.activeElement.tagName === 'TEXTAREA') return;
+    var d=document.getElementById('detail');
+    // Never rebuild the pane somebody is typing in.
+    if (d.contains(document.activeElement) && document.activeElement.tagName==='TEXTAREA') return;
 
-    var t = TICKET;
-    var toks = Object.keys(t.tokens||{}).map(function(k){
-      return k+' = '+(t.tokens[k]||[]).map(function(r){return r.value;}).join(', '); });
+    var t=TICKET;
     var noteVal = NOTES.hasOwnProperty(t.key) ? NOTES[t.key] : (t.agent_note||'');
+    var dirty = NOTES.hasOwnProperty(t.key) && NOTES[t.key] !== (t.agent_note||'');
+    var h='<div class="ref">'+esc(t.ref)+'</div><h2>'+esc(t.title)+'</h2>';
 
-    var h = '<div class="ref">'+esc(t.ref)+'</div><h2>'+esc(t.title)+'</h2>';
-    if (t.suppressed_reason)
-      h += '<div class="novel"><h3>Withheld</h3><p>'+esc(t.suppressed_reason)+'</p></div>';
-    h += '<div class="desc">'+esc(t.description)+'</div>';
+    // Recurrence is the signal, not a footnote. Seven raisings over five months is ONE problem
+    // everybody ignored, and it must be impossible to scroll past.
+    if (t.occurrence_count>1){
+      var mo=monthsBetween(t.first_raised_at,t.last_raised_at);
+      h+='<div class="banner rep">⚠ RAISED '+t.occurrence_count+' TIMES'+
+         (mo>0?' OVER '+mo+' MONTH'+(mo>1?'S':''):' RECENTLY')+' — RECURRING, NOT NEW</div>';
+    }
+    if (t.suppressed_reason) h+='<div class="banner dup">'+esc(t.suppressed_reason)+'</div>';
 
-    h += '<dl class="meta">'+
-      '<dt>Raised by</dt><dd>'+esc(t.raiser)+(t.raiser_email?' · '+esc(t.raiser_email):'')+'</dd>'+
-      '<dt>Category</dt><dd>'+esc(t.intent||'—')+'</dd>'+
-      '<dt>State</dt><dd>'+esc(t.state)+(t.pipeline_state&&t.pipeline_state!==t.state
-        ? ' <span class="pill">pipeline says '+esc(t.pipeline_state)+'</span>':'')+'</dd>'+
-      '<dt>Replies</dt><dd>'+t.reply_count+
-        (t.latency!=null?' · first response '+Math.round(t.latency/60)+' min':'')+'</dd>'+
-      (t.occurrence_count>1?'<dt>Raised</dt><dd>'+t.occurrence_count+' times, last '+esc(t.last_raised_at)+'</dd>':'')+
-      (t.duplicate_of?'<dt>Counted into</dt><dd>'+esc(t.duplicate_of)+'</dd>':'')+
-      (toks.length?'<dt>Identifiers</dt><dd>'+esc(toks.join(' · '))+'</dd>':'')+
-      '<dt>Raiser told</dt><dd>'+(t.acknowledged_at?esc(t.acknowledged_at):
-        (t.acknowledge_error?'<span style="color:var(--warn)">'+esc(t.acknowledge_error)+'</span>':'not yet'))+'</dd>'+
-      '<dt>Centre told</dt><dd>'+(t.dc_notified_at?esc(t.dc_notified_at):
-        (t.dc_notify_error?'<span style="color:var(--warn)">'+esc(t.dc_notify_error)+'</span>':'not yet'))+'</dd>'+
-      (t.permalink?'<dt>Source</dt><dd><a href="'+esc(t.permalink)+'" target="_blank">open in Slack</a></dd>':'')+
-      (t.updated_by?'<dt>Last edited</dt><dd>'+esc(t.updated_by)+' · '+esc(t.updated_at)+'</dd>':'')+
+    h+='<div class="quote"><div class="src"><span>'+esc(t.raiser)+'</span>'+
+       (t.dc_code?'<span>DC '+esc(t.dc_code)+'</span>':'')+
+       '<span>'+esc(t.last_raised_at||'')+'</span></div>'+
+       '<div class="txt">'+esc(t.description)+'</div></div>';
+
+    if (t.group==='NEEDS A CATEGORY') h+=decidePanel(t);
+
+    // Two parties, because there are two — and only one of them raised it.
+    h+='<div class="parties">'+
+       party('RAISER', t.raiser+(t.raiser_email?' · '+t.raiser_email:''),
+             t.acknowledged_at ? 'told '+ago(t.acknowledged_at)+' ago'
+               : (t.acknowledge_error ? String(t.acknowledge_error).slice(0,44) : 'not told yet'),
+             t.acknowledged_at?'told':'untold')+
+       party('CENTRE',
+             t.dc ? (t.dc.known ? t.dc.name+' · '+t.dc.code
+                                : 'DC '+t.dc.code+' — no contact on file')
+                  : 'no DC identified on this ticket',
+             t.dc_notified_at ? 'told '+ago(t.dc_notified_at)+' ago'
+               : (t.dc && !t.dc.known ? 'HEARING NOTHING' : 'not told yet'),
+             t.dc_notified_at ? 'told' : (t.dc && !t.dc.known ? 'unknown' : 'untold'))+
+       '</div>';
+
+    h+='<dl class="meta">'+
+      '<dt>category</dt><dd>'+esc(t.intent||'—')+
+        (t.runner_up&&t.intent&&t.intent!=='NOVEL'
+          ? ' <span style="color:var(--faint)">(over '+esc(t.runner_up)+')</span>':'')+'</dd>'+
+      '<dt>state</dt><dd>'+esc(t.state)+
+        (t.pipeline_state&&t.pipeline_state!==t.state
+          ? ' <span style="color:var(--faint)">pipeline: '+esc(t.pipeline_state)+'</span>':'')+'</dd>'+
+      '<dt>replies</dt><dd>'+t.reply_count+
+        (t.latency!=null?' · first response '+Math.round(t.latency/60)+'m':' · no reply yet')+'</dd>'+
+      (t.duplicate_of?'<dt>counted into</dt><dd>'+esc(t.duplicate_of)+'</dd>':'')+
+      (Object.keys(t.tokens||{}).length?'<dt>identifiers</dt><dd>'+
+        esc(Object.keys(t.tokens).map(function(k){
+          return k+'='+(t.tokens[k]||[]).map(function(r){return r.value;}).join(','); }).join('   '))+'</dd>':'')+
+      (t.permalink?'<dt>source</dt><dd><a href="'+esc(t.permalink)+'" target="_blank">open in slack</a></dd>':'')+
+      (t.updated_by?'<dt>last edit</dt><dd>'+esc(shortName(t.updated_by))+' · '+esc(t.updated_at)+'</dd>':'')+
       '</dl>';
 
     if ((t.flags||[]).length)
-      h += '<div class="flags">'+t.flags.map(function(f){return '<span class="flag">'+esc(f)+'</span>';}).join('')+'</div>';
+      h+='<div class="flags">'+t.flags.map(function(f){return '<span class="flag">'+esc(f)+'</span>';}).join('')+'</div>';
 
-    if (t.group === 'NEEDS A CATEGORY') {
-      h += '<div class="novel"><h3>Needs a category</h3>'+
-        '<p>The classifier would not guess. Name it and every similar message after this one is '+
-        'categorised automatically.</p><div class="row">'+
-        '<select id="disp"><option value="">— pick —</option>'+
-        (DATA.dispositions||[]).map(function(x){return '<option value="'+esc(x)+'">'+esc(x)+'</option>';}).join('')+
-        '</select><input type="text" id="dispNew" placeholder="or a new category" style="padding:6px 9px;border:1px solid var(--line);border-radius:6px">'+
-        '<button class="b" onclick="nameIt()">Save</button></div></div>';
-    }
-
-    h += '<div class="actions">'+STATES.map(function(s){
+    h+='<div class="actions">'+STATES.map(function(s){
       return '<button class="b'+(t.state===s[0]?' on':'')+'" onclick="setState(\''+s[0]+'\')">'+
              esc(s[1])+' <span class="kbd">'+s[2]+'</span></button>'; }).join('')+
       '<span style="flex:1"></span>'+
-      '<select id="assignee" onchange="assign(this.value)"><option value="">— unassigned —</option>'+
+      (DATA.me&&t.assigned_to===DATA.me.email ? ''
+        : '<button class="b claim" onclick="claim()">CLAIM <span class="kbd">c</span></button>')+
+      '<select id="assignee" onchange="assign(this.value)"><option value="">unowned</option>'+
       (DATA.roster||[]).map(function(a){
         return '<option value="'+esc(a.email)+'"'+(t.assigned_to===a.email?' selected':'')+'>'+
                esc(a.name)+'</option>'; }).join('')+'</select></div>';
 
-    h += '<label class="f">Note — the partner can see this on their status page'+
-         '<span class="saving" id="noteState"></span></label>'+
-         '<textarea id="note" oninput="noteChanged()">'+esc(noteVal)+'</textarea>'+
-         '<div class="actions"><button class="b" onclick="saveNote()">Save note</button>'+
-         '<span class="kbd">j/k move · 1/2/3 state · a assign · m mine · / search</span></div>';
+    h+='<label class="f"><span>note — the partner sees this on their status page</span>'+
+       '<span id="noteState" style="color:'+(dirty?'var(--amber)':'var(--faint)')+'">'+
+       (dirty?'held locally · unsaved':'saved')+'</span></label>'+
+       '<textarea id="note" oninput="noteChanged()">'+esc(noteVal)+'</textarea>'+
+       '<div class="actions"><button class="b" onclick="saveNote()">SAVE NOTE</button>'+
+       '<span class="kbd">j/k move · 1/2/3 state · c claim · a assign · m mine · / search</span></div>';
 
-    d.innerHTML = h;
-    if (NOTES.hasOwnProperty(t.key) && NOTES[t.key] !== (t.agent_note||''))
-      document.getElementById('noteState').textContent = ' — unsaved';
+    d.innerHTML=h;
   }
 
-  // ── actions ────────────────────────────────────────────────────────────────────────────────
-  // Every one of these applies the change LOCALLY first and rolls it back with a visible reason
-  // if the server refuses. Waiting on a Sheets round trip before the screen moves reads as
-  // "nothing happened", and a button that looks dead gets clicked again.
+  // ── actions: local first, rollback with a reason ───────────────────────────────────────────
   function setState(s){
-    if (!TICKET || BUSY) return;
-    var was = TICKET.state;
-    BUSY = true; TICKET.state = s; renderDetail();
+    if (!TICKET||BUSY) return;
+    var was=TICKET.state; BUSY=true; TICKET.state=s; renderDetail();
     google.script.run
-      .withSuccessHandler(function(){ BUSY=false; toast('Moved to '+s); refresh(); })
-      .withFailureHandler(function(e){
-        BUSY=false; TICKET.state=was; renderDetail(); toast(e.message, true); })
-      .setTicketState(TICKET.key, s, null);
+      .withSuccessHandler(function(){ BUSY=false; toast('→ '+s); refresh(); })
+      .withFailureHandler(function(e){ BUSY=false; TICKET.state=was; renderDetail(); toast(e.message,true); })
+      .setTicketState(TICKET.key,s,null);
   }
-
   function assign(email){
-    if (!TICKET) return;
-    var was = TICKET.assigned_to;
-    BUSY = true; TICKET.assigned_to = email; renderDetail();
+    if (!TICKET||BUSY) return;
+    var was=TICKET.assigned_to; BUSY=true; TICKET.assigned_to=email; renderDetail();
     google.script.run
-      .withSuccessHandler(function(){ BUSY=false; toast(email?'Assigned to '+shortName(email):'Unassigned'); refresh(); })
+      .withSuccessHandler(function(){ BUSY=false; toast(email?'→ '+shortName(email):'unowned'); refresh(); })
       .withFailureHandler(function(e){ BUSY=false; TICKET.assigned_to=was; renderDetail(); toast(e.message,true); })
-      .setAssignee(TICKET.key, email);
+      .setAssignee(TICKET.key,email);
   }
-
+  function claim(){
+    if (!TICKET||BUSY||!DATA.me) return;
+    var was=TICKET.assigned_to; BUSY=true; TICKET.assigned_to=DATA.me.email; renderDetail();
+    google.script.run
+      .withSuccessHandler(function(){ BUSY=false; toast('claimed'); refresh(); })
+      .withFailureHandler(function(e){ BUSY=false; TICKET.assigned_to=was; renderDetail(); toast(e.message,true); })
+      .claimTicket(TICKET.key);
+  }
   function noteChanged(){
     if (!TICKET) return;
-    NOTES[TICKET.key] = document.getElementById('note').value;
-    var s = document.getElementById('noteState');
-    if (s) s.textContent = ' — unsaved';
+    NOTES[TICKET.key]=document.getElementById('note').value;
+    var s=document.getElementById('noteState');
+    if (s){ s.textContent='held locally · unsaved'; s.style.color='var(--amber)'; }
   }
-
   function saveNote(){
     if (!TICKET) return;
-    var v = document.getElementById('note').value;
-    BUSY = true;
+    var v=document.getElementById('note').value; BUSY=true;
     google.script.run
-      .withSuccessHandler(function(){
-        BUSY=false; TICKET.agent_note=v; delete NOTES[TICKET.key];
-        var s=document.getElementById('noteState'); if(s) s.textContent=' — saved';
-        toast('Note saved'); refresh();
-      })
+      .withSuccessHandler(function(){ BUSY=false; TICKET.agent_note=v; delete NOTES[TICKET.key];
+        var s=document.getElementById('noteState');
+        if(s){ s.textContent='saved'; s.style.color='var(--emerald)'; }
+        toast('note saved'); refresh(); })
       .withFailureHandler(function(e){ BUSY=false; toast(e.message,true); })
-      .saveNote(TICKET.key, v);
+      .saveNote(TICKET.key,v);
   }
-
-  function nameIt(){
-    var d = document.getElementById('dispNew').value.trim() || document.getElementById('disp').value;
-    if (!d) { toast('Pick or type a category first', true); return; }
-    BUSY = true;
+  function nameIt(preset){
+    if (!TICKET) return;
+    var el1=document.getElementById('dispNew'), el2=document.getElementById('disp');
+    var d = preset || (el1?el1.value.trim():'') || (el2?el2.value:'');
+    if (!d){ toast('pick or type a category',true); return; }
+    BUSY=true;
     google.script.run
-      .withSuccessHandler(function(r){ BUSY=false; toast('Categorised as '+r.disposition);
-                                       TICKET=null; refresh(); })
+      .withSuccessHandler(function(r){ BUSY=false; toast('taught: '+r.disposition); TICKET=null; refresh(); })
       .withFailureHandler(function(e){ BUSY=false; toast(e.message,true); })
-      .nameDisposition(TICKET.key, d);
+      .nameDisposition(TICKET.key,d);
   }
-
   function bulkAssign(){
-    var to = document.getElementById('bulkTo').value;
-    var keys = Object.keys(CHECKED).filter(function(k){return CHECKED[k];});
+    var to=document.getElementById('bulkTo').value;
+    var keys=Object.keys(CHECKED).filter(function(k){return CHECKED[k];});
     if (!keys.length) return;
-    BUSY = true;
+    BUSY=true;
     google.script.run
-      .withSuccessHandler(function(r){ BUSY=false; CHECKED={}; toast('Assigned '+r.assigned+' tickets'); refresh(); })
+      .withSuccessHandler(function(r){ BUSY=false; CHECKED={}; toast('assigned '+r.assigned); refresh(); })
       .withFailureHandler(function(e){ BUSY=false; toast(e.message,true); })
-      .setAssigneeBulk(keys, to);
+      .setAssigneeBulk(keys,to);
   }
 
   // ── view state ─────────────────────────────────────────────────────────────────────────────
-  var ARCHIVE = ['Resolved','Withheld'];
   function setGroup(g){
-    var wasArchive = ARCHIVE.indexOf(VIEW.group) >= 0, isArchive = ARCHIVE.indexOf(g) >= 0;
-    VIEW.group = g; SEL = null; TICKET = null; CHECKED = {};
-    document.getElementById('detail').innerHTML = '<div class="empty">Select a ticket</div>';
-    renderChrome(); renderList();                       // instant, from what we already have
-    persist();
-    // Resolved and Withheld are not in the payload — they grow without bound — so those two
-    // cost one fetch. Everything else already changed on screen.
-    if (isArchive || wasArchive) { LOADING = true; renderList(); refresh(); }
+    var wasA=ARCHIVE.indexOf(VIEW.group)>=0, isA=ARCHIVE.indexOf(g)>=0;
+    VIEW.group=g; SEL=null; TICKET=null; CHECKED={};
+    document.getElementById('detail').innerHTML='<div class="empty">select a ticket</div>';
+    renderChrome(); renderList(); persist();
+    if (isA||wasA){ LOADING=true; renderList(); refresh(); }
   }
   function toggleMine(){ VIEW.mine=!VIEW.mine; persist(); renderChrome(); renderList(); }
   function check(k,on){ CHECKED[k]=on; renderList(); }
   function pick(ev,k){ if (ev.target.tagName==='INPUT') return; openTicket(k); }
-
-  // Search is local too, so it filters as you type with no round trip. Only the persist is
-  // debounced, because that one does hit the Sheet.
   var searchTimer=null;
   function debouncedSearch(){
-    VIEW.q = document.getElementById('q').value;
-    renderChrome(); renderList();
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(persist, 800);
+    VIEW.q=document.getElementById('q').value; renderChrome(); renderList();
+    clearTimeout(searchTimer); searchTimer=setTimeout(persist,800);
   }
-
-  // Per-agent view state lives on the SERVER keyed by email, not in UserProperties: under
-  // "execute as me" the effective user is the deployer for every request, so all 20 agents
-  // would share one store and overwrite each other's filters.
   function persist(){
     google.script.run.withFailureHandler(function(){}).saveAgentFilter(JSON.stringify(VIEW));
   }
 
   // ── keyboard ───────────────────────────────────────────────────────────────────────────────
   document.addEventListener('keydown', function(e){
-    var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-    if (e.key === 'Escape') { document.activeElement.blur(); return; }
+    var typing=/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+    if (e.key==='Escape'){ document.activeElement.blur(); return; }
     if (typing) return;
-    var ts = DATA ? visible() : [];
-    var i = ts.findIndex(function(t){ return t.key===SEL; });
-    if (e.key === 'j' && ts.length) { openTicket(ts[Math.min(ts.length-1, i+1)].key); e.preventDefault(); }
-    else if (e.key === 'k' && ts.length) { openTicket(ts[Math.max(0, i-1)].key); e.preventDefault(); }
-    else if (e.key === '1' && TICKET) setState('OPEN');
-    else if (e.key === '2' && TICKET) setState('WORKING');
-    else if (e.key === '3' && TICKET) setState('RESOLVED');
-    else if (e.key === 'a' && TICKET) { var s=document.getElementById('assignee'); if(s) s.focus(); }
-    else if (e.key === 'm') toggleMine();
-    else if (e.key === 'r') refresh(true);
-    else if (e.key === '/') { document.getElementById('q').focus(); e.preventDefault(); }
+    var ts=DATA?visible():[], i=ts.findIndex(function(t){return t.key===SEL;});
+    var deciding = TICKET && TICKET.group==='NEEDS A CATEGORY';
+    if (e.key==='j'&&ts.length){ openTicket(ts[Math.min(ts.length-1,i+1)].key); e.preventDefault(); }
+    else if (e.key==='k'&&ts.length){ openTicket(ts[Math.max(0,i-1)].key); e.preventDefault(); }
+    // In the decision panel 1/2 pick a candidate; elsewhere they set state. Same keys, because
+    // in that panel choosing a category IS the action that matters.
+    else if ((e.key==='1'||e.key==='2')&&deciding){
+      var b=document.querySelectorAll('.cand')[e.key==='1'?0:1]; if(b) b.click();
+    }
+    else if (e.key==='1'&&TICKET) setState('OPEN');
+    else if (e.key==='2'&&TICKET) setState('WORKING');
+    else if (e.key==='3'&&TICKET) setState('RESOLVED');
+    else if (e.key==='c'&&TICKET) claim();
+    else if (e.key==='a'&&TICKET){ var s=document.getElementById('assignee'); if(s) s.focus(); }
+    else if (e.key==='m') toggleMine();
+    else if (e.key==='r') refresh(true);
+    else if (e.key==='/'){ document.getElementById('q').focus(); e.preventDefault(); }
   });
 
-  // Warn before losing an unsent note to a tab close.
   window.addEventListener('beforeunload', function(e){
-    if (Object.keys(NOTES).length) { e.preventDefault(); e.returnValue=''; }
+    if (Object.keys(NOTES).length){ e.preventDefault(); e.returnValue=''; }
   });
 
-  // First load restores this agent's last view, then refreshes on a timer. The detail pane is
-  // never clobbered by this — renderDetail bails when focus is inside it.
-  LOADING = true; renderList();
+  LOADING=true; renderList();
   google.script.run.withSuccessHandler(function(d){
-    DATA = d; LOADING = false;
-    if (d.me && d.me.filter) { try { VIEW = JSON.parse(d.me.filter) || VIEW; } catch(err){} }
-    document.getElementById('q').value = VIEW.q || '';
+    DATA=d; LOADING=false;
+    if (d.me&&d.me.filter){ try{ VIEW=JSON.parse(d.me.filter)||VIEW; }catch(err){} }
+    document.getElementById('q').value=VIEW.q||'';
     renderAll();
-    setInterval(function(){ if (!BUSY) refresh(); }, 45000);
+    setInterval(function(){ if(!BUSY) refresh(); },45000);
   }).withFailureHandler(function(e){
-    document.getElementById('list').innerHTML = '<div class="empty">'+esc(e.message)+'</div>';
+    LOADING=false;
+    document.getElementById('list').innerHTML='<div class="empty">'+esc(e.message)+'</div>';
   }).getQueue(VIEW);
 </script>

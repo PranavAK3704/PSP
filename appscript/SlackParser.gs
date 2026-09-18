@@ -247,6 +247,7 @@ function sweepThreadReplies() {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(0)) return { skipped: 'another run holds the lock' };
   try {
+    var t0 = Date.now();
     var cutoff = (Date.now() / 1000) - CFG().slack.sweepLookbackDays * 86400;
     var sh = ss_().getSheetByName(CFG().tabs.raw);
     if (!sh || sh.getLastRow() < 2) return { swept: 0 };
@@ -266,8 +267,24 @@ function sweepThreadReplies() {
       }
     }
 
-    var newRows = [];
-    for (var p = 0; p < parents.length; p++) {
+    // ── BOUNDED, AND ROUND-ROBIN ────────────────────────────────────────────────────────────
+    // This used to re-fetch every parent in the window on every run. Two cliffs, both arriving
+    // with message volume rather than agent count: at ~600 parents it burns 28,800 UrlFetch
+    // calls a day on its own, and at ~1,800 it exceeds the 6-minute cap and dies BEFORE its
+    // single append — losing every reply that run had found, permanently, with nothing visible
+    // outside the executions dashboard.
+    //
+    // So: a cursor walks the parent list a slice at a time across successive runs, and the
+    // deadline check appends what it has rather than dying holding it. Falling behind now costs
+    // latency on old threads; it can no longer cost data.
+    var cursor = Number(stateGet_('sweep:cursor', 0)) || 0;
+    if (cursor >= parents.length) cursor = 0;
+    var budget = CFG().slack.sweepMaxThreads;
+    var deadline = t0 + CFG().slack.sweepDeadlineMs;
+
+    var newRows = [], done = 0;
+    for (var p = cursor; p < parents.length && done < budget; p++, done++) {
+      if (Date.now() > deadline) break;
       try {
         var rd = slackGet_('conversations.replies',
                            { channel: parents[p].channel_id, ts: parents[p].ts, limit: 200 });
@@ -283,9 +300,12 @@ function sweepThreadReplies() {
     newRows.sort(function (a, b) { return a[RAW_COL.ts_epoch] - b[RAW_COL.ts_epoch]; });
     appendRows_(CFG().tabs.raw, RAW_HEADER, newRows);
     stateSetAll_({ 'sweep:last_at': istStamp(Date.now() / 1000),
-                   'sweep:threads': parents.length, 'sweep:new_replies': newRows.length });
+                   'sweep:cursor': cursor + done >= parents.length ? 0 : cursor + done,
+                   'sweep:threads': parents.length, 'sweep:checked': done,
+                   'sweep:new_replies': newRows.length });
     SpreadsheetApp.flush();
-    return { threads: parents.length, appended: newRows.length };
+    return { threads: parents.length, checked: done, appended: newRows.length,
+             cursor: cursor + done >= parents.length ? 0 : cursor + done };
   } finally {
     lock.releaseLock();
   }

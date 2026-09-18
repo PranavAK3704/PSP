@@ -78,6 +78,14 @@ acknowledgement emails start carrying a tracking link.
 | `seed/_dc_denylist.csv` | `_dc_denylist` | 140 tokens that look like codes and are not |
 | `seed/_exemplars.csv` | `_exemplars` | 1,259 labelled messages |
 
+`setup()` also creates two tabs that stay **visible**, because they are meant to be edited by
+hand and hiding the tab you add teammates to is how it gets forgotten:
+
+| Tab | What goes in it |
+|---|---|
+| `_agents` | `email · name · active · role · filter_json · last_seen_at · updated_at` — one row per support agent. `setup()` seeds you as the first one. Add the other 10–20 by typing rows. Anyone not on this tab is refused by the UI. |
+| `_dc_contacts` | `dc_code · dc_name · email · mobile · whatsapp · active · notes` — how to reach a delivery centre. Without a row here, that DC is never notified, and the ticket records exactly that. |
+
 Rename each imported tab to exactly the name in the middle column — Google names them after the
 file, which is usually right but check.
 
@@ -92,7 +100,7 @@ particular is written to by the UI every time somebody names a NOVEL ticket.
 Pick `setup` from the function dropdown and **Run**. Authorise when asked. It creates the
 remaining tabs, hides the reference ones, and installs five triggers.
 
-Then run `runAllTests`. **It must print `ALL PASS` before you trust anything.** It is 123
+Then run `runAllTests`. **It must print `ALL PASS` before you trust anything.** It is 172
 assertions, and the expected values came from running the reference Python implementation, not
 from what this code happens to do.
 
@@ -112,8 +120,60 @@ Copy the URL into the `WEBAPP_URL` script property.
 Edit one file here, paste it over the same file in the editor, then
 **Deploy → Manage deployments → ✏️ → Version: New version → Deploy.**
 
-Skipping the new version means the UI keeps serving the old code while the triggers run the new
-code, which is a confusing half-hour.
+Two ways to get this wrong, both quiet:
+
+- **Skipping the new version** leaves the UI serving old code while the triggers run new code.
+- **Clicking "New deployment" instead of editing the existing one mints a different `/exec`
+  URL** and strands every agent's bookmark on frozen code, with no error on either side. Once
+  you have handed the link to 20 people, always edit the existing deployment.
+
+Never give agents the `/dev` URL — it requires edit access to the script project, which also
+exposes `SLACK_BOT_TOKEN` and `INTAKE_SECRET` in Script Properties.
+
+---
+
+## The agent desk
+
+Agents open the `/exec` URL and are identified by their Google sign-in — no passwords, no
+accounts to manage. Because the deployment runs as *you* and is restricted to the Meesho domain,
+`Session.getActiveUser()` returns the viewer's email, so the tool knows who is acting **without
+any agent needing access to the spreadsheet**.
+
+That has one consequence worth knowing: the Sheet's own revision history shows only you for
+every change, so the `updated_by` column is the audit trail. It is written server-side and never
+accepted from the browser.
+
+**Adding an agent** is a row in `_agents`. **Removing one** is setting `active` to `FALSE`.
+Anyone not on the roster gets a readable refusal rather than a silent failure — which also
+closes the hole where any Meesho employee with the URL could append gold exemplars and
+permanently skew the classifier.
+
+**Keyboard:** `j`/`k` move · `1`/`2`/`3` set state · `a` assign · `m` my tickets · `/` search ·
+`r` refresh · `Esc` unfocus.
+
+Assignment is per-ticket from the detail pane, or in bulk — tick several in the list and assign
+them together, which is how a lead actually distributes a morning backlog.
+
+---
+
+## Telling the delivery centre
+
+Meesho AMs raise tickets on behalf of DCs who are not Meesho employees. Both now get told, and
+they get **different messages** — the AM gets "we have your issue", the DC gets "an issue was
+raised for your centre", because they did not raise it and the first wording reads as a mistake.
+
+The DC is found from the `dc_code` the pipeline already extracts, looked up in `_dc_contacts`.
+No code or no contact row means no message, and the ticket records which — "how many DCs never
+heard from us" is the number that tells you the directory is stale.
+
+| Channel | Status | What it needs |
+|---|---|---|
+| **Email** | **on** | nothing — ships today |
+| WhatsApp | adapter ready, off | a template approved on Meesho's WhatsApp Business account, plus `WA_TOKEN` / `WA_PHONE_ID` / `WA_TEMPLATE`. Best UX for a DC operator. Note Meta begins charging for service and in-window utility messages from **1 Oct 2026** |
+| SMS | adapter ready, off | DLT registration under Meesho's own principal entity and a pre-approved template. **The template must be registered Service-Implicit** — Promotional is DND-scrubbed and only delivered 9am–9pm, and DC problems get raised at 2am. Route through the aggregator already in Meesho's DLT chain; a new account cannot send under Meesho's header |
+
+Turn one on in `CFG().dcNotify`. Both adapters throw a readable error if switched on without
+their settings, rather than silently sending nothing.
 
 ---
 
@@ -197,6 +257,16 @@ budget. The honest position:
   `SlackParser.gs` is the only file that changes; `issues` and `tickets` can stay here.
 
 `capacityReport()` prints where you actually are.
+
+### Stress tested, not estimated
+
+| what was measured | result |
+|---|---|
+| batch size | linear, ~0.2 ms/message of compute; 4,000 messages per run (the configured cap) |
+| backlog of open issues | sub-linear — 2.1× at 30,000, because `issueTailRows` caps the comparison set |
+| Sheets round trips per run | 13, flat — it used to be one per updated row, which at 2,000 updates was 2,012 calls and would have exceeded the 6-minute cap somewhere near 10,000 |
+
+Execution time is no longer the binding constraint; the cell wall above is.
 
 ---
 

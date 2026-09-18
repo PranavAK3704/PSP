@@ -25,14 +25,41 @@ var ISSUE_HEADER = [
   'anchor_text', 'source_system', 'updated_at'
 ];
 
+/**
+ * The tickets tab, in TWO OWNERSHIP BLOCKS. The order is load-bearing, not cosmetic.
+ *
+ * ── WHY ─────────────────────────────────────────────────────────────────────────────────────
+ * The pipeline rewrites a ticket row whenever its issue changes. It used to rewrite ALL the
+ * columns and hand back the human ones from a snapshot it had taken seconds earlier. That is a
+ * lost update waiting to happen, and with 20 agents it happens daily:
+ *
+ *     T+0s   runPipeline snapshots ticket K: state=NEW, note=''
+ *     T+9s   an agent sets it to WORKING and writes a note
+ *     T+40s  runPipeline writes its 30-column row image back -> both edits gone, silently
+ *
+ * Now the pipeline writes ONLY columns 1..TICKET_PIPELINE_COLS. The desk block physically
+ * cannot be clobbered, because the write never reaches it. No lock required for that class of
+ * conflict, which is the only fix that scales.
+ *
+ * `state` split into two for the same reason: pipeline_state is derived (NEW/IDENTIFIED/OPEN),
+ * desk_state is what a human set. Effective state is desk_state || pipeline_state.
+ */
 var TICKET_HEADER = [
+  // ── pipeline-owned: rewritten wholesale on every update ──
   'idempotency_key', 'issue_id', 'source_system', 'source_id', 'source_permalink', 'title',
   'description', 'raiser', 'raiser_email', 'dc_code', 'intent', 'entity_tokens_json',
-  'flags_json', 'kapture_ticket_ids_json', 'reply_count', 'first_response_latency_s', 'state',
-  'duplicate_of', 'suppressed', 'suppressed_reason', 'occurrence_count', 'occurrences_json',
-  'first_raised_at', 'last_raised_at', 'acknowledged_at', 'acknowledge_error', 'agent_note',
-  'updated_by', 'updated_at', 'public_token'
+  'flags_json', 'kapture_ticket_ids_json', 'reply_count', 'first_response_latency_s',
+  'pipeline_state', 'duplicate_of', 'suppressed', 'suppressed_reason', 'occurrence_count',
+  'occurrences_json', 'first_raised_at', 'last_raised_at', 'public_token',
+  // ── desk-owned: THE PIPELINE NEVER WRITES PAST THIS LINE ──
+  'desk_state', 'assigned_to', 'assigned_at', 'agent_note', 'updated_by', 'updated_at',
+  'acknowledged_at', 'acknowledge_error', 'dc_notified_at', 'dc_notify_error'
 ];
+
+//: Everything before this index is the pipeline's. Everything from it on belongs to the desk
+//: and to Notify.gs, both of which write under withLock_.
+var TICKET_PIPELINE_COLS = TICKET_HEADER.indexOf('desk_state');
+var TICKET_DESK_START = TICKET_PIPELINE_COLS + 1;      // 1-based column of the first desk field
 
 function objToRow_(header, obj) {
   return header.map(function (h) {
@@ -304,26 +331,23 @@ function runPipeline() {
         flags_json: JSON.stringify(d.flags),
         kapture_ticket_ids_json: JSON.stringify(d.kapture_ticket_ids),
         reply_count: d.reply_count, first_response_latency_s: d.first_response_latency_s,
-        state: d.state, duplicate_of: d.duplicate_of, suppressed: d.suppressed,
+        pipeline_state: d.state, duplicate_of: d.duplicate_of, suppressed: d.suppressed,
         suppressed_reason: d.suppressed_reason || '', occurrence_count: d.occurrence_count,
         occurrences_json: JSON.stringify(d.occurrences),
         first_raised_at: d.first_raised_at, last_raised_at: d.last_raised_at,
-        acknowledged_at: '', acknowledge_error: '', agent_note: '', updated_by: '',
-        updated_at: istStamp(Date.now() / 1000),
-        public_token: publicToken_(d.idempotency_key)
+        public_token: publicToken_(d.idempotency_key),
+        // desk block, blank on creation and never touched again by this file
+        desk_state: '', assigned_to: '', assigned_at: '', agent_note: '', updated_by: '',
+        updated_at: '', acknowledged_at: '', acknowledge_error: '',
+        dc_notified_at: '', dc_notify_error: ''
       };
 
       var prev = existingTickets.get(d.idempotency_key);
       if (prev) {
-        // Preserve everything a human owns. The pipeline owns the derived columns; the desk
-        // owns state, the note and the acknowledgement — overwriting those would erase work.
-        ['acknowledged_at', 'acknowledge_error', 'agent_note', 'updated_by'].forEach(function (k) {
-          row[k] = prev.t[k] || '';
-        });
-        if (prev.t.state === 'RESOLVED' || prev.t.state === 'CLOSED' || prev.t.state === 'WORKING') {
-          row.state = prev.t.state;
-        }
-        ticketUpdates.push({ row: prev.row, values: objToRow_(TICKET_HEADER, row) });
+        // Only the pipeline's own columns. No preserve list, no snapshot hand-back — the desk
+        // block is simply out of reach, which is why an agent's edit can no longer be reverted.
+        ticketUpdates.push({ row: prev.row,
+                             values: objToRow_(TICKET_HEADER, row).slice(0, TICKET_PIPELINE_COLS) });
       } else {
         newTicketRows.push(objToRow_(TICKET_HEADER, row));
         if (d.suppressed) suppressed++; else created++;
@@ -331,7 +355,7 @@ function runPipeline() {
     });
 
     if (newTicketRows.length) appendRows_(CFG().tabs.tickets, TICKET_HEADER, newTicketRows);
-    var ticketCalls = writeRowsBatched_(CFG().tabs.tickets, TICKET_HEADER.length, ticketUpdates);
+    var ticketCalls = writeRowsBatched_(CFG().tabs.tickets, TICKET_PIPELINE_COLS, ticketUpdates);
 
     // ── write the assignment back onto each message row, in ONE range write ──────────────────
     for (var w = 0; w < msgs.length; w++) {

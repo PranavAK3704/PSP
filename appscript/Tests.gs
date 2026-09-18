@@ -240,12 +240,100 @@ function testGroupingWindows() {
   _eq('issueId', issueId_('C1', '1.5'), 'ISS-C1-1.5');
 }
 
+/**
+ * 13. Column ownership. If someone reorders TICKET_HEADER so a desk field lands before
+ * TICKET_PIPELINE_COLS, the pipeline silently starts clobbering agents' work again with no
+ * error anywhere. That is the single most fragile invariant in the project, so it is asserted
+ * rather than trusted.
+ */
+function testColumnOwnership() {
+  var desk = ['desk_state', 'assigned_to', 'assigned_at', 'agent_note', 'updated_by',
+              'updated_at', 'acknowledged_at', 'acknowledge_error', 'dc_notified_at',
+              'dc_notify_error'];
+  for (var i = 0; i < desk.length; i++) {
+    var idx = TICKET_HEADER.indexOf(desk[i]);
+    _eq('desk field present: ' + desk[i], idx >= 0, true);
+    _eq('desk field is OUTSIDE the pipeline block: ' + desk[i], idx >= TICKET_PIPELINE_COLS, true);
+  }
+  // And the converse: nothing the pipeline writes may sit in the desk block.
+  var derived = ['idempotency_key', 'title', 'intent', 'pipeline_state', 'occurrence_count',
+                 'public_token', 'suppressed'];
+  for (var j = 0; j < derived.length; j++) {
+    _eq('pipeline field is INSIDE the pipeline block: ' + derived[j],
+        TICKET_HEADER.indexOf(derived[j]) < TICKET_PIPELINE_COLS, true);
+  }
+  _eq('the boundary is where desk_state starts',
+      TICKET_PIPELINE_COLS, TICKET_HEADER.indexOf('desk_state'));
+  _eq('desk block is contiguous to the end of the header',
+      TICKET_HEADER.length - TICKET_PIPELINE_COLS, desk.length);
+  // effective state: what a human set wins over what the pipeline derived.
+  _eq('effectiveState prefers desk_state',
+      effectiveState_({ desk_state: 'WORKING', pipeline_state: 'OPEN' }), 'WORKING');
+  _eq('effectiveState falls back to pipeline_state',
+      effectiveState_({ desk_state: '', pipeline_state: 'IDENTIFIED' }), 'IDENTIFIED');
+  _eq('effectiveState defaults to NEW', effectiveState_({}), 'NEW');
+}
+
+/** 14. Phone normalisation. A mobile typed into a Sheet cell arrives as a NUMBER; the same
+ *  number typed with +91 arrives as text. One shape must come out or the gateway silently
+ *  rejects half of them. */
+function testPhoneNormalise() {
+  var cases = [[9900000001, '9900000001'], ['9900000001', '9900000001'],
+               ['+91 99000 00001', '9900000001'], ['91-9900000001', '9900000001'],
+               ['09900000001', '9900000001'], ['123', ''], ['', ''],
+               ['5900000001', ''],            // must start 6-9
+               [null, ''], [undefined, '']];
+  for (var i = 0; i < cases.length; i++) {
+    _eq('normalisePhone_(' + JSON.stringify(cases[i][0]) + ')',
+        normalisePhone_(cases[i][0]), cases[i][1]);
+  }
+}
+
+/** 15. Batched writes must cover exactly the rows given, in as few contiguous blocks as
+ *  possible — this is what took a 2,000-update run from 2,012 Sheets calls to 13. */
+function testBatchedWriteGrouping() {
+  var written = [];
+  var fake = { getRange: function (r, c, nr, nc) {
+    return { setValues: function (v) { written.push([r, c, nr, nc, v.length]); } };
+  } };
+  var realSs = ss_;
+  // eslint-disable-next-line no-global-assign
+  ss_ = function () { return { getSheetByName: function () { return fake; } }; };
+  try {
+    written = [];
+    writeRowsBatched_('x', 3, [{ row: 5, values: [1,2,3] }, { row: 6, values: [4,5,6] },
+                               { row: 7, values: [7,8,9] }], 1);
+    _eq('three consecutive rows -> ONE call', written.length, 1);
+    _eq('  and it spans all three', written[0][2], 3);
+
+    written = [];
+    writeRowsBatched_('x', 3, [{ row: 5, values: [1,2,3] }, { row: 9, values: [4,5,6] }], 1);
+    _eq('two rows with a gap -> TWO calls', written.length, 2);
+
+    written = [];
+    writeRowsBatched_('x', 3, [{ row: 9, values: [1,2,3] }, { row: 5, values: [4,5,6] },
+                               { row: 6, values: [7,8,9] }], 1);
+    _eq('unsorted input is sorted before grouping', written.length, 2);
+    _eq('  first block starts at the lowest row', written[0][0], 5);
+
+    written = [];
+    writeRowsBatched_('x', 4, [{ row: 2, values: [1,2,3,4] }], 26);
+    _eq('firstCol is honoured (desk block starts mid-row)', written[0][1], 26);
+
+    _eq('empty update list writes nothing', writeRowsBatched_('x', 3, [], 1), 0);
+  } finally {
+    // eslint-disable-next-line no-global-assign
+    ss_ = realSs;
+  }
+}
+
 /** Run everything. This is the function to run from the editor. */
 function runAllTests() {
   _T = { pass: 0, fail: 0, skip: 0, notes: [] };
   var suites = [testIdempotency, testIstStamp, testSeqRatio, testNormalise, testNoiseGate,
                 testEvidence, testDcExtraction, testEntityPatterns, testTitles, testChecks,
-                testClassifierIndex, testGroupingWindows];
+                testClassifierIndex, testGroupingWindows, testColumnOwnership,
+                testPhoneNormalise, testBatchedWriteGrouping];
   for (var i = 0; i < suites.length; i++) {
     try { suites[i](); }
     catch (e) {

@@ -33,7 +33,21 @@ function setup() {
   sheet_(C.tabs.dcCodes, ['code']);
   sheet_(C.tabs.dcDeny, ['token']);
   sheet_(C.tabs.exemplars, ['id', 'disposition', 'label_provenance', 'text']);
+  sheet_(C.tabs.agents, AGENT_HEADER);
+  sheet_(C.tabs.contacts, CONTACT_HEADER);
 
+  // Seed the deployer as the first agent, so the roster is never empty and nobody can lock
+  // themselves out of the tool they just installed. Everyone else is added by typing a row.
+  var me = '';
+  try { me = String(Session.getEffectiveUser().getEmail() || '').toLowerCase(); } catch (e) {}
+  if (me && !agents_().has(me)) {
+    appendRows_(C.tabs.agents, AGENT_HEADER,
+                [[me, me.split('@')[0], true, 'admin', '', '', istStamp(Date.now() / 1000)]]);
+    _cache.agents = undefined;
+  }
+
+  // _agents and _dc_contacts stay VISIBLE — they are meant to be edited by hand, and hiding
+  // the tab you add teammates to is how it gets forgotten.
   [C.tabs.state, C.tabs.dcCodes, C.tabs.dcDeny, C.tabs.exemplars].forEach(function (n) {
     var sh = ss_().getSheetByName(n);
     if (sh) sh.hideSheet();

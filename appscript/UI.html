@@ -1,99 +1,143 @@
 <!--
   UI.html — the agent queue.
 
-  Master-detail, because the previous flat list was unreadable: you could not tell what needed a
-  human from what was simply waiting. Four groups in a fixed order, and NEEDS A CATEGORY is
-  first because NOVEL is the classifier refusing to guess — nothing else can happen to those
-  tickets until somebody names them.
+  ── THE THREE THINGS THAT MADE THE LAST VERSION UNUSABLE ──────────────────────────────────────
+  1. A 60-second poll re-rendered the detail pane from server values, so a note an agent had
+     been typing for a minute vanished mid-sentence with no error. Now the refresh SKIPS the
+     detail pane whenever focus is inside it, and unsent text is held in a per-ticket dirty
+     buffer that survives refreshes and switching away and back.
+  2. Every action waited for a Sheets round trip before the screen changed, which reads as
+     "nothing happened" and gets clicked twice. Now every action applies locally first and
+     rolls back with a visible reason if the server refuses.
+  3. It fetched every ticket ever written, with full descriptions, to every agent every minute.
+     Now the list carries ten short fields and detail is fetched for the one ticket open.
 
-  The listening-channels panel is at the top and not hidden behind a tab, because "is it even
-  listening" is the first question anyone asks and the answer used to require opening the sheet.
+  Keyboard: j/k move, 1/2/3 set state, a assign, m mine, / search, r refresh, Esc close.
 -->
 <style>
   :root {
-    --bg:#fbfbfa; --panel:#fff; --line:#e6e4e1; --ink:#1a1a1a; --muted:#77736d;
-    --accent:#1a1a1a; --warn:#b4530a; --warnbg:#fdf3e7; --ok:#2d6a4f; --okbg:#eaf4ee;
+    --bg:#fbfbfa; --panel:#fff; --line:#e7e5e2; --ink:#191918; --muted:#78736c;
+    --accent:#1a1a1a; --warn:#b4530a; --warnbg:#fdf4e9; --ok:#2d6a4f; --okbg:#ecf5f0;
+    --sel:#eeedea; --blue:#1f4f8f; --bluebg:#eef3fa;
   }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink);
+  html,body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--ink); overflow:hidden;
          font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
-  header { background:var(--panel); border-bottom:1px solid var(--line); padding:14px 20px; }
-  h1 { font-size:16px; margin:0 0 10px; letter-spacing:-.01em; }
+  button,input,select,textarea { font:inherit; }
 
-  .health { display:flex; gap:8px; flex-wrap:wrap; }
-  .chip { font-size:12px; padding:4px 10px; border-radius:99px; border:1px solid var(--line);
-          background:#fafafa; color:var(--muted); }
-  .chip.ok   { background:var(--okbg);   color:var(--ok);   border-color:#c8e2d3; }
-  .chip.bad  { background:var(--warnbg); color:var(--warn); border-color:#f0d9bd; }
+  header { background:var(--panel); border-bottom:1px solid var(--line); padding:10px 18px;
+           display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  h1 { font-size:15px; margin:0; letter-spacing:-.01em; white-space:nowrap; }
+  .grow { flex:1; }
+  .who { font-size:12px; color:var(--muted); }
+  .chip { font-size:11.5px; padding:3px 9px; border-radius:99px; border:1px solid var(--line);
+          background:#fafafa; color:var(--muted); white-space:nowrap; }
+  .chip.ok  { background:var(--okbg);   color:var(--ok);   border-color:#cfe5d9; }
+  .chip.bad { background:var(--warnbg); color:var(--warn); border-color:#f0dcc0; }
 
-  details.channels { margin-top:10px; }
-  details.channels summary { cursor:pointer; font-size:12px; color:var(--muted); }
-  table.ch { border-collapse:collapse; margin-top:8px; font-size:12px; width:100%; }
-  table.ch th, table.ch td { text-align:left; padding:5px 12px 5px 0; border-bottom:1px solid var(--line); }
-  table.ch th { color:var(--muted); font-weight:500; }
-  td.err { color:var(--warn); }
+  .tabs { display:flex; gap:2px; padding:0 18px; background:var(--panel);
+          border-bottom:1px solid var(--line); overflow-x:auto; }
+  .tab { padding:8px 13px; font-size:12.5px; border:0; background:none; cursor:pointer;
+         color:var(--muted); border-bottom:2px solid transparent; white-space:nowrap; }
+  .tab:hover { color:var(--ink); }
+  .tab.on { color:var(--ink); font-weight:600; border-bottom-color:var(--accent); }
+  .tab.urgent { color:var(--warn); }
+  .tab .n { display:inline-block; margin-left:6px; font-size:11px; background:#efeeeb;
+            border-radius:99px; padding:0 6px; color:var(--muted); }
+  .tab.on .n { background:var(--accent); color:#fff; }
 
-  .wrap { display:grid; grid-template-columns:minmax(300px,380px) 1fr; gap:0;
+  .bar { display:flex; gap:8px; align-items:center; padding:8px 18px; background:var(--panel);
+         border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .bar input[type=text] { flex:1; min-width:140px; padding:5px 10px; border:1px solid var(--line);
+                          border-radius:6px; }
+  .toggle { font-size:12.5px; padding:5px 11px; border:1px solid var(--line); border-radius:6px;
+            background:var(--panel); cursor:pointer; color:var(--muted); }
+  .toggle.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+  .wrap { display:grid; grid-template-columns:minmax(290px,400px) 1fr;
           height:calc(100vh - 118px); }
   .list { overflow-y:auto; border-right:1px solid var(--line); background:var(--panel); }
-  .detail { overflow-y:auto; padding:24px 28px; }
+  .detail { overflow-y:auto; padding:22px 26px 60px; }
 
-  .grouphead { position:sticky; top:0; background:var(--panel); border-bottom:1px solid var(--line);
-               padding:9px 16px; font-size:11px; font-weight:700; letter-spacing:.07em;
-               text-transform:uppercase; color:var(--muted); z-index:1; }
-  .grouphead.urgent { color:var(--warn); background:var(--warnbg); }
-  .grouphead .n { float:right; font-weight:600; }
-
-  .item { padding:11px 16px; border-bottom:1px solid var(--line); cursor:pointer; }
-  .item:hover { background:#f7f6f4; }
-  .item.sel { background:#f0efec; box-shadow:inset 3px 0 0 var(--accent); }
-  .item .t { font-weight:600; margin-bottom:3px; }
-  .item .m { font-size:12px; color:var(--muted); display:flex; gap:8px; flex-wrap:wrap; }
-  .pill { font-size:11px; background:#efeeeb; border-radius:4px; padding:1px 6px; }
-  .pill.rep { background:#fdf3e7; color:var(--warn); font-weight:600; }
+  .item { padding:10px 14px 10px 12px; border-bottom:1px solid var(--line); cursor:pointer;
+          display:flex; gap:9px; align-items:flex-start; }
+  .item:hover { background:#f8f7f5; }
+  .item.sel { background:var(--sel); box-shadow:inset 3px 0 0 var(--accent); }
+  .item input[type=checkbox] { margin-top:3px; }
+  .item .body { min-width:0; flex:1; }
+  .item .t { font-weight:600; margin-bottom:3px; overflow:hidden; text-overflow:ellipsis;
+             white-space:nowrap; }
+  .item .m { font-size:11.5px; color:var(--muted); display:flex; gap:7px; flex-wrap:wrap;
+             align-items:center; }
+  .pill { font-size:10.5px; background:#efeeeb; border-radius:4px; padding:1px 6px; }
+  .pill.rep  { background:var(--warnbg); color:var(--warn); font-weight:600; }
+  .pill.mine { background:var(--bluebg); color:var(--blue); font-weight:600; }
+  .pill.un   { background:#fff; border:1px dashed var(--line); color:var(--muted); }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--warn); flex:none; }
 
   .detail h2 { font-size:19px; margin:0 0 4px; line-height:1.35; }
   .ref { font:600 11px ui-monospace,SFMono-Regular,monospace; letter-spacing:.08em; color:var(--muted); }
   .desc { white-space:pre-wrap; background:var(--panel); border:1px solid var(--line);
-          border-radius:8px; padding:14px 16px; margin:16px 0; font-size:13px; }
-  dl.meta { display:grid; grid-template-columns:auto 1fr; gap:6px 20px; margin:18px 0; font-size:13px; }
+          border-radius:8px; padding:13px 15px; margin:14px 0; font-size:13px; }
+  dl.meta { display:grid; grid-template-columns:auto 1fr; gap:5px 18px; margin:16px 0; font-size:13px; }
   dl.meta dt { color:var(--muted); } dl.meta dd { margin:0; }
 
-  .actions { display:flex; gap:8px; flex-wrap:wrap; margin:18px 0 10px; }
-  button { font:inherit; font-size:13px; padding:7px 14px; border-radius:6px;
-           border:1px solid var(--line); background:var(--panel); cursor:pointer; }
-  button:hover { background:#f3f2f0; }
-  button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
-  button:disabled { opacity:.5; cursor:default; }
-  textarea, select, input[type=text] { font:inherit; font-size:13px; width:100%; padding:8px 10px;
-    border:1px solid var(--line); border-radius:6px; background:var(--panel); }
-  textarea { min-height:74px; resize:vertical; }
+  .actions { display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin:16px 0 8px; }
+  button.b { font-size:13px; padding:6px 13px; border-radius:6px; border:1px solid var(--line);
+             background:var(--panel); cursor:pointer; }
+  button.b:hover { background:#f3f2f0; }
+  button.b.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button.b:disabled { opacity:.45; cursor:default; }
+  select, textarea { padding:6px 9px; border:1px solid var(--line); border-radius:6px;
+                     background:var(--panel); font-size:13px; }
+  textarea { width:100%; min-height:72px; resize:vertical; }
   label.f { display:block; font-size:12px; color:var(--muted); margin:14px 0 5px; }
+  .kbd { font:11px ui-monospace,monospace; background:#f0efec; border:1px solid var(--line);
+         border-radius:3px; padding:0 4px; color:var(--muted); }
 
-  .novel { background:var(--warnbg); border:1px solid #f0d9bd; border-radius:8px;
-           padding:14px 16px; margin:18px 0; }
-  .novel h3 { margin:0 0 4px; font-size:13px; color:var(--warn); }
-  .novel p { margin:0 0 10px; font-size:12px; color:var(--muted); }
-  .row { display:flex; gap:8px; }
-  .flags { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
-  .flag { font:11px ui-monospace,monospace; background:var(--warnbg); color:var(--warn);
-          border-radius:4px; padding:2px 7px; }
-  .empty { color:var(--muted); padding:40px 0; text-align:center; }
-  a { color:inherit; }
+  .novel { background:var(--warnbg); border:1px solid #f0dcc0; border-radius:8px;
+           padding:13px 15px; margin:16px 0; }
+  .novel h3 { margin:0 0 3px; font-size:13px; color:var(--warn); }
+  .novel p  { margin:0 0 9px; font-size:12px; color:var(--muted); }
+  .row { display:flex; gap:7px; flex-wrap:wrap; }
+  .flags { display:flex; gap:5px; flex-wrap:wrap; margin-top:7px; }
+  .flag { font:10.5px ui-monospace,monospace; background:var(--warnbg); color:var(--warn);
+          border-radius:4px; padding:2px 6px; }
+  .empty { color:var(--muted); padding:44px 16px; text-align:center; font-size:13px; }
+  .bulk { position:sticky; bottom:0; background:var(--accent); color:#fff; padding:9px 14px;
+          display:flex; gap:9px; align-items:center; font-size:13px; }
+  .bulk select { color:var(--ink); }
   .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
            background:var(--accent); color:#fff; padding:9px 18px; border-radius:99px;
-           font-size:13px; opacity:0; transition:opacity .2s; pointer-events:none; }
+           font-size:13px; opacity:0; transition:opacity .18s; pointer-events:none; z-index:9;
+           max-width:70vw; }
   .toast.show { opacity:1; }
+  .toast.bad { background:#8a2f12; }
+  .saving { font-size:11.5px; color:var(--muted); }
+  a { color:inherit; }
+  details.ch summary { cursor:pointer; font-size:12px; color:var(--muted); }
+  table.ch { border-collapse:collapse; margin-top:7px; font-size:12px; width:100%; }
+  table.ch th,table.ch td { text-align:left; padding:4px 12px 4px 0; border-bottom:1px solid var(--line); }
+  table.ch th { color:var(--muted); font-weight:500; }
+  td.err { color:var(--warn); }
 </style>
 
 <header>
   <h1>Partner Intake</h1>
-  <div class="health" id="health"><span class="chip">loading…</span></div>
-  <details class="channels">
-    <summary>Listening channels</summary>
-    <table class="ch" id="channels"></table>
-  </details>
+  <span class="who" id="who"></span>
+  <span class="grow"></span>
+  <span class="health" id="health"></span>
+  <button class="toggle" onclick="refresh(true)" title="Refresh (r)">↻</button>
 </header>
+
+<div class="tabs" id="tabs"></div>
+
+<div class="bar">
+  <input type="text" id="q" placeholder="Search title, DC code, raiser…  ( / )" oninput="debouncedSearch()">
+  <button class="toggle" id="mineBtn" onclick="toggleMine()">Assigned to me</button>
+  <span class="saving" id="meta"></span>
+</div>
 
 <div class="wrap">
   <div class="list" id="list"><div class="empty">loading…</div></div>
@@ -102,69 +146,116 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  var DATA = null, SEL = null;
+  var DATA = null;            // last getQueue payload
+  var TICKET = null;          // full detail of the open ticket
+  var SEL = null;             // selected ticket key
+  var VIEW = { group: 'NEEDS A CATEGORY', mine: false, q: '' };
+  var NOTES = {};             // key -> unsent note text. The dirty buffer.
+  var CHECKED = {};           // key -> true, for bulk assign
+  var BUSY = false;
   var GROUPS = ['NEEDS A CATEGORY', 'Open', 'Being worked on', 'Resolved', 'Withheld'];
-  var STATES = [['OPEN','Open'], ['WORKING','Being worked on'], ['RESOLVED','Resolved']];
+  var STATES = [['OPEN','Open','1'], ['WORKING','Being worked on','2'], ['RESOLVED','Resolved','3']];
 
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,
     function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function toast(m, bad){
+    var t=document.getElementById('toast');
+    t.textContent=m; t.className='toast show'+(bad?' bad':'');
+    clearTimeout(t._h); t._h=setTimeout(function(){ t.className='toast'+(bad?' bad':''); }, bad?5000:2200);
+  }
 
-  function toast(m){ var t=document.getElementById('toast'); t.textContent=m; t.className='toast show';
-    setTimeout(function(){ t.className='toast'; }, 2200); }
-
-  function load(){
-    google.script.run.withSuccessHandler(function(d){ DATA=d; render(); })
+  // ── loading ────────────────────────────────────────────────────────────────────────────────
+  function refresh(loud){
+    google.script.run
+      .withSuccessHandler(function(d){ DATA=d; renderAll(); if(loud) toast('Refreshed'); })
       .withFailureHandler(function(e){
         document.getElementById('list').innerHTML =
-          '<div class="empty">Could not load: '+esc(e.message)+'</div>'; })
-      .getQueue();
+          '<div class="empty">'+esc(e.message)+'</div>'; })
+      .getQueue(VIEW);
   }
 
-  function render(){
-    // The standing three checks, in the header, so a broken pipeline is visible without
-    // anybody running anything.
-    document.getElementById('health').innerHTML = DATA.health.map(function(h){
-      return '<span class="chip '+(h.ok?'ok':'bad')+'">'+esc(h.label)+' — '+esc(h.detail)+'</span>';
+  function openTicket(key){
+    SEL = key; renderList();
+    google.script.run
+      .withSuccessHandler(function(t){ TICKET=t; renderDetail(); })
+      .withFailureHandler(function(e){ toast(e.message, true); })
+      .getTicket(key);
+  }
+
+  // ── render ─────────────────────────────────────────────────────────────────────────────────
+  function renderAll(){ renderChrome(); renderList(); if (SEL && !TICKET) openTicket(SEL); }
+
+  function renderChrome(){
+    document.getElementById('who').textContent = DATA.me ? 'Signed in as '+DATA.me.email : '';
+    document.getElementById('health').innerHTML = (DATA.health||[]).map(function(h){
+      return '<span class="chip '+(h.ok?'ok':'bad')+'">'+esc(h.label)+' · '+esc(h.detail)+'</span>';
+    }).join(' ');
+
+    document.getElementById('tabs').innerHTML = GROUPS.map(function(g){
+      var n = (DATA.counts||{})[g]||0;
+      return '<button class="tab'+(VIEW.group===g?' on':'')+(g==='NEEDS A CATEGORY'?' urgent':'')+
+             '" onclick="setGroup(\''+g+'\')">'+esc(g)+'<span class="n">'+n+'</span></button>';
     }).join('');
 
-    var ch = DATA.channels || [];
-    document.getElementById('channels').innerHTML = ch.length
-      ? '<tr><th>channel</th><th>last poll</th><th>new</th><th>total</th><th></th></tr>' +
-        ch.map(function(c){ return '<tr><td>#'+esc(c.name||c.channel_id)+'</td><td>'+
-          esc(c.last_poll)+'</td><td>'+esc(c.new_last_poll)+'</td><td>'+esc(c.total_seen)+
-          '</td><td class="err">'+esc(c.last_error||'')+'</td></tr>'; }).join('')
-      : '<tr><td>No channels configured — set the CHANNELS script property.</td></tr>';
-
-    var by = {}; GROUPS.forEach(function(g){ by[g]=[]; });
-    DATA.tickets.forEach(function(t){ (by[t.group] || by.Open).push(t); });
-
-    var html = '';
-    GROUPS.forEach(function(g){
-      if (!by[g].length) return;
-      html += '<div class="grouphead'+(g==='NEEDS A CATEGORY'?' urgent':'')+'">'+esc(g)+
-              '<span class="n">'+by[g].length+'</span></div>';
-      by[g].forEach(function(t){
-        html += '<div class="item'+(SEL===t.key?' sel':'')+'" onclick="pick(\''+t.key+'\')">'+
-          '<div class="t">'+esc(t.title)+'</div><div class="m">'+
-          '<span class="ref">'+esc(t.ref)+'</span>'+
-          (t.dc_code?'<span class="pill">'+esc(t.dc_code)+'</span>':'')+
-          (t.occurrence_count>1?'<span class="pill rep">raised '+t.occurrence_count+'×</span>':'')+
-          (t.flags.length?'<span class="pill">'+t.flags.length+' flag'+(t.flags.length>1?'s':'')+'</span>':'')+
-          '<span>'+esc(t.raiser)+'</span></div></div>';
-      });
-    });
-    document.getElementById('list').innerHTML = html ||
-      '<div class="empty">No tickets yet.<br>Once the pipeline runs they appear here.</div>';
-    if (SEL) detail(SEL);
+    document.getElementById('mineBtn').className = 'toggle'+(VIEW.mine?' on':'');
+    document.getElementById('mineBtn').textContent = 'Assigned to me ('+(DATA.mine||0)+')';
+    document.getElementById('meta').textContent =
+      (DATA.unassigned||0)+' unassigned · '+(DATA.total||0)+' total'+(DATA.capped?' · list capped':'');
   }
 
-  function pick(k){ SEL=k; render(); }
+  function renderList(){
+    var ts = DATA.tickets||[];
+    if (!ts.length) {
+      document.getElementById('list').innerHTML =
+        '<div class="empty">Nothing here.<br>'+
+        (VIEW.q||VIEW.mine ? 'Try clearing the filters.' : 'Tickets appear as the pipeline runs.')+
+        '</div>';
+      return;
+    }
+    var nChecked = Object.keys(CHECKED).filter(function(k){return CHECKED[k];}).length;
+    var html = ts.map(function(t){
+      return '<div class="item'+(SEL===t.key?' sel':'')+'" onclick="pick(event,\''+t.key+'\')">'+
+        '<input type="checkbox" '+(CHECKED[t.key]?'checked':'')+
+          ' onclick="event.stopPropagation();check(\''+t.key+'\',this.checked)">'+
+        '<div class="body"><div class="t">'+esc(t.title)+'</div><div class="m">'+
+        '<span class="ref">'+esc(t.ref)+'</span>'+
+        (t.dc_code?'<span class="pill">'+esc(t.dc_code)+'</span>':'')+
+        (t.occurrence_count>1?'<span class="pill rep">×'+t.occurrence_count+'</span>':'')+
+        (t.flags?'<span class="pill">'+t.flags+'⚑</span>':'')+
+        (t.assigned_to
+          ? '<span class="pill '+(DATA.me&&t.assigned_to===DATA.me.email?'mine':'')+'">'+
+            esc(shortName(t.assigned_to))+'</span>'
+          : '<span class="pill un">unassigned</span>')+
+        (t.has_note?'<span class="pill">note</span>':'')+
+        (!t.acknowledged&&t.group!=='Withheld'?'<span class="dot" title="not acknowledged yet"></span>':'')+
+        '</div></div></div>';
+    }).join('');
+    if (nChecked) {
+      html += '<div class="bulk">'+nChecked+' selected '+
+        '<select id="bulkTo"><option value="">— assign to —</option>'+
+        (DATA.roster||[]).map(function(a){return '<option value="'+esc(a.email)+'">'+esc(a.name)+'</option>';}).join('')+
+        '</select><button class="b" onclick="bulkAssign()">Assign</button>'+
+        '<button class="b" onclick="CHECKED={};renderList()">Clear</button></div>';
+    }
+    document.getElementById('list').innerHTML = html;
+  }
 
-  function detail(k){
-    var t = DATA.tickets.filter(function(x){ return x.key===k; })[0];
-    if (!t) return;
-    var toks = Object.keys(t.tokens||{}).map(function(kind){
-      return kind+' = '+(t.tokens[kind]||[]).map(function(r){return r.value;}).join(', '); });
+  function shortName(email){ return String(email||'').split('@')[0]; }
+
+  /**
+   * The detail pane. Two rules keep an agent's work safe:
+   *   · never re-render while focus is inside it — that is what destroyed notes mid-sentence
+   *   · always seed the textarea from the dirty buffer, so unsent text survives switching away
+   */
+  function renderDetail(){
+    if (!TICKET) return;
+    var d = document.getElementById('detail');
+    if (d.contains(document.activeElement) && document.activeElement.tagName === 'TEXTAREA') return;
+
+    var t = TICKET;
+    var toks = Object.keys(t.tokens||{}).map(function(k){
+      return k+' = '+(t.tokens[k]||[]).map(function(r){return r.value;}).join(', '); });
+    var noteVal = NOTES.hasOwnProperty(t.key) ? NOTES[t.key] : (t.agent_note||'');
 
     var h = '<div class="ref">'+esc(t.ref)+'</div><h2>'+esc(t.title)+'</h2>';
     if (t.suppressed_reason)
@@ -174,70 +265,173 @@
     h += '<dl class="meta">'+
       '<dt>Raised by</dt><dd>'+esc(t.raiser)+(t.raiser_email?' · '+esc(t.raiser_email):'')+'</dd>'+
       '<dt>Category</dt><dd>'+esc(t.intent||'—')+'</dd>'+
-      '<dt>State</dt><dd>'+esc(t.state)+'</dd>'+
+      '<dt>State</dt><dd>'+esc(t.state)+(t.pipeline_state&&t.pipeline_state!==t.state
+        ? ' <span class="pill">pipeline says '+esc(t.pipeline_state)+'</span>':'')+'</dd>'+
       '<dt>Replies</dt><dd>'+t.reply_count+
         (t.latency!=null?' · first response '+Math.round(t.latency/60)+' min':'')+'</dd>'+
-      (t.occurrence_count>1?'<dt>Raised</dt><dd>'+t.occurrence_count+' times, last '+
-        esc(t.last_raised_at)+'</dd>':'')+
+      (t.occurrence_count>1?'<dt>Raised</dt><dd>'+t.occurrence_count+' times, last '+esc(t.last_raised_at)+'</dd>':'')+
       (t.duplicate_of?'<dt>Counted into</dt><dd>'+esc(t.duplicate_of)+'</dd>':'')+
       (toks.length?'<dt>Identifiers</dt><dd>'+esc(toks.join(' · '))+'</dd>':'')+
-      '<dt>Acknowledged</dt><dd>'+(t.acknowledged_at?esc(t.acknowledged_at):
+      '<dt>Raiser told</dt><dd>'+(t.acknowledged_at?esc(t.acknowledged_at):
         (t.acknowledge_error?'<span style="color:var(--warn)">'+esc(t.acknowledge_error)+'</span>':'not yet'))+'</dd>'+
+      '<dt>Centre told</dt><dd>'+(t.dc_notified_at?esc(t.dc_notified_at):
+        (t.dc_notify_error?'<span style="color:var(--warn)">'+esc(t.dc_notify_error)+'</span>':'not yet'))+'</dd>'+
       (t.permalink?'<dt>Source</dt><dd><a href="'+esc(t.permalink)+'" target="_blank">open in Slack</a></dd>':'')+
+      (t.updated_by?'<dt>Last edited</dt><dd>'+esc(t.updated_by)+' · '+esc(t.updated_at)+'</dd>':'')+
       '</dl>';
 
-    if (t.flags.length)
+    if ((t.flags||[]).length)
       h += '<div class="flags">'+t.flags.map(function(f){return '<span class="flag">'+esc(f)+'</span>';}).join('')+'</div>';
 
-    // The creep loop's only piece of UI. Naming this writes a gold exemplar, and the next run
-    // classifies against it.
     if (t.group === 'NEEDS A CATEGORY') {
       h += '<div class="novel"><h3>Needs a category</h3>'+
         '<p>The classifier would not guess. Name it and every similar message after this one is '+
         'categorised automatically.</p><div class="row">'+
-        '<select id="disp"><option value="">— pick or type below —</option>'+
-        (DATA.dispositions||[]).map(function(d){return '<option value="'+esc(d)+'">'+esc(d)+'</option>';}).join('')+
-        '</select><input type="text" id="dispNew" placeholder="or a new category">'+
-        '<button onclick="nameIt(\''+t.key+'\')">Save</button></div></div>';
+        '<select id="disp"><option value="">— pick —</option>'+
+        (DATA.dispositions||[]).map(function(x){return '<option value="'+esc(x)+'">'+esc(x)+'</option>';}).join('')+
+        '</select><input type="text" id="dispNew" placeholder="or a new category" style="padding:6px 9px;border:1px solid var(--line);border-radius:6px">'+
+        '<button class="b" onclick="nameIt()">Save</button></div></div>';
     }
 
     h += '<div class="actions">'+STATES.map(function(s){
-      return '<button class="'+(t.state===s[0]?'on':'')+'" onclick="setState(\''+t.key+'\',\''+s[0]+'\')">'+
-             esc(s[1])+'</button>'; }).join('')+'</div>';
+      return '<button class="b'+(t.state===s[0]?' on':'')+'" onclick="setState(\''+s[0]+'\')">'+
+             esc(s[1])+' <span class="kbd">'+s[2]+'</span></button>'; }).join('')+
+      '<span style="flex:1"></span>'+
+      '<select id="assignee" onchange="assign(this.value)"><option value="">— unassigned —</option>'+
+      (DATA.roster||[]).map(function(a){
+        return '<option value="'+esc(a.email)+'"'+(t.assigned_to===a.email?' selected':'')+'>'+
+               esc(a.name)+'</option>'; }).join('')+'</select></div>';
 
-    h += '<label class="f">Note — the partner can see this on their status page</label>'+
-      '<textarea id="note">'+esc(t.agent_note)+'</textarea>'+
-      '<div class="actions"><button onclick="saveNote(\''+t.key+'\',\''+esc(t.state)+'\')">Save note</button>'+
-      (t.updated_by?'<span class="chip">last edited by '+esc(t.updated_by)+'</span>':'')+'</div>';
+    h += '<label class="f">Note — the partner can see this on their status page'+
+         '<span class="saving" id="noteState"></span></label>'+
+         '<textarea id="note" oninput="noteChanged()">'+esc(noteVal)+'</textarea>'+
+         '<div class="actions"><button class="b" onclick="saveNote()">Save note</button>'+
+         '<span class="kbd">j/k move · 1/2/3 state · a assign · m mine · / search</span></div>';
 
-    document.getElementById('detail').innerHTML = h;
+    d.innerHTML = h;
+    if (NOTES.hasOwnProperty(t.key) && NOTES[t.key] !== (t.agent_note||''))
+      document.getElementById('noteState').textContent = ' — unsaved';
   }
 
-  function busy(on){ Array.prototype.forEach.call(
-    document.querySelectorAll('#detail button'), function(b){ b.disabled=on; }); }
+  // ── actions ────────────────────────────────────────────────────────────────────────────────
+  // Every one of these applies the change LOCALLY first and rolls it back with a visible reason
+  // if the server refuses. Waiting on a Sheets round trip before the screen moves reads as
+  // "nothing happened", and a button that looks dead gets clicked again.
+  function setState(s){
+    if (!TICKET || BUSY) return;
+    var was = TICKET.state;
+    BUSY = true; TICKET.state = s; renderDetail();
+    google.script.run
+      .withSuccessHandler(function(){ BUSY=false; toast('Moved to '+s); refresh(); })
+      .withFailureHandler(function(e){
+        BUSY=false; TICKET.state=was; renderDetail(); toast(e.message, true); })
+      .setTicketState(TICKET.key, s, null);
+  }
 
-  function setState(k, s){
-    busy(true);
-    google.script.run.withSuccessHandler(function(){ toast('Moved to '+s); load(); })
-      .withFailureHandler(function(e){ busy(false); toast('Failed: '+e.message); })
-      .setTicketState(k, s, null);
+  function assign(email){
+    if (!TICKET) return;
+    var was = TICKET.assigned_to;
+    BUSY = true; TICKET.assigned_to = email; renderDetail();
+    google.script.run
+      .withSuccessHandler(function(){ BUSY=false; toast(email?'Assigned to '+shortName(email):'Unassigned'); refresh(); })
+      .withFailureHandler(function(e){ BUSY=false; TICKET.assigned_to=was; renderDetail(); toast(e.message,true); })
+      .setAssignee(TICKET.key, email);
   }
-  function saveNote(k, s){
-    busy(true);
-    var n = document.getElementById('note').value;
-    google.script.run.withSuccessHandler(function(){ toast('Note saved'); load(); })
-      .withFailureHandler(function(e){ busy(false); toast('Failed: '+e.message); })
-      .setTicketState(k, s, n);
+
+  function noteChanged(){
+    if (!TICKET) return;
+    NOTES[TICKET.key] = document.getElementById('note').value;
+    var s = document.getElementById('noteState');
+    if (s) s.textContent = ' — unsaved';
   }
-  function nameIt(k){
+
+  function saveNote(){
+    if (!TICKET) return;
+    var v = document.getElementById('note').value;
+    BUSY = true;
+    google.script.run
+      .withSuccessHandler(function(){
+        BUSY=false; TICKET.agent_note=v; delete NOTES[TICKET.key];
+        var s=document.getElementById('noteState'); if(s) s.textContent=' — saved';
+        toast('Note saved'); refresh();
+      })
+      .withFailureHandler(function(e){ BUSY=false; toast(e.message,true); })
+      .saveNote(TICKET.key, v);
+  }
+
+  function nameIt(){
     var d = document.getElementById('dispNew').value.trim() || document.getElementById('disp').value;
-    if (!d) { toast('Pick or type a category first'); return; }
-    busy(true);
-    google.script.run.withSuccessHandler(function(r){ toast('Categorised as '+r.disposition); load(); })
-      .withFailureHandler(function(e){ busy(false); toast('Failed: '+e.message); })
-      .nameDisposition(k, d);
+    if (!d) { toast('Pick or type a category first', true); return; }
+    BUSY = true;
+    google.script.run
+      .withSuccessHandler(function(r){ BUSY=false; toast('Categorised as '+r.disposition);
+                                       TICKET=null; refresh(); })
+      .withFailureHandler(function(e){ BUSY=false; toast(e.message,true); })
+      .nameDisposition(TICKET.key, d);
   }
 
-  load();
-  setInterval(load, 60000);   // the pipeline runs every 5 minutes; a minute is responsive enough
+  function bulkAssign(){
+    var to = document.getElementById('bulkTo').value;
+    var keys = Object.keys(CHECKED).filter(function(k){return CHECKED[k];});
+    if (!keys.length) return;
+    BUSY = true;
+    google.script.run
+      .withSuccessHandler(function(r){ BUSY=false; CHECKED={}; toast('Assigned '+r.assigned+' tickets'); refresh(); })
+      .withFailureHandler(function(e){ BUSY=false; toast(e.message,true); })
+      .setAssigneeBulk(keys, to);
+  }
+
+  // ── view state ─────────────────────────────────────────────────────────────────────────────
+  function setGroup(g){ VIEW.group=g; SEL=null; TICKET=null; CHECKED={}; persist(); refresh(); }
+  function toggleMine(){ VIEW.mine=!VIEW.mine; persist(); refresh(); }
+  function check(k,on){ CHECKED[k]=on; renderList(); }
+  function pick(ev,k){ if (ev.target.tagName==='INPUT') return; openTicket(k); }
+
+  var searchTimer=null;
+  function debouncedSearch(){
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function(){ VIEW.q=document.getElementById('q').value; refresh(); }, 280);
+  }
+
+  // Per-agent view state lives on the SERVER keyed by email, not in UserProperties: under
+  // "execute as me" the effective user is the deployer for every request, so all 20 agents
+  // would share one store and overwrite each other's filters.
+  function persist(){
+    google.script.run.withFailureHandler(function(){}).saveAgentFilter(JSON.stringify(VIEW));
+  }
+
+  // ── keyboard ───────────────────────────────────────────────────────────────────────────────
+  document.addEventListener('keydown', function(e){
+    var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+    if (e.key === 'Escape') { document.activeElement.blur(); return; }
+    if (typing) return;
+    var ts = (DATA && DATA.tickets) || [];
+    var i = ts.findIndex(function(t){ return t.key===SEL; });
+    if (e.key === 'j' && ts.length) { openTicket(ts[Math.min(ts.length-1, i+1)].key); e.preventDefault(); }
+    else if (e.key === 'k' && ts.length) { openTicket(ts[Math.max(0, i-1)].key); e.preventDefault(); }
+    else if (e.key === '1' && TICKET) setState('OPEN');
+    else if (e.key === '2' && TICKET) setState('WORKING');
+    else if (e.key === '3' && TICKET) setState('RESOLVED');
+    else if (e.key === 'a' && TICKET) { var s=document.getElementById('assignee'); if(s) s.focus(); }
+    else if (e.key === 'm') toggleMine();
+    else if (e.key === 'r') refresh(true);
+    else if (e.key === '/') { document.getElementById('q').focus(); e.preventDefault(); }
+  });
+
+  // Warn before losing an unsent note to a tab close.
+  window.addEventListener('beforeunload', function(e){
+    if (Object.keys(NOTES).length) { e.preventDefault(); e.returnValue=''; }
+  });
+
+  // First load restores this agent's last view, then refreshes on a timer. The detail pane is
+  // never clobbered by this — renderDetail bails when focus is inside it.
+  google.script.run.withSuccessHandler(function(d){
+    DATA = d;
+    if (d.me && d.me.filter) { try { VIEW = JSON.parse(d.me.filter) || VIEW; } catch(err){} }
+    document.getElementById('q').value = VIEW.q || '';
+    renderAll();
+    setInterval(function(){ if (!BUSY) refresh(); }, 45000);
+  }).withFailureHandler(function(e){
+    document.getElementById('list').innerHTML = '<div class="empty">'+esc(e.message)+'</div>';
+  }).getQueue(VIEW);
 </script>

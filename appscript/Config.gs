@@ -38,8 +38,19 @@ function CFG() {
       state:     '_state',
       dcCodes:   '_dc_codes',
       dcDeny:    '_dc_denylist',
-      exemplars: '_exemplars'
+      exemplars: '_exemplars',
+      agents:    '_agents',
+      contacts:  '_dc_contacts'
     },
+
+    // A UI write waits this long for the script lock before giving up. The pipeline can hold it
+    // for tens of seconds on a big batch, and an agent would rather wait than see their click
+    // silently do nothing — which is exactly what happened before any of these paths locked.
+    uiLockMs: 20000,
+
+    // The queue list is capped. getQueue used to return every ticket ever written, with full
+    // descriptions, to every agent every refresh — several MB per agent per minute by month two.
+    queueLimit: 400,
 
     // Slack read pacing. 0.2s between calls keeps us far under the tier-3 ~50/min limit while
     // leaving room inside the 6-minute execution cap.
@@ -52,6 +63,11 @@ function CFG() {
       // How far back sweepThreadReplies looks for threads that may have gained a reply since
       // they were last read. See the note in SlackParser.gs for why a separate sweep exists.
       sweepLookbackDays: 3,
+
+      // Hard bounds on one sweep. 120 threads x 48 runs/day = 5,760 UrlFetch calls against a
+      // 100,000/day allowance, and 150s leaves the 6-minute cap a wide margin to append in.
+      sweepMaxThreads: 120,
+      sweepDeadlineMs: 150000,
 
       // How many trailing rows of raw_messages are read to drop already-ingested messages.
       // This MUST comfortably exceed the number of rows your channels produce in
@@ -98,6 +114,17 @@ function CFG() {
     // Trailing rows of the issues tab read to find open issues. Must exceed the number of
     // issues created inside the longest grouping window (180 days as shipped).
     issueTailRows: 30000,
+
+    // ── telling the delivery centre ──────────────────────────────────────────────────────
+    // Meesho AMs raise tickets on behalf of DCs, who are not Meesho employees and today hear
+    // nothing. Email ships with no approvals. SMS needs DLT registration under Meesho's own
+    // principal entity, and the template MUST be registered Service-Implicit — Promotional is
+    // DND-scrubbed and only delivered 9am-9pm, while DC problems get raised at 2am. WhatsApp
+    // needs a template approved on Meesho's Business account, and Meta starts charging for
+    // service and in-window utility messages from 1 October 2026.
+    //
+    // So email is on and the other two are adapters waiting for someone else's paperwork.
+    dcNotify: { enabled: true, email: true, whatsapp: false, sms: false },
 
     // Suppress a ticket with no DC code, mobile, waybill or ticket id? Depends on how the desk
     // works. Off means such tickets are created and flagged rather than withheld.
@@ -211,6 +238,26 @@ function round_(x, n) {
 // ONE getValues() and ONE setValues() per tab per run. Never per row. A 500-row per-row write
 // is ~500 round trips and will eat the 6-minute cap on its own.
 
+/**
+ * Run `fn` holding the script lock, or throw something an agent can read.
+ *
+ * EVERY write path must go through this. Before it existed the five triggers locked against
+ * each other and the web app locked against nothing, so an agent's edit landing between the
+ * pipeline's read and its write was silently reverted — no error, no trace, just a green toast
+ * and a change that quietly disappeared. With 20 agents that is a daily event, and it reads as
+ * "the tool is lying to me".
+ *
+ * Apps Script locks are ADVISORY: they only work because every writer asks. A new write path
+ * that forgets this reintroduces the bug in full.
+ */
+function withLock_(fn) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(CFG().uiLockMs)) {
+    throw new Error('The pipeline is busy writing \u2014 nothing was changed. Try again in a moment.');
+  }
+  try { return fn(); } finally { lock.releaseLock(); }
+}
+
 function ss_() { return SpreadsheetApp.getActiveSpreadsheet(); }
 
 /** The tab, created with `header` if absent. */
@@ -309,10 +356,11 @@ function replaceRows_(name, header, rows) {
  * always the recent ones, which sit next to each other at the tail of the tab, so in practice
  * this collapses to a handful of calls.
  */
-function writeRowsBatched_(name, width, updates) {
+function writeRowsBatched_(name, width, updates, firstCol) {
   if (!updates || !updates.length) return 0;
   var sh = ss_().getSheetByName(name);
   if (!sh) return 0;
+  var col = firstCol || 1;
   var sorted = updates.slice().sort(function (a, b) { return a.row - b.row; });
 
   var calls = 0, i = 0;
@@ -321,7 +369,7 @@ function writeRowsBatched_(name, width, updates) {
     while (i + 1 < sorted.length && sorted[i + 1].row === sorted[i].row + 1) {
       i++; block.push(sorted[i].values);
     }
-    sh.getRange(sorted[start].row, 1, block.length, width).setValues(block);
+    sh.getRange(sorted[start].row, col, block.length, width).setValues(block);
     calls++;
     i++;
   }

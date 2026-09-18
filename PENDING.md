@@ -95,15 +95,81 @@ Folding notify into the end of `runPipeline` and moving the pipeline to every 2 
 to **0–3 minutes, averaging 1.5**, and stays inside the runtime budget even if every run has
 work (~16,600s of 21,600).
 
-### C8 · Merge the five money dispositions
-- [ ] Decide
+### C8 · Merge the five money dispositions — ~~turn it on~~ LEAVE IT OFF
+- [x] Decided against, on evidence — see **E15**
 
-Measured at **+17.9 precision points for zero coverage cost** — the largest single accuracy
-lever available, and it is one config line (`CFG().mergeMoneyClasses`). It is off because
-collapsing `payment_not_received`, `payment_reconciliation`, `cod_shortfall`, `cod_pendency` and
-`consumables_payment` into one changes how the desk routes work, which is a desk decision.
+I previously recommended turning this on, at +17.9 precision points. Scoring it properly against
+held-out data and then checking where those dispositions actually ESCALATE changed the answer:
+the money classes go to Cost Ops and the loss classes to the Losses functional team. The merge
+buys accuracy by making a distinction the desk depends on impossible to express.
 
-**Recommendation: turn it on.** Reversible by flipping it back.
+Leave `CFG().mergeMoneyClasses` off. The decision panel recovers most of the same value without
+breaking routing.
+
+---
+
+## E. Measured on held-out data, 2026-09-18 — act on these
+
+Scored the shipping classifier against 307 held-out rows it has never seen.
+
+```
+coverage    82.4%   answers 253, sends 54 to a human
+precision   65.2%   of those it answers
+end-to-end  53.7%   correct out of everything
+```
+
+### E12 · Five categories the classifier can NEVER produce
+- [ ] Decide whether to collect exemplars for them
+
+`loss_status_enquiry`, `dc_fnf_settlement`, `security_deposit`, `debit_dispute`, `cod_hardstop`
+exist in the ops SOP taxonomy and have **zero** exemplars in the index. Any message about a
+security deposit or an FnF settlement comes out NOVEL forever, however many times it is raised,
+because there is nothing for it to match. This is invisible in the accuracy numbers — those rows
+are simply not in the corpus.
+
+### E13 · My required-evidence map disagrees with the SOPs
+- [ ] Reconcile with ops
+
+`Emit.gs`'s `REQUIRED_BY_DISPOSITION` has 9 entries I wrote. The SOPs are ops-authored and
+disagree on two, and cover one I missed:
+
+| disposition | SOP says | mine says |
+|---|---|---|
+| `load_planning` | AWB | dc_code |
+| `payment_reconciliation` | AWB | mobile |
+| `qc_failure` | AWB | *(nothing configured)* |
+
+`hardstop_loss` and `shortage_loss` agree (AWB is the waybill under another name). I have not
+changed these unilaterally — which identifier a case needs is an ops decision, not a code one.
+
+### E14 · The SOP playbook is unused
+- [ ] Decide whether to surface it in the agent UI
+
+All 68 SOPs carry L1 `checks`, a `resolution` with a template and functional team, and 50 name
+an `escalation` team. None of it reaches the agent. A ticket classified `hardstop_loss` could
+show the three checks to run and who to escalate to; today it shows a category and nothing else.
+This is the highest-value unbuilt thing I found.
+
+### E15 · Do NOT merge the money and loss classes
+- [x] Settled — measured, and the answer is no
+
+Merging money + hardstop + shortage scores **53.7% → 80.5% end-to-end**, which looks like the
+biggest lever available. It is a trap. The SOPs name the escalation teams:
+
+```
+money classes -> Cost Ops, Losses & Debits
+loss classes  -> Losses functional team, Hub partners
+```
+
+Different teams. The merge scores better only because collapsing a distinction makes it
+impossible to get wrong — while making every one of those tickets route to the wrong desk. The
+metric improves and the operation gets worse.
+
+**The alternative, measured:** when the classifier refuses, the truth is one of the two buttons
+the decision panel already shows **48% of the time**. So a refusal is a one-click decision, not a
+blank. Automatic 53.7% → 62.2% with one click, and the taxonomy stays intact.
+
+This supersedes item **C8** below, which was based on the narrower 5-class measurement.
 
 ---
 

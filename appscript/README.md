@@ -119,7 +119,16 @@ There is a second test that needs node and runs on your machine, not in Apps Scr
 node appscript/tools/e2e.js
 ```
 
-It stands up a fake Slack and an in-memory Sheet and runs the real `.gs` files unmodified — ten
+```
+node appscript/tools/ui-test.js
+```
+
+runs `UI.html`'s own filter and empty-state logic outside a browser. It exists because a "mine"
+filter was once left on and persisted with no visible control: the queue said 2 and the list
+said "Nothing here", and nothing on screen explained the gap. Neither the `.gs` tests nor the
+e2e could see it, because that bug lived entirely in the browser half.
+
+The first one stands up a fake Slack and an in-memory Sheet and runs the real `.gs` files unmodified — ten
 messages in, tickets out, an agent acting on them, then a second pipeline run that must not undo
 any of it. `runAllTests()` pins the algorithms; this pins the wiring, and every failure it checks
 for is one that actually shipped once.

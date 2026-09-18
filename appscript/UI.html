@@ -114,6 +114,13 @@
   .search { width:250px; padding:9px 15px; border-radius:999px; border:1px solid var(--line);
             background:var(--card); font-size:13px; }
   .search:focus { outline:none; border-color:var(--clay); }
+  /* A filter with no visible control is a trap: it was on, persisted, and silently hid every
+     ticket while the count above said 2. Any filter that can empty the list must be on screen. */
+  .toggle { padding:9px 15px; border-radius:999px; border:1px solid var(--line);
+            background:var(--card); font-size:13px; font-weight:600; color:var(--muted);
+            cursor:pointer; white-space:nowrap; }
+  .toggle:hover { border-color:var(--clay); color:var(--ink); }
+  .toggle.on { background:var(--blue); border-color:var(--blue); color:#fff; }
   .list { overflow-y:auto; display:flex; flex-direction:column; gap:10px; padding-right:4px; }
   .right { flex:1; overflow-y:auto; min-width:0; padding-right:4px; }
 
@@ -232,6 +239,7 @@
         <h2 id="listTitle">Needs you first</h2>
         <span class="sub" id="listNote"></span>
         <div class="grow"></div>
+        <button class="toggle" id="mineBtn" onclick="toggleMine()">Only mine</button>
         <input class="search" id="q" type="text" placeholder="Search a DC, a name, a number" oninput="onSearch()">
       </div>
       <div class="list" id="list"></div>
@@ -351,13 +359,20 @@
     }).join(' ');
 
     var c=DATA.counts||{};
+    // Counted from the rows in hand, per group. The previous version put a whole-queue "mine"
+    // total under a card showing 0, which read as a contradiction.
+    function inGroup(g,pred){ return (DATA.tickets||[]).filter(function(t){
+      return t.group===g && pred(t); }).length; }
+    var meEmail = (DATA.me||{}).email;
+    var nOpenFree = inGroup('Open', function(t){ return !t.assigned_to; });
+    var nWorkMine = inGroup('Being worked on', function(t){ return t.assigned_to===meEmail; });
     var cards=[
       { g:'NEEDS A CATEGORY', n:c['NEEDS A CATEGORY']||0, lab:'Needs you',
         note:'One question each · आपका जवाब चाहिए', cls:'need' },
       { g:'Open', n:c['Open']||0, lab:'Waiting',
-        note:(DATA.unassigned||0)+' nobody has picked up', cls:'' },
+        note: nOpenFree ? nOpenFree+' nobody has picked up' : 'all picked up', cls:'' },
       { g:'Being worked on', n:c['Being worked on']||0, lab:'You are on it',
-        note:(DATA.mine||0)+' of them are yours', cls:'' },
+        note: nWorkMine ? nWorkMine+' of them are yours' : 'none of them are yours', cls:'' },
       { g:'Resolved', n:c['Resolved']||0, lab:'Finished',
         note:'Partner was told', cls:'done' }
     ];
@@ -373,6 +388,9 @@
       VIEW.group==='Open' ? 'Waiting for someone' :
       VIEW.group==='Being worked on' ? 'Being worked on' :
       VIEW.group==='Resolved' ? 'Finished' : 'Not raised';
+    var mb=document.getElementById('mineBtn');
+    mb.className='toggle'+(VIEW.mine?' on':'');
+    mb.textContent = VIEW.mine ? 'Only mine ✕' : 'Only mine';
     document.getElementById('listNote').textContent =
       visible().length + (VIEW.mine?' of yours':'') + (DATA.capped?' · showing the newest':'');
   }
@@ -390,9 +408,23 @@
     if (LOADING){ el.innerHTML='<div class="skel"></div>'.repeat(5); return; }
     var ts=visible();
     if (!ts.length){
-      el.innerHTML='<div class="empty">'+
-        (VIEW.q ? 'Nothing matches that.' : VIEW.group==='NEEDS A CATEGORY'
-          ? 'Nothing needs you right now.' : 'Nothing here.')+'</div>';
+      // "Nothing here" is a lie when a filter is hiding things. Say what is hiding them and
+      // give the way out — this exact screen once showed 2 in the count and an empty list.
+      var inGroup=(DATA.tickets||[]).filter(function(t){ return t.group===VIEW.group; }).length;
+      var why='', fix='';
+      if (inGroup && VIEW.mine && VIEW.q){
+        why=inGroup+' here, but none are yours and none match “'+esc(VIEW.q)+'”.';
+        fix='<button class="link" onclick="clearFilters()">Show all '+inGroup+'</button>';
+      } else if (inGroup && VIEW.mine){
+        why=inGroup+' here, but none of them are assigned to you.';
+        fix='<button class="link" onclick="toggleMine()">Show all '+inGroup+'</button>';
+      } else if (inGroup && VIEW.q){
+        why=inGroup+' here, but none match “'+esc(VIEW.q)+'”.';
+        fix='<button class="link" onclick="clearFilters()">Clear the search</button>';
+      } else {
+        why = VIEW.group==='NEEDS A CATEGORY' ? 'Nothing needs you right now.' : 'Nothing here.';
+      }
+      el.innerHTML='<div class="empty">'+why+(fix?'<br><br>'+fix:'')+'</div>';
       return;
     }
     el.innerHTML=ts.map(function(t){
@@ -654,6 +686,12 @@
     renderChrome(); renderList(); persist();
     if (isA||wasA){ LOADING=true; renderList(); refresh(); }
   }
+  function toggleMine(){ VIEW.mine=!VIEW.mine; persist(); renderChrome(); renderList(); }
+  function clearFilters(){
+    VIEW.mine=false; VIEW.q='';
+    document.getElementById('q').value='';
+    persist(); renderChrome(); renderList();
+  }
   var st=null;
   function onSearch(){
     VIEW.q=document.getElementById('q').value; renderChrome(); renderList();
@@ -676,6 +714,7 @@
     if (e.key==='j'||e.key==='J'){ if(ts.length) openTicket(ts[Math.min(ts.length-1,i+1)].key); e.preventDefault(); }
     else if (e.key==='k'||e.key==='K'){ if(ts.length) openTicket(ts[Math.max(0,i-1)].key); e.preventDefault(); }
     else if (e.key==='/'){ document.getElementById('q').focus(); e.preventDefault(); }
+    else if (e.key==='m') toggleMine();
     else if (e.key==='r') refresh(true);
   });
 

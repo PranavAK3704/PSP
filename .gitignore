@@ -91,3 +91,9 @@ backend/data/intake/labels/
 *.db-wal
 *.db-shm
 *.db-journal
+
+# The Apps Script exemplar seed. Same bytes as backend/data/intake/corpus/exemplars.json above,
+# reshaped as CSV so it can be imported into a Sheet tab by hand — so it inherits that rule
+# exactly. appscript/seed/_dc_codes.csv and _dc_denylist.csv derive from committed config files
+# and stay committed; only this one carries partner text.
+appscript/seed/_exemplars.csv

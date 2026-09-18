@@ -108,6 +108,22 @@ If something fails, the message names the check and prints got-vs-want. The like
 order: the runtime is not V8; a seed CSV was not imported or the tab is misnamed; a file was
 pasted partially.
 
+> **After pasting a version that changed a tab's columns, run `migrateSchema()` too.** `setup()`
+> only *creates* tabs — it will not add a column to one that already exists, and writing a new
+> header over old rows would silently put every value under the wrong label. `migrateSchema()`
+> rebuilds each row by column name, so new columns arrive empty and nothing shifts.
+
+There is a second test that needs node and runs on your machine, not in Apps Script:
+
+```
+node appscript/tools/e2e.js
+```
+
+It stands up a fake Slack and an in-memory Sheet and runs the real `.gs` files unmodified — ten
+messages in, tickets out, an agent acting on them, then a second pipeline run that must not undo
+any of it. `runAllTests()` pins the algorithms; this pins the wiring, and every failure it checks
+for is one that actually shipped once.
+
 ### 7. Deploy the UI
 
 **Deploy → New deployment → Web app.** Execute as **Me**, access **Anyone within Meesho**.

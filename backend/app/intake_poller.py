@@ -101,9 +101,19 @@ def status() -> dict:
         if not _d_init():
             env["DURABLE_MIRROR"] = "not configured — local file only, WIPED on every deploy"
         else:
-            env["DURABLE_MIRROR"] = ("UNREADABLE — writes appear to succeed and vanish"
-                                     if _dp("intake_tickets.json").read_failed()
-                                     else "readable")
+            if not _dp("intake_tickets.json").read_failed():
+                env["DURABLE_MIRROR"] = "readable"
+            else:
+                # The reason, not just the fact. An exhausted quota, a revoked token and a bad
+                # URL all read as "unreadable" and have completely different fixes.
+                from . import durable_state as _ds
+                from .substrate import turso_http as _th
+                try:
+                    _th.execute(_ds._url, _ds._tok, "SELECT 1")
+                    why = "a probe query succeeded — the failure is key-specific"
+                except Exception as _e:                                   # noqa: BLE001
+                    why = f"{type(_e).__name__}: {str(_e)[:160]}"
+                env["DURABLE_MIRROR"] = f"UNREADABLE — writes vanish. {why}"
     except Exception as e:                                                # noqa: BLE001
         env["DURABLE_MIRROR"] = f"check failed: {type(e).__name__}"
     return {**_state, "running": bool(_thread is not None and _thread.is_alive()),

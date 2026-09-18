@@ -380,3 +380,52 @@ def test_an_absent_index_reports_not_loaded_rather_than_empty(client):
     shows them identically unless the page can ask which it is."""
     info = client.get("/api/intake/exemplars", headers=_token("agent")).json()
     assert info["loaded"] is False and info["count"] == 0
+
+
+def test_a_later_poll_fills_in_a_category_the_first_one_could_not(client):
+    """A ticket raised before the exemplar index was uploaded has no category. Freezing it at
+    creation means a classifier that improves never reaches the tickets an agent is looking at."""
+    d = _draft()
+    d["intent"] = ""
+    client.post("/api/intake/tickets", json=d, headers=_token("agent"))
+    assert client.get("/api/intake/tickets", headers=_token("agent")
+                      ).json()["tickets"][0]["disposition"] == ""
+
+    d["intent"] = "payment_not_received"
+    r = client.post("/api/intake/tickets", json=d, headers=_token("agent"))
+    assert r.json()["created"] is False, "it must still be the same ticket"
+    assert client.get("/api/intake/tickets", headers=_token("agent")
+                      ).json()["tickets"][0]["disposition"] == "payment_not_received"
+
+
+def test_a_later_poll_raises_the_recurrence_count(client):
+    d = _draft()
+    client.post("/api/intake/tickets", json=d, headers=_token("agent"))
+    d["occurrence_count"] = 3
+    client.post("/api/intake/tickets", json=d, headers=_token("agent"))
+    assert client.get("/api/intake/tickets", headers=_token("agent")
+                      ).json()["tickets"][0]["occurrence_count"] == 3
+
+
+def test_a_poll_never_overwrites_what_the_agent_decided(client):
+    """State and the partner-facing note belong to the human. The pipeline must not replace a
+    person's decision with a stale one on its next pass."""
+    d = _draft()
+    client.post("/api/intake/tickets", json=d, headers=_token("agent"))
+    client.patch("/api/intake/tickets/VAL-1", headers=_token("agent"),
+                 json={"state": "resolved", "status_note": "Refunded on the 4th."})
+    client.post("/api/intake/tickets", json=d, headers=_token("agent"))
+    t = client.get("/api/intake/tickets", headers=_token("agent")).json()["tickets"][0]
+    assert t["state"] == "resolved" and t["status_note"] == "Refunded on the 4th."
+
+
+def test_a_novel_answer_does_not_overwrite_a_real_category(client):
+    """NOVEL is the matcher declining. Writing that over a category it previously found would
+    be losing information, not updating it."""
+    d = _draft()
+    d["intent"] = "technical_issue"
+    client.post("/api/intake/tickets", json=d, headers=_token("agent"))
+    d["intent"] = "NOVEL"
+    client.post("/api/intake/tickets", json=d, headers=_token("agent"))
+    assert client.get("/api/intake/tickets", headers=_token("agent")
+                      ).json()["tickets"][0]["disposition"] == "technical_issue"

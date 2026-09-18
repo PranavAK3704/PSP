@@ -176,6 +176,27 @@ def _create_locked(payload: dict, key: str, created_by: str | None) -> dict:
         if t["idempotency_key"] == key:
             # ALREADY EXISTS. Return the original reference and its original token, so a
             # retried acknowledgement points at the same page rather than a second one.
+            #
+            # But DO refresh the two fields the pipeline owns and can now answer better than it
+            # could at creation: a ticket raised before the exemplar index was uploaded has no
+            # category, and a ticket raised before its second occurrence has a count of 1.
+            # Freezing those at creation time means a classifier that improves never reaches
+            # the tickets already in front of an agent. State and the partner-facing note are
+            # NOT touched — those belong to the agent, and the pipeline must not overwrite a
+            # human's decision with a stale one.
+            changed = False
+            fresh = payload.get("intent") or payload.get("disposition") or ""
+            if fresh and fresh != "NOVEL" and not t.get("disposition"):
+                t["disposition"] = fresh
+                changed = True
+            occ = payload.get("occurrence_count") or 1
+            if occ > (t.get("occurrence_count") or 1):
+                t["occurrence_count"] = occ
+                t["last_raised_at"] = payload.get("last_raised_at") or t.get("last_raised_at")
+                changed = True
+            if changed:
+                t["updated_at"] = _now()
+                _save(data)
             return {"ref": t["ref"], "created": False, "status_token": t["status_token"]}
 
     # NOT len()+1. Two creates racing on a stale read both compute the same number and two

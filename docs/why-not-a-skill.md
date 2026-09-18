@@ -39,7 +39,7 @@ This is not a case against Cowork. It is a case about which phase Cowork belongs
 - **Developing the prompts.** Stage 6's classification and closure prompts want a person
   reading real messages and arguing with the output. That is a conversation, not a cron job.
   Every prompt this service ships should be developed in a session first.
-- **Deciding the taxonomy.** `config/intents.yaml` has 14 buckets and a mandatory `UNMAPPED`.
+- **Deciding the taxonomy.** The disposition set has 14 buckets and a mandatory catch-all.
   Which buckets are right is a judgement about the business, and the fastest way to get it
   wrong is to have a batch job invent it.
 

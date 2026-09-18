@@ -58,42 +58,20 @@ backend/data/concern_log.orphaned-traces-8.json
 # anything that looks like row data rather than a count.
 !backend/data/tickets_summary.json
 
-# Live Slack pulls contain real user ids, emails and message text. The pipeline writes them
-# here so validate.js can gate them exactly as it gates an export — but they are never
-# committed. Synthetic fixtures under data/intake/fixtures/ are, and are safe by construction.
-backend/data/intake/live/
-backend/data/intake/raw/
-
-# The derived disposition corpus carries the same partner text as its source,
-# backend/data/kapture_audits.json — which .gitignore:30 already keeps out of the repo.
-# Committing the derivative would leak exactly what the source rule exists to withhold.
-# scripts/build_corpus_from_audits.py regenerates it in seconds, so nothing is lost.
-backend/data/intake/corpus/dispositions.json
-backend/data/intake/corpus/dispositions_holdout.json
-backend/data/intake/corpus/exemplars.json
-backend/data/intake/corpus/embeddings.npz
-backend/data/intake/corpus/embedding_index.json
-backend/data/intake/corpus/probe.pkl
-
-# The file sink's output. A created ticket carries the partner's own message text in its title
-# and description, so it inherits the live-pull rule above — a ticket register is not less
-# sensitive than the messages it was built from. The sheet sink writes to Google instead, and
-# the URL it posts to is a deployment credential already covered by backend/data/*.txt.
-backend/data/intake/tickets.jsonl
-
-# Human label confirmations from the NOVEL queue. These carry the partner's own wording, so they
-# inherit the live-pull rule — but they are also the ONLY data here a script cannot regenerate,
-# so losing them costs real human effort. app/intake/labels.py has export_confirmations(), which
-# can drop the text, for moving them off this machine deliberately rather than by a commit.
-backend/data/intake/labels/
+# The retired Python intake's working data: live Slack pulls, the derived disposition corpus,
+# the ticket register and the human label confirmations. All of it carries real partner message
+# text, which is why none of it was ever committed. The CODE that produced it is gone (the
+# pipeline now runs in appscript/), but the data stays on disk because it is the source
+# appscript/tools/build_seed.py rebuilds the Sheet's exemplar tab from.
+backend/data/intake/
 
 # SQLite journal sidecars — same rule as the database they belong to.
 *.db-wal
 *.db-shm
 *.db-journal
 
-# The Apps Script exemplar seed. Same bytes as backend/data/intake/corpus/exemplars.json above,
-# reshaped as CSV so it can be imported into a Sheet tab by hand — so it inherits that rule
-# exactly. appscript/seed/_dc_codes.csv and _dc_denylist.csv derive from committed config files
-# and stay committed; only this one carries partner text.
+# The Apps Script exemplar seed — the same partner text as backend/data/intake/corpus/
+# exemplars.json, reshaped as CSV so it can be imported into a Sheet tab by hand, so it
+# inherits that rule exactly. appscript/seed/_dc_codes.csv and _dc_denylist.csv carry no
+# partner text and stay committed; only this one does.
 appscript/seed/_exemplars.csv

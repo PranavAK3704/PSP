@@ -81,15 +81,10 @@ async def _request_log(request, call_next):
 
 # Role gates (server-side; the client is never trusted for role). An approver
 # implicitly satisfies an author-level gate (approver ≥ author) — see auth/deps.py.
-# Any authenticated STAFF user. Deliberately NOT `current_user`: the `agent` role exists to
-# work the intake register and must not reach the rest of PSP, and listing the staff roles here
-# means a new endpoint is closed to agents unless it opts in.
+# Any authenticated user. Listing the roles explicitly rather than using `current_user` keeps a
+# new endpoint closed by default to any role added later, which is how the retired `agent` role
+# was contained.
 _authed = Depends(require_role("viewer", "author", "approver"))
-
-# The intake ticket register. Its own router because it is the one part of PSP an `agent` can
-# reach, and because /t/{token} is intentionally unauthenticated for partners with no login.
-from .intake_api import router as _intake_router        # noqa: E402
-app.include_router(_intake_router)
 _author = Depends(require_role("author"))      # authoring writes (author or approver)
 _approver = Depends(require_role("approver"))  # approvals / go-live (approver only)
 
@@ -104,14 +99,6 @@ def _seed_users():
         blueprints.load()   # seeds the Losses brain if the store is empty
     except Exception:  # noqa: BLE001 — never let seeding block startup
         pass
-    # The Slack poller. Off unless SLACK_BOT_TOKEN and INTAKE_CHANNELS are both set, and its
-    # reason is logged either way — a deployment that is not listening should say so at boot
-    # rather than look like one that is listening and finding nothing.
-    try:
-        from . import intake_poller
-        _log.info("intake poller: %s", intake_poller.start())
-    except Exception as e:  # noqa: BLE001 — a broken poller must not stop PSP booting
-        _log.warning("intake poller failed to start: %s: %s", type(e).__name__, e)
 
 
 class ChatIn(BaseModel):

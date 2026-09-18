@@ -123,16 +123,6 @@ export const setUserPassword = (email, password) => apiPost("/api/auth/password"
 export const getHealth = () => apiGet("/api/health");
 export const getCaptains = () => apiGet("/api/captains");
 
-// ── intake ticket register ──────────────────────────────────────────────────
-export const getIntakeTickets = ({ state = "", q = "" } = {}) => {
-  const p = new URLSearchParams();
-  if (state) p.set("state", state);
-  if (q) p.set("q", q);
-  return apiGet(`/api/intake/tickets?${p}`);
-};
-export const getIntakeChannels = () => apiGet("/api/intake/channels");
-export const updateIntakeTicket = (ref, body) =>
-  apiPatch(`/api/intake/tickets/${encodeURIComponent(ref)}`, body);
 export const getLedger = () => apiGet("/api/ledger");
 export const getCaptainCases = (id) => apiGet(`/api/captain/${id}/cases`);
 /* What proactive monitoring found for this captain. Separate from cases on purpose: nobody

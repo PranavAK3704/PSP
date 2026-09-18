@@ -16,12 +16,11 @@ import threading
 
 from ..durable_state import read_json, write_json
 
-#: `agent` works the intake ticket register and sees NOTHING else in PSP. It is deliberately
-#: outside the viewer/author/approver ladder rather than below it: those three are about
-#: authoring rights over SOPs and go-live, and an intake agent has none of them at any level.
-#: Enforcement is in main.py — `_authed` excludes `agent`, so a new endpoint is closed to
-#: agents by default and has to opt in.
-ROLES = {"author", "approver", "viewer", "agent"}
+#: The authoring ladder. `viewer` reads, `author` drafts, `approver` publishes and administers.
+#: A fourth role, `agent`, existed only to work the Slack intake register and went with it when
+#: intake moved to Apps Script — an account still carrying it will fail role validation, which
+#: is the intended outcome since there is nothing left for it to reach.
+ROLES = {"author", "approver", "viewer"}
 
 #: The L3 team a user works in — orthogonal to `role`, which is about authoring rights.
 #
@@ -175,9 +174,9 @@ def set_password(email: str, password: str) -> dict:
     """Reset a user's password. Returns the public view.
 
     Without this, a forgotten or mistyped password is PERMANENT: there is no delete either, so
-    the account is stranded and the only way out is a new email address. That is how
-    `intake-bot@meesho.com` ended up unusable — created through the form with a password that
-    did not match the one the pipeline had.
+    the account is stranded and the only way out is a new email address. That has happened —
+    an account created through the form with a password that did not match the one its caller
+    had, unusable and unfixable until this existed.
 
     A fresh salt is generated rather than reusing the old one, so the stored hash of a repeated
     password is not identical to what it was before.

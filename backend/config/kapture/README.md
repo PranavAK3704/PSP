@@ -27,7 +27,8 @@ Kapture xlsx export, built on a laptop by `scripts/build_tickets_db.py` and open
 
 ## How the demo substitutes
 
-`app/intake/dedupe.py` defines the seam:
+The retired Slack intake defined the seam this way (kept as the shape any future
+integration should follow):
 
 ```python
 class KaptureDedupeSource(Protocol):
@@ -47,4 +48,4 @@ does not change.
 `tickets.db` keys on a 13-digit `ticket_no`; the Concern Log keys on `CNC-<uuid8>`. **There is
 no cross-reference column in either direction.** So even with a live Kapture read, linking an
 intake issue to the historical ticket that motivated it needs a natural key on the PSP side
-too — see `docs/psp-ticket-contract.md`, requirement 3.
+too.

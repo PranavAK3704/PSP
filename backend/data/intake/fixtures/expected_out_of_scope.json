@@ -1,8 +1,0 @@
-{
-  "_what": "pilot_support_ams \u2014 the support team's own internal channel. MUST be excluded.",
-  "_why": "Pointed at this, the pipeline would raise support tickets for people requesting a day off.",
-  "_top_level": 9,
-  "_carrying_an_identifier": 1,
-  "_expected_identifier_rate": 0.1111,
-  "_expected_in_scope": false
-}

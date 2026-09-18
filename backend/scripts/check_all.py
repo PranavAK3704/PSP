@@ -41,9 +41,6 @@ HARNESSES = [
     ("check_followups",   "follow-ups answered in scope, and never out of it"),
     ("check_followups_e2e", "the wiring: disposition -> chips -> tap/number, both transports"),
     ("check_shadow",       "what shadow mode has collected — the diff nothing was reading"),
-    # Sets its own $INTAKE_DB: contain() cannot redirect a SQLite file (it SYMLINKS *.db),
-    # and the intake store is the first writable database in this repo.
-    ("check_intake",       "the Slack intake contract gate, and that loading twice is a no-op"),
 ]
 
 

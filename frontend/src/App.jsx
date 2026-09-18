@@ -5,7 +5,6 @@ import Connectors from "./pages/Connectors.jsx";
 import Calibration from "./pages/Calibration.jsx";
 import L3Workspace from "./pages/L3Workspace.jsx";
 import SupportCommand from "./pages/SupportCommand.jsx";
-import Intake from "./pages/Intake.jsx";
 import Shader from "./components/Shader.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import { ChatStoreProvider } from "./lib/chatStore.jsx";
@@ -63,18 +62,11 @@ const VIEWS = {
   calibration: { label: "Trust Numbers",   icon: "speed",           comp: Calibration,
              title: "Do our two trust numbers mean anything?",
              sub: "The gate's confidence, and whether the audit judge agrees with a human." },
-  intake: { label: "Intake",         icon: "inbox",           comp: Intake,
-             title: "Tickets raised from partner conversations",
-             sub: "Every row came from someone writing in a channel — not from a form." },
 };
 
 /* One group per PERSONA. `.nav-sep` has existed in styles.css since the first build and was
    never used — this is what it was for. */
 const NAV_GROUPS = [
-  // `intake` is first and alone because an `agent` sees ONLY this group — for them the sidebar
-  // is one row, and it should be the first thing on the page rather than buried under desks
-  // they have no access to.
-  { label: "intake",       rows: ["intake"] },
   { label: "captain",      rows: ["captain"] },
   { label: "l3 desk",      rows: ["l3"] },
   // `connectors` and `calibration` sit here because a support-team person is who reads them,
@@ -94,15 +86,14 @@ const ROLE_LABEL = { approver: "Admin", author: "Editor", viewer: "Viewer", agen
 
 /* Which views each role may open. The SERVER is the real gate — every endpoint behind these
    pages checks the role on the signed token — so this is about not showing someone a door that
-   will only 403. `agent` is deliberately a single view: an intake agent works the register and
-   has no business in SOPs, calibration or the ledger. */
-const ROLE_VIEWS = { agent: ["intake"] };
+   will only 403. Every current role sees everything; the map is kept because the next
+   restricted role should be expressed here rather than by hiding buttons ad hoc. */
+const ROLE_VIEWS = {};
 const viewsFor = (role) => ROLE_VIEWS[role] || null;   // null = everything
 const ROLE_HINT = {
   approver: "Full access — sees everything, approves go-lives, and manages the team. Use this for leadership who need admin rights.",
   author: "Can draft and queue knowledge (SOPs, brains); cannot make things go live.",
   viewer: "Read-only — sees every dashboard, metric, and audit; changes nothing. Good for leadership who only observe.",
-  agent: "Intake only — works the ticket register raised from partner conversations, and sees nothing else in PSP. Use this for the support agents who action tickets.",
 };
 
 // Wrap the whole app in the auth gate: no valid session → Login; otherwise the shell.
@@ -203,10 +194,7 @@ function Login() {
 /* ══════════════════════════════════════════════════════════════════════════
    TEAM ADMIN — approver-only. List + add team members (email, name, role, temp pw).
    ══════════════════════════════════════════════════════════════════════════ */
-// `agent` last because it is the narrowest — intake only, no access to the rest of PSP. It has
-// to be here: the intake pipeline signs in as an `agent` account, so without this row there is
-// no way to create one and the sink cannot authenticate at all.
-const ADMIN_ROLES = ["viewer", "author", "approver", "agent"];
+const ADMIN_ROLES = ["viewer", "author", "approver"];
 function TeamAdmin({ onClose }) {
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState({ email: "", name: "", role: "approver", password: "" });

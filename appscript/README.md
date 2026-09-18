@@ -1,0 +1,249 @@
+# Slack → Sheet → tickets, entirely in Apps Script
+
+Everything runs inside one Google Sheet: storage, scheduling, the pipeline, email, and the UI.
+No server, no database, nothing to deploy, nothing that spins down.
+
+You paste the code by hand because there is no `clasp` and no OAuth push. That is the only
+manual part — after setup it runs on triggers.
+
+---
+
+## What you do, once
+
+### 1. Make the Sheet and open the editor
+
+New Google Sheet → **Extensions → Apps Script**.
+
+### 2. Confirm the runtime is V8
+
+**Project Settings** → tick **"Show `appsscript.json` manifest file in editor"**.
+Open `appsscript.json` and replace it with the copy in this folder.
+
+`"runtimeVersion": "V8"` is not optional. Three things in this port — lookbehind assertions,
+`\p{L}` character classes, and sticky regexes — do not exist on the legacy Rhino runtime. On
+Rhino the files fail to compile, which is the good failure; what would be worse is them
+half-working.
+
+### 3. Paste the files
+
+**File → New → Script** for each, named exactly as below, then paste. Order does not matter —
+nothing in this project has cross-file top-level state — but this order makes the most sense to
+read:
+
+| # | File | What it is |
+|---|---|---|
+| 1 | `Config.gs` | settings, secrets, sheet plumbing, the four primitives |
+| 2 | `Lexicons.gs` | the noise rules and the 262-term evidence lexicon |
+| 3 | `SlackParser.gs` | reads Slack, appends to `raw_messages` |
+| 4 | `Noise.gs` | the gate and the informational classifier |
+| 5 | `Entities.gs` | DC codes in two tiers, plus five identifier patterns |
+| 6 | `Evidence.gs` | "is this an issue at all?" |
+| 7 | `Group.gs` | messages → one issue, then the register row |
+| 8 | `Dedupe.gs` | duplicate linking, and the `SequenceMatcher` port |
+| 9 | `Classify.gs` | BM25 disposition matching, or NOVEL |
+| 10 | `Emit.gs` | the ticket draft: identity, title, flags, suppression |
+| 11 | `Pipeline.gs` | the orchestrator |
+| 12 | `Notify.gs` | the acknowledgement email |
+| 13 | `WebApp.gs` | the queue's server side and the partner page |
+| 14 | `Health.gs` | the three checks |
+| 15 | `Setup.gs` | `setup()`, the triggers, daily rotation |
+| 16 | `Tests.gs` | `runAllTests()` |
+
+Then **File → New → HTML**, name it `UI` (the editor adds `.html`), and paste `UI.html`.
+
+### 4. Set the four Script Properties
+
+**Project Settings → Script Properties → Add script property.**
+
+| Key | Value |
+|---|---|
+| `SLACK_BOT_TOKEN` | `xoxb-…` — the read-only bot token |
+| `CHANNELS` | `C08T6NLL77H,C09ABCDEF` — comma-separated channel ids |
+| `INTAKE_NOTIFY` | `off` to start. `email-dry` to see what would send. `email` when you mean it |
+| `INTAKE_SECRET` | any long random string; it signs the partner status-page tokens |
+
+The token goes here and never in a `.gs` file. This folder is committed to git; Script
+Properties are not.
+
+A fifth, `WEBAPP_URL`, is optional — set it to the deployment URL after step 7 and the
+acknowledgement emails start carrying a tracking link.
+
+### 5. Import the three seed CSVs
+
+**File → Import → Upload**, and for each choose **Insert new sheet**:
+
+| CSV | Becomes the tab | Rows |
+|---|---|---|
+| `seed/_dc_codes.csv` | `_dc_codes` | 11,723 hub codes |
+| `seed/_dc_denylist.csv` | `_dc_denylist` | 140 tokens that look like codes and are not |
+| `seed/_exemplars.csv` | `_exemplars` | 1,259 labelled messages |
+
+Rename each imported tab to exactly the name in the middle column — Google names them after the
+file, which is usually right but check.
+
+These are tabs rather than constants in the code so you can edit them. The exemplars tab in
+particular is written to by the UI every time somebody names a NOVEL ticket.
+
+> `seed/_exemplars.csv` contains real partner message text and is gitignored. The other two
+> derive from committed config and are in the repo.
+
+### 6. Run `setup()`, then `runAllTests()`
+
+Pick `setup` from the function dropdown and **Run**. Authorise when asked. It creates the
+remaining tabs, hides the reference ones, and installs five triggers.
+
+Then run `runAllTests`. **It must print `ALL PASS` before you trust anything.** It is 123
+assertions, and the expected values came from running the reference Python implementation, not
+from what this code happens to do.
+
+If something fails, the message names the check and prints got-vs-want. The likely causes, in
+order: the runtime is not V8; a seed CSV was not imported or the tab is misnamed; a file was
+pasted partially.
+
+### 7. Deploy the UI
+
+**Deploy → New deployment → Web app.** Execute as **Me**, access **Anyone within Meesho**.
+Copy the URL into the `WEBAPP_URL` script property.
+
+---
+
+## Updating later
+
+Edit one file here, paste it over the same file in the editor, then
+**Deploy → Manage deployments → ✏️ → Version: New version → Deploy.**
+
+Skipping the new version means the UI keeps serving the old code while the triggers run the new
+code, which is a confusing half-hour.
+
+---
+
+## How it runs
+
+```
+every 1 min    pollSlack            Slack → raw_messages
+every 5 min    runPipeline          raw_messages → issues → tickets
+every 10 min   sendAcknowledgements tickets → email
+every 30 min   sweepThreadReplies   late replies on older threads
+daily 03:00    dailyMaintenance     archive old rows to Drive
+```
+
+A message is in the sheet within a minute and is a ticket within five.
+
+Runtime cost is about 12,000 seconds a day against a Workspace allowance of 21,600 — a little
+over half. `pollSlack` uses roughly 9,000 UrlFetch calls a day against 100,000.
+
+Every entry point takes the script lock with `tryLock(0)` and exits immediately if a previous
+run is still going. Nothing queues.
+
+### The tabs
+
+| Tab | Written by | What it holds |
+|---|---|---|
+| `raw_messages` | parser, then pipeline | every message, append-only, plus its assignment |
+| `issues` | pipeline | one row per issue: tokens, latency, state, duplicate link |
+| `tickets` | pipeline, then the UI | the product |
+| `channels` | parser | what it is listening to, and any errors |
+| `_state` | both | watermarks and counters |
+| `_dc_codes`, `_dc_denylist`, `_exemplars` | you, then the UI | reference data |
+
+---
+
+## The three checks
+
+Run `healthCheck()` from the editor, or read the chips at the top of the UI:
+
+```
+  ok   INTENT — 1259 exemplars · 23 classified, 4 NOVEL
+  ok   POLLING — 2 channel(s) · last 14:31:02
+  !!   ACK — DRY RUN, nothing is being sent
+```
+
+A warning is counted separately from a failure and never rounds up to OK. An earlier version of
+this check printed "ALL THREE OK" while four acknowledgements were failing, which is the
+specific thing it now refuses to do.
+
+---
+
+## Capacity — read this before you scale it
+
+A Google Sheet holds **10,000,000 cells across all tabs**. Three tabs grow with traffic:
+
+| Tab | Columns | Rows per 1,000 messages |
+|---|---|---|
+| `raw_messages` | 25 | 1,000 |
+| `issues` | 24 | ~440 |
+| `tickets` | 30 | ~260 |
+
+That is about **136 cells per message** once the 180-day grouping window is full, so against an
+8,000,000-cell working budget:
+
+| Grouping window | Sustainable volume |
+|---|---|
+| 180 days (as shipped) | **~59,000 messages/month** |
+| 90 days | ~99,000/month |
+| 30 days | ~184,000/month |
+
+**This is lower than the 100k–1M/month you mentioned, and lower than my own plan said** — that
+estimate counted only `raw_messages` and missed that `issues` and `tickets` draw on the same
+budget. The honest position:
+
+- **Up to ~59k/month**: this design works as shipped. `dailyMaintenance()` archives old
+  `raw_messages` rows to CSV files in Drive, which is the only move that actually returns
+  cells — archiving to another tab spends the same budget.
+- **Up to ~180k/month**: shorten `CFG().grouping.windows` to 30 days. You lose the ability to
+  link a payment issue to the same person's issue five months earlier, which is a real loss;
+  measure before accepting it.
+- **Above that**: `raw_messages` needs to leave Sheets (BigQuery is the natural target).
+  `SlackParser.gs` is the only file that changes; `issues` and `tickets` can stay here.
+
+`capacityReport()` prints where you actually are.
+
+---
+
+## Things that are deliberately true
+
+**It cannot write to Slack.** The token carries eight scopes, all `:history` or `:read`. There
+is no send function and no code path that could become one. Acknowledgement is email only.
+
+**The partner status page is built but dormant.** The deployment is Meesho-only, so a partner
+following a status link hits a sign-in they cannot pass. Until "Anyone" access is approved, the
+acknowledgement email carries the reference, category and state *in the body*, and the link is
+only added for `@meesho.com` recipients. When approval lands, change the deployment access
+dropdown — no code changes.
+
+**NOVEL is not a category.** It is the classifier refusing to guess, which is why it leads the
+queue as **NEEDS A CATEGORY**. Naming one writes a `gold` row into `_exemplars`, and the next
+pipeline run — five minutes later — classifies against it. Gold counts for three silver, so one
+human label can outvote a partially-matching established class. That is the whole creep loop,
+and it needs no deploy and no retraining.
+
+**Devanagari always comes out NOVEL.** BM25 is lexical and its tokeniser is `[a-z0-9]+`, so a
+message in Devanagari scores 0.00 against everything. That is measured, not a bug: those
+messages route to a human instead of being confidently mislabelled. Widening the token class
+would produce matches on shared punctuation and look like it was working. Closing this properly
+needs a semantic tier.
+
+**Duplicates are linked, never merged.** Both issues stay in the register with their own
+threads. The MX1 case — the same problem posted in two channels 47 seconds apart, then 4
+replies on one side and 2 on the other — is why: merging discards one of the forked threads.
+
+**`MERGE_MONEY_CLASSES` is off.** Collapsing the five money dispositions into one measured at
+**+17.9 precision points for zero coverage cost**, the largest single lever available. It is off
+because it changes how the desk routes work, which is your call, not the code's. Flip
+`CFG().mergeMoneyClasses` to `true` and re-run. I would turn it on.
+
+---
+
+## If something looks wrong
+
+| Symptom | Where to look |
+|---|---|
+| No messages arriving | `channels` tab, `last_error` column. `not_in_channel` means invite the bot |
+| Messages but no tickets | `raw_messages` columns R–Y: `gated`, `evidence_decision`, `issue_id` tell you which stage stopped it |
+| Everything is NOVEL | the `_exemplars` tab is empty or misnamed — `healthCheck()` says so explicitly |
+| Nothing is acknowledged | `INTAKE_NOTIFY` is `off` or `email-dry`; then the `acknowledge_error` column |
+| Runs are slow | Executions tab. Over 120 s per run needs attention; the hard cap is 360 s |
+| A ticket looks wrong | its `assign_reason` on the message row says exactly why it grouped where it did |
+
+Every stage writes its reasoning next to its output. That is deliberate: a pipeline you cannot
+interrogate is one you end up trusting or discarding wholesale, and neither is useful.

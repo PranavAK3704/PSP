@@ -262,6 +262,31 @@ def list_channels(user: dict = Depends(intake_access)) -> dict:
 EXEMPLARS = "intake_exemplars.json"
 
 
+def _pack(rows: list) -> str:
+    """gzip+base64 the index.
+
+    366 KB of raw JSON did not survive a redeploy: it lived in the in-process cache, so the
+    read-back right after upload looked fine, and the durable copy was never there. Only three
+    fields are needed by the matcher, and the text compresses hard because support messages
+    repeat themselves — 366 KB becomes about 100 KB, which is a different order of risk against
+    whatever row limit the mirror has.
+    """
+    import base64
+    import gzip
+    slim = [{"t": r["text"], "d": r["disposition"],
+             "g": 1 if r.get("label_provenance") == "gold" else 0} for r in rows]
+    blob = json.dumps(slim, ensure_ascii=False, separators=(",", ":")).encode()
+    return base64.b64encode(gzip.compress(blob, 9)).decode()
+
+
+def _unpack(packed: str) -> list:
+    import base64
+    import gzip
+    slim = json.loads(gzip.decompress(base64.b64decode(packed)).decode())
+    return [{"text": r["t"], "disposition": r["d"],
+             "label_provenance": "gold" if r.get("g") else "silver"} for r in slim]
+
+
 @router.post("/api/intake/exemplars")
 def upload_exemplars(payload: dict = Body(...), user: dict = Depends(intake_admin)) -> dict:
     """Upload the disposition exemplar index.
@@ -283,16 +308,38 @@ def upload_exemplars(payload: dict = Body(...), user: dict = Depends(intake_admi
     if bad:
         raise HTTPException(status_code=400,
                             detail=f"rows {bad[:5]} lack text or disposition")
+    packed = _pack(rows)
     durable_path(EXEMPLARS).write_text(json.dumps(
-        {"exemplars": rows, "uploaded_at": _now(), "uploaded_by": user.get("email"),
-         "count": len(rows)}, ensure_ascii=False))
-    dispositions = sorted({r["disposition"] for r in rows})
-    return {"ok": True, "count": len(rows), "dispositions": dispositions}
+        {"packed": packed, "uploaded_at": _now(), "uploaded_by": user.get("email"),
+         "count": len(rows)}))
+
+    # VERIFY, do not assume. durable_state degrades to a local-only write when the mirror is
+    # unreadable, and the local copy is wiped on the next deploy — so an upload can look
+    # successful, read back correctly from the in-process cache, and simply not be there
+    # tomorrow. That is exactly what happened the first time. Reading it back through a fresh
+    # parse is the cheapest check that the round trip actually works.
+    back = exemplar_index().get("exemplars") or []
+    if len(back) != len(rows):
+        raise HTTPException(
+            status_code=507,
+            detail=f"stored {len(rows)} exemplars but read back {len(back)} — the durable "
+                   f"mirror did not accept it ({len(packed):,} bytes packed). The index is NOT "
+                   f"saved.")
+    return {"ok": True, "count": len(rows), "packed_bytes": len(packed),
+            "dispositions": sorted({r["disposition"] for r in rows})}
 
 
 def exemplar_index() -> dict:
-    """The stored index, or an empty one. Used by the poller, not served to anyone."""
-    return read_json_from(durable_path(EXEMPLARS), {"exemplars": []})
+    """The stored index, unpacked, or an empty one. Used by the poller, not served to anyone."""
+    d = read_json_from(durable_path(EXEMPLARS), {})
+    if not d.get("packed"):
+        return {"exemplars": []}
+    try:
+        return {**d, "exemplars": _unpack(d["packed"])}
+    except Exception:                                                     # noqa: BLE001
+        # A corrupt blob must read as "no index" — classification then reports itself as off,
+        # which is recoverable, rather than crashing every poll.
+        return {"exemplars": []}
 
 
 @router.get("/api/intake/exemplars")

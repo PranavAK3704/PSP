@@ -429,3 +429,29 @@ def test_a_novel_answer_does_not_overwrite_a_real_category(client):
     client.post("/api/intake/tickets", json=d, headers=_token("agent"))
     assert client.get("/api/intake/tickets", headers=_token("agent")
                       ).json()["tickets"][0]["disposition"] == "technical_issue"
+
+
+def test_the_index_round_trips_through_compression(client):
+    """366 KB of raw JSON did not survive a redeploy — it lived in the in-process cache, so the
+    read-back straight after upload looked fine and the durable copy was never written."""
+    rows = [{"text": f"message number {i} about payment", "disposition": "payment_not_received",
+             "label_provenance": "gold" if i % 3 == 0 else "silver"} for i in range(200)]
+    r = client.post("/api/intake/exemplars", json={"exemplars": rows},
+                    headers=_token("approver"))
+    assert r.status_code == 200, r.text
+    assert r.json()["packed_bytes"] < 20_000, "compression should beat the raw size heavily"
+
+    back = intake_api.exemplar_index()["exemplars"]
+    assert len(back) == 200
+    assert back[0]["text"] == rows[0]["text"]
+    assert sum(1 for x in back if x["label_provenance"] == "gold") == \
+        sum(1 for x in rows if x["label_provenance"] == "gold"), \
+        "gold provenance drives gold_weight at match time and must survive the round trip"
+
+
+def test_a_corrupt_blob_reads_as_no_index_rather_than_crashing(client, monkeypatch):
+    """Classification reporting itself as off is recoverable; a poll that raises every minute
+    is not."""
+    from app.durable_state import durable_path
+    durable_path(intake_api.EXEMPLARS).write_text('{"packed": "not-valid-base64-gzip"}')
+    assert intake_api.exemplar_index()["exemplars"] == []

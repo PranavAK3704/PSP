@@ -113,6 +113,20 @@ def _body(title: str, ref: str, status_url: str, occurrences: int) -> tuple[str,
     return text, html
 
 
+def _ipv4(host: str) -> str:
+    """The first A record for `host`, or `host` unchanged if none resolves.
+
+    Returning the hostname on failure rather than raising keeps the error where it belongs: a
+    DNS problem should surface as the connection error it causes, not as a different exception
+    from a helper.
+    """
+    import socket
+    try:
+        return socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
+    except (socket.gaierror, IndexError):
+        return host
+
+
 def _esc(s: str) -> str:
     return (str(s or "").replace("&", "&amp;").replace("<", "&lt;")
             .replace(">", "&gt;").replace('"', "&quot;"))
@@ -171,7 +185,21 @@ class EmailNotifier:
             ctx = ssl.create_default_context(cafile=certifi.where())
         except ImportError:
             ctx = ssl.create_default_context()
-        with smtplib.SMTP(self.cfg.host, self.cfg.port, timeout=30) as s:
+        # IPv4 EXPLICITLY. smtp.gmail.com resolves to an AAAA record first, and a container
+        # with no IPv6 egress — Render's, among others — fails that attempt with
+        # "OSError: [Errno 101] Network is unreachable". Whether the IPv4 fallback is then
+        # reached depends on resolver ordering, so sends succeed intermittently and the error
+        # reads like a blocked port rather than a missing route. Resolving A records ourselves
+        # removes the ambiguity. `local_hostname` is pinned because the container's own
+        # hostname is not a FQDN and some servers reject the EHLO.
+        host = _ipv4(self.cfg.host)
+        with smtplib.SMTP(host, self.cfg.port, timeout=30,
+                          local_hostname="valmo-intake") as s:
+            # starttls takes its SNI and its certificate-verification name from `_host`, which
+            # is the IP we just dialled. Restoring the hostname is what keeps the connection
+            # verified — dialling by address must not become a reason to trust an unverified
+            # certificate.
+            s._host = self.cfg.host
             s.starttls(context=ctx)
             s.login(self.cfg.username, self.cfg.password)
             s.send_message(msg)

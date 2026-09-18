@@ -136,3 +136,31 @@ def test_a_send_failure_is_recorded_rather_than_retried_forever(run):
     assert stats["failed"] > 0 and stats["sent"] == 0
     row = con.execute("SELECT ok, error FROM notifications LIMIT 1").fetchone()
     assert row[0] == 0 and "smtp down" in row[1]
+
+
+# ── the transport ────────────────────────────────────────────────────────────────────────────
+
+def test_the_host_resolves_to_ipv4():
+    """smtp.gmail.com answers with an AAAA record first, and a container with no IPv6 egress
+    fails that attempt with Errno 101 "Network is unreachable". Whether the IPv4 fallback is
+    reached depends on resolver ordering, so sends succeeded intermittently and the error read
+    like a blocked port rather than a missing route."""
+    ip = notify._ipv4("smtp.gmail.com")
+    assert ip.count(".") == 3 and ":" not in ip, f"expected an IPv4 address, got {ip}"
+
+
+def test_an_unresolvable_host_falls_through_unchanged():
+    """A DNS failure should surface as the connection error it causes, not as a different
+    exception thrown by a helper."""
+    assert notify._ipv4("nope.invalid.example") == "nope.invalid.example"
+
+
+def test_tls_is_still_verified_against_the_hostname():
+    """Dialling by address must not become a reason to trust an unverified certificate: the
+    cert is issued for the name, so `_host` is restored before starttls."""
+    import inspect
+    src = inspect.getsource(notify.EmailNotifier.send)
+    assert "_host = self.cfg.host" in src
+    assert "starttls" in src
+    i_host = src.index("_host = self.cfg.host")
+    assert i_host < src.index("starttls(context"), "the name must be restored BEFORE the handshake"

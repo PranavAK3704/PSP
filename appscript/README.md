@@ -120,6 +120,10 @@ Copy the URL into the `WEBAPP_URL` script property.
 Edit one file here, paste it over the same file in the editor, then
 **Deploy → Manage deployments → ✏️ → Version: New version → Deploy.**
 
+**Your `/exec` URL does not change**, so nothing needs re-configuring — not `WEBAPP_URL`, not
+the agents' bookmarks, not the links already in partners' inboxes. Google's own wording: editing
+a deployment "updates the application for all users while maintaining the same URL".
+
 Two ways to get this wrong, both quiet:
 
 - **Skipping the new version** leaves the UI serving old code while the triggers run new code.
@@ -129,6 +133,21 @@ Two ways to get this wrong, both quiet:
 
 Never give agents the `/dev` URL — it requires edit access to the script project, which also
 exposes `SLACK_BOT_TOKEN` and `INTAKE_SECRET` in Script Properties.
+
+### The one property you must never edit
+
+`INTAKE_SECRET` signs the partner status-page tokens, and `public_token` is *derived* from it —
+the pipeline recomputes it every time a ticket updates. Change that property and **every status
+link already emailed stops working**, silently: the old link matches no row and the page says
+"not found".
+
+Nothing can prevent that from inside the script, so it is detected instead. `healthCheck()`
+stores a fingerprint of the secret on first run and shouts if it ever changes. If you rotate it
+by accident, restoring the old value restores the links.
+
+`WEBAPP_URL` is the only property tied to the deployment URL, and only one thing reads it: the
+tracking link in the acknowledgement email. If you ever *do* create a new deployment, that is
+the single property to update.
 
 ---
 

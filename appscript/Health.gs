@@ -94,6 +94,28 @@ function healthSummary_() {
   return out;
 }
 
+/**
+ * Has INTAKE_SECRET changed since the tickets were written?
+ *
+ * public_token is DERIVED — sha256(INTAKE_SECRET + idempotency_key) — and the pipeline rewrites
+ * it whenever a ticket updates. So changing that Script Property silently invalidates every
+ * status link already emailed to a partner: the old link stops matching any row and the page
+ * says "not found", with nothing anywhere saying why.
+ *
+ * This cannot be prevented from inside the script, so it is DETECTED instead. A fingerprint of
+ * the secret is stored on first run and compared on every check. Mismatched means somebody
+ * edited it, and every link sent before that moment is dead.
+ */
+function secretDrift_() {
+  var fp = sha256Hex(prop_('INTAKE_SECRET', 'unset')).slice(0, 12);
+  var seen = String(stateGet_('secret:fingerprint', ''));
+  if (!seen) { stateSet_('secret:fingerprint', fp); return null; }
+  if (seen === fp) return null;
+  return 'INTAKE_SECRET has CHANGED. Every partner status link emailed before this point is ' +
+         'now dead, because public_token is derived from it. Restore the old value if you ' +
+         'still have it; otherwise those links stay broken and new ones work.';
+}
+
 function ageMinutes_(istIso) {
   try {
     var t = Date.parse(String(istIso).replace('+05:30', '+05:30'));
@@ -121,6 +143,9 @@ function healthCheck() {
 
   var last = String(stateGet_('pipe:last_ms', ''));
   if (last) lines.push('       last pipeline run: ' + last + ' ms (6-minute cap is 360,000)');
+
+  var drift = secretDrift_();
+  if (drift) lines.push('', '  XX   ' + drift);
 
   var out = lines.join('\n');
   Logger.log(out);

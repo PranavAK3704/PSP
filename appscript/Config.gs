@@ -15,7 +15,10 @@
  *   SLACK_BOT_TOKEN   xoxb-…    the read-only bot token
  *   CHANNELS          C123,C456 comma-separated channel ids to listen on
  *   INTAKE_NOTIFY     off | email-dry | email
- *   INTAKE_SECRET     any long random string — signs the partner status-page tokens
+ *   INTAKE_SECRET     any long random string — signs the partner status-page tokens.
+ *                     SET IT ONCE AND NEVER CHANGE IT: public_token is derived from it, so
+ *                     editing it silently kills every status link already emailed. healthCheck()
+ *                     detects the change and says so, but cannot undo it.
  *
  * A missing SLACK_BOT_TOKEN throws by name rather than failing as a 401 twenty lines later.
  */

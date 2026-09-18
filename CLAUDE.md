@@ -85,8 +85,14 @@ Kept because they are about how this repo fails, not about the intake pipeline s
 ## Still open
 
 - Hub names and cities from ops, to make the DC registry readable.
-- A semantic tier for Devanagari: the Apps Script classifier is lexical, so Devanagari messages
-  always route to a human. `docs/indic-intent-prior-art.md` has the prior art and the measured
-  numbers.
+- **A semantic tier for Devanagari.** The Apps Script classifier tokenises on `[a-z0-9]+`, so a
+  message in Devanagari yields no tokens, scores 0.00 against every disposition and always
+  routes to a human. Measured, not accidental — BM25 is lexical and cannot match across scripts.
+  What the prior art said, so it does not have to be re-researched: the datasets exist
+  (Hinglish-TOP, MASSIVE, AI4Bharat) but nothing solves this use case with rules; every serious
+  implementation is a trained model. Rule-based transliteration fails outright — `पेमेंट` becomes
+  `pememta`, a spelling nobody types. A multilingual embedding model scored 0.937 cosine on the
+  exact message BM25 scores 0.00 on, and needs TWO similarity floors rather than one, because
+  cross-lingual pairs sit systematically lower (0.663 vs 0.759).
 - Whether to merge the five money dispositions — measured at **+17.9 precision points for zero
   coverage cost**, and shipped as a config switch that is currently off.

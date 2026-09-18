@@ -146,7 +146,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  var DATA = null;            // last getQueue payload
+  var DATA = null;            // last getQueue payload (ALL active groups, unfiltered)
   var TICKET = null;          // full detail of the open ticket
   var SEL = null;             // selected ticket key
   var VIEW = { group: 'NEEDS A CATEGORY', mine: false, q: '' };
@@ -200,11 +200,31 @@
     document.getElementById('mineBtn').className = 'toggle'+(VIEW.mine?' on':'');
     document.getElementById('mineBtn').textContent = 'Assigned to me ('+(DATA.mine||0)+')';
     document.getElementById('meta').textContent =
-      (DATA.unassigned||0)+' unassigned · '+(DATA.total||0)+' total'+(DATA.capped?' · list capped':'');
+      visible().length+' shown · '+(DATA.unassigned||0)+' unassigned · '+(DATA.total||0)+
+      ' total'+(DATA.capped?' · list capped':'');
+  }
+
+  /**
+   * Filter the server's list in the BROWSER. Switching tabs, toggling "mine" and typing in the
+   * search box all used to be a Sheets round trip — about two seconds before the tab even
+   * highlighted, which reads as a dead button. The server sends every active group at once now,
+   * so all three are instant and only an explicit refresh touches the network.
+   */
+  function visible(){
+    var q = (VIEW.q||'').toLowerCase();
+    return (DATA.tickets||[]).filter(function(t){
+      if (t.group !== VIEW.group) return false;
+      if (VIEW.mine && (!DATA.me || t.assigned_to !== DATA.me.email)) return false;
+      if (q) {
+        var hay = (t.title+' '+t.dc_code+' '+t.raiser+' '+t.ref+' '+t.intent).toLowerCase();
+        if (hay.indexOf(q) < 0) return false;
+      }
+      return true;
+    });
   }
 
   function renderList(){
-    var ts = DATA.tickets||[];
+    var ts = visible();
     if (!ts.length) {
       document.getElementById('list').innerHTML =
         '<div class="empty">Nothing here.<br>'+
@@ -382,15 +402,29 @@
   }
 
   // ── view state ─────────────────────────────────────────────────────────────────────────────
-  function setGroup(g){ VIEW.group=g; SEL=null; TICKET=null; CHECKED={}; persist(); refresh(); }
-  function toggleMine(){ VIEW.mine=!VIEW.mine; persist(); refresh(); }
+  var ARCHIVE = ['Resolved','Withheld'];
+  function setGroup(g){
+    var wasArchive = ARCHIVE.indexOf(VIEW.group) >= 0, isArchive = ARCHIVE.indexOf(g) >= 0;
+    VIEW.group = g; SEL = null; TICKET = null; CHECKED = {};
+    document.getElementById('detail').innerHTML = '<div class="empty">Select a ticket</div>';
+    renderChrome(); renderList();                       // instant, from what we already have
+    persist();
+    // Resolved and Withheld are not in the payload — they grow without bound — so those two
+    // cost one fetch. Everything else already changed on screen.
+    if (isArchive || wasArchive) refresh();
+  }
+  function toggleMine(){ VIEW.mine=!VIEW.mine; persist(); renderChrome(); renderList(); }
   function check(k,on){ CHECKED[k]=on; renderList(); }
   function pick(ev,k){ if (ev.target.tagName==='INPUT') return; openTicket(k); }
 
+  // Search is local too, so it filters as you type with no round trip. Only the persist is
+  // debounced, because that one does hit the Sheet.
   var searchTimer=null;
   function debouncedSearch(){
+    VIEW.q = document.getElementById('q').value;
+    renderChrome(); renderList();
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(function(){ VIEW.q=document.getElementById('q').value; refresh(); }, 280);
+    searchTimer = setTimeout(persist, 800);
   }
 
   // Per-agent view state lives on the SERVER keyed by email, not in UserProperties: under
@@ -405,7 +439,7 @@
     var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
     if (e.key === 'Escape') { document.activeElement.blur(); return; }
     if (typing) return;
-    var ts = (DATA && DATA.tickets) || [];
+    var ts = DATA ? visible() : [];
     var i = ts.findIndex(function(t){ return t.key===SEL; });
     if (e.key === 'j' && ts.length) { openTicket(ts[Math.min(ts.length-1, i+1)].key); e.preventDefault(); }
     else if (e.key === 'k' && ts.length) { openTicket(ts[Math.max(0, i-1)].key); e.preventDefault(); }

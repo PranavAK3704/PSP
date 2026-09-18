@@ -103,16 +103,26 @@ function groupFor_(t) {
 // ── the queue ────────────────────────────────────────────────────────────────────────────────
 
 /**
- * The list payload: ten short fields per ticket, capped, newest first.
+ * The list payload: short fields only, capped, newest first.
  *
  * It used to return every ticket ever written with full descriptions, occurrences and typed
  * entities — roughly 1-2 KB each. At this project's own steady state that is ~15k tickets a
  * month, so by month two every agent was pulling several megabytes across the google.script.run
  * bridge on every refresh. Detail is now a separate call for the one ticket being looked at.
+ *
+ * ── WHY IT RETURNS EVERY ACTIVE GROUP AT ONCE ───────────────────────────────────────────────
+ * Filtering by group on the server meant every tab click was a Sheets round trip before the tab
+ * even highlighted — about two seconds of a button that looks broken. The three ACTIVE groups
+ * come back together so the browser can switch tabs, search and filter instantly with no server
+ * call at all. Resolved and Withheld are fetched only when opened, because they grow without
+ * bound and nobody works them daily.
  */
+var ARCHIVE_GROUPS = ['Resolved', 'Withheld'];
+
 function getQueue(opts) {
   var me = requireAgent_();
   opts = opts || {};
+  var wantArchive = ARCHIVE_GROUPS.indexOf(opts.group) >= 0;
   var rows = readTabObjects_(CFG().tabs.tickets);
   var counts = { 'NEEDS A CATEGORY': 0, 'Open': 0, 'Being worked on': 0, 'Resolved': 0, 'Withheld': 0 };
   var mine = 0, unassigned = 0, list = [];
@@ -126,12 +136,8 @@ function getQueue(opts) {
     if (assignee === me.email) mine++;
     if (!assignee && g !== 'Withheld' && g !== 'Resolved') unassigned++;
 
-    if (opts.group && g !== opts.group) continue;
-    if (opts.mine && assignee !== me.email) continue;
-    if (opts.q) {
-      var hay = (String(t.title) + ' ' + String(t.dc_code) + ' ' + String(t.raiser)).toLowerCase();
-      if (hay.indexOf(String(opts.q).toLowerCase()) < 0) continue;
-    }
+    // The browser does group / mine / search filtering. Only the archive split happens here.
+    if (wantArchive ? g !== opts.group : ARCHIVE_GROUPS.indexOf(g) >= 0) continue;
     if (list.length >= CFG().queueLimit) continue;
 
     var flags = 0;
@@ -149,6 +155,7 @@ function getQueue(opts) {
 
   return {
     tickets: list, counts: counts, mine: mine, unassigned: unassigned,
+    archive: wantArchive ? opts.group : '',
     total: rows.length, capped: list.length >= CFG().queueLimit,
     channels: readTabObjects_(CFG().tabs.channels),
     dispositions: knownDispositions_(),

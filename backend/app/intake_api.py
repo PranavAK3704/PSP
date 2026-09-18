@@ -261,6 +261,11 @@ def list_channels(user: dict = Depends(intake_access)) -> dict:
 
 EXEMPLARS = "intake_exemplars.json"
 
+#: Chunk size for the packed index. A single 101 KB row did not survive a redeploy and the
+#: failure was silent, so the blob is split and every chunk's write is checked. 32 KB is well
+#: inside anything a KV row is likely to refuse.
+CHUNK = 32_000
+
 
 def _pack(rows: list) -> str:
     """gzip+base64 the index.
@@ -309,37 +314,62 @@ def upload_exemplars(payload: dict = Body(...), user: dict = Depends(intake_admi
         raise HTTPException(status_code=400,
                             detail=f"rows {bad[:5]} lack text or disposition")
     packed = _pack(rows)
-    durable_path(EXEMPLARS).write_text(json.dumps(
-        {"packed": packed, "uploaded_at": _now(), "uploaded_by": user.get("email"),
-         "count": len(rows)}))
+    parts = [packed[i:i + CHUNK] for i in range(0, len(packed), CHUNK)]
 
-    # VERIFY, do not assume. durable_state degrades to a local-only write when the mirror is
-    # unreadable, and the local copy is wiped on the next deploy — so an upload can look
-    # successful, read back correctly from the in-process cache, and simply not be there
-    # tomorrow. That is exactly what happened the first time. Reading it back through a fresh
-    # parse is the cheapest check that the round trip actually works.
-    back = exemplar_index().get("exemplars") or []
-    if len(back) != len(rows):
+    # Write through _put DIRECTLY and check what it returns. `write_text` discards that boolean,
+    # and `_put` populates the in-process cache even when the durable write FAILED — so a failed
+    # upload reads back perfectly from cache and disappears on the next deploy. That is exactly
+    # what happened twice here: "uploaded 1,259" both times, gone both times.
+    from . import durable_state as _ds
+    meta = json.dumps({"chunks": len(parts), "count": len(rows), "uploaded_at": _now(),
+                       "uploaded_by": user.get("email")})
+
+    # With no mirror configured — local development, tests — the local file IS the durable
+    # truth and there is nothing to verify. Only a CONFIGURED mirror that refuses a write is a
+    # failure, and conflating the two would make every local run report a storage error.
+    if not _ds._init():
+        for i, part in enumerate(parts):
+            durable_path(f"{EXEMPLARS}.part{i}").write_text(part)
+        durable_path(EXEMPLARS).write_text(meta)
+        failed, meta_ok = [], True
+    else:
+        failed = [i for i, part in enumerate(parts)
+                  if not _ds._put(f"{EXEMPLARS}.part{i}", part)]
+        meta_ok = _ds._put(EXEMPLARS, meta)
+    if failed or not meta_ok:
         raise HTTPException(
             status_code=507,
-            detail=f"stored {len(rows)} exemplars but read back {len(back)} — the durable "
-                   f"mirror did not accept it ({len(packed):,} bytes packed). The index is NOT "
-                   f"saved.")
+            detail=f"the durable store rejected {len(failed) or 0} of {len(parts)} chunks"
+                   f"{' and the manifest' if not meta_ok else ''}. The index is NOT saved, and "
+                   f"classification will stay off. Packed size {len(packed):,} bytes in "
+                   f"{len(parts)} chunk(s) of {CHUNK:,}.")
     return {"ok": True, "count": len(rows), "packed_bytes": len(packed),
+            "chunks": len(parts),
             "dispositions": sorted({r["disposition"] for r in rows})}
 
 
 def exemplar_index() -> dict:
-    """The stored index, unpacked, or an empty one. Used by the poller, not served to anyone."""
+    """The stored index, reassembled and unpacked, or an empty one.
+
+    A missing chunk yields an empty index rather than a partial one: half a classifier is worse
+    than none, because it answers confidently about the half it still has.
+    """
     d = read_json_from(durable_path(EXEMPLARS), {})
-    if not d.get("packed"):
+    n = d.get("chunks")
+    if not isinstance(n, int) or n < 1:
         return {"exemplars": []}
     try:
-        return {**d, "exemplars": _unpack(d["packed"])}
-    except Exception:                                                     # noqa: BLE001
-        # A corrupt blob must read as "no index" — classification then reports itself as off,
-        # which is recoverable, rather than crashing every poll.
-        return {"exemplars": []}
+        parts = []
+        for i in range(n):
+            part = durable_path(f"{EXEMPLARS}.part{i}")
+            if not part.exists():
+                return {"exemplars": [], "error": f"chunk {i} of {n} missing"}
+            parts.append(part.read_text())
+        return {**d, "exemplars": _unpack("".join(parts))}
+    except Exception as e:                                                # noqa: BLE001
+        # Corruption must read as "no index" — classification then reports itself off, which is
+        # recoverable, rather than crashing every poll.
+        return {"exemplars": [], "error": f"{type(e).__name__}: {e}"}
 
 
 @router.get("/api/intake/exemplars")
@@ -348,7 +378,8 @@ def exemplars_info(user: dict = Depends(intake_access)) -> dict:
     knowing the classifier is loaded does not require reading what it was taught."""
     d = exemplar_index()
     rows = d.get("exemplars") or []
-    return {"loaded": bool(rows), "count": len(rows),
+    return {"loaded": bool(rows), "count": len(rows), "error": d.get("error"),
+            "chunks": d.get("chunks"),
             "dispositions": sorted({r.get("disposition") for r in rows if r.get("disposition")}),
             "uploaded_at": d.get("uploaded_at"), "uploaded_by": d.get("uploaded_by")}
 

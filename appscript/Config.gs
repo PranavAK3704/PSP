@@ -296,6 +296,38 @@ function replaceRows_(name, header, rows) {
   return padded.length;
 }
 
+/**
+ * Write many individual rows in as few Sheets calls as possible.
+ *
+ * `updates` is [{row, values}]. Rows are sorted and CONSECUTIVE runs are written with a single
+ * setValues, because a Sheets round trip costs 10-50ms regardless of how much it carries and
+ * that overhead is what actually binds.
+ *
+ * Measured before this existed: one call per updated row. A run that touched 2,000 issues made
+ * 2,012 round trips — 20 to 100 seconds of pure overhead — and it grew linearly, so ~10,000
+ * updates would have exceeded the 6-minute execution cap outright. Updated issues are almost
+ * always the recent ones, which sit next to each other at the tail of the tab, so in practice
+ * this collapses to a handful of calls.
+ */
+function writeRowsBatched_(name, width, updates) {
+  if (!updates || !updates.length) return 0;
+  var sh = ss_().getSheetByName(name);
+  if (!sh) return 0;
+  var sorted = updates.slice().sort(function (a, b) { return a.row - b.row; });
+
+  var calls = 0, i = 0;
+  while (i < sorted.length) {
+    var start = i, block = [sorted[i].values];
+    while (i + 1 < sorted.length && sorted[i + 1].row === sorted[i].row + 1) {
+      i++; block.push(sorted[i].values);
+    }
+    sh.getRange(sorted[start].row, 1, block.length, width).setValues(block);
+    calls++;
+    i++;
+  }
+  return calls;
+}
+
 /** A named value in the _state tab. Watermarks and counters live here, not in Script Properties,
  *  because Properties cap at 9KB per value and are invisible when you are staring at the sheet. */
 function stateGet_(key, dflt) {

@@ -265,10 +265,7 @@ function runPipeline() {
     });
 
     if (newIssueRows.length) appendRows_(CFG().tabs.issues, ISSUE_HEADER, newIssueRows);
-    updates.forEach(function (u) {
-      ss_().getSheetByName(CFG().tabs.issues)
-           .getRange(u.row, 1, 1, ISSUE_HEADER.length).setValues([u.values]);
-    });
+    var issueCalls = writeRowsBatched_(CFG().tabs.issues, ISSUE_HEADER.length, updates);
 
     // ── stage 8: emit ───────────────────────────────────────────────────────────────────────
     var raisings = new Map();
@@ -334,10 +331,7 @@ function runPipeline() {
     });
 
     if (newTicketRows.length) appendRows_(CFG().tabs.tickets, TICKET_HEADER, newTicketRows);
-    ticketUpdates.forEach(function (u) {
-      ss_().getSheetByName(CFG().tabs.tickets)
-           .getRange(u.row, 1, 1, TICKET_HEADER.length).setValues([u.values]);
-    });
+    var ticketCalls = writeRowsBatched_(CFG().tabs.tickets, TICKET_HEADER.length, ticketUpdates);
 
     // ── write the assignment back onto each message row, in ONE range write ──────────────────
     for (var w = 0; w < msgs.length; w++) {
@@ -365,6 +359,8 @@ function runPipeline() {
     return { processed: slice.rows.length, issues_new: newIssueRows.length,
              tickets_created: created, tickets_suppressed: suppressed,
              duplicates_linked: dupPairs.length, classified: classified, novel: novel,
+             rows_updated: updates.length + ticketUpdates.length,
+             write_calls: issueCalls + ticketCalls,
              ms: Date.now() - t0 };
   } finally {
     lock.releaseLock();

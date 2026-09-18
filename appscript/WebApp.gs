@@ -146,6 +146,7 @@ function getQueue(opts) {
       key: String(t.idempotency_key), ref: String(t.idempotency_key).slice(0, 8).toUpperCase(),
       group: g, title: String(t.title || ''), dc_code: String(t.dc_code || ''),
       raiser: String(t.raiser || ''), intent: String(t.intent || ''),
+      intent_label: t.intent && t.intent !== 'NOVEL' ? dispositionInfo(t.intent).label : '',
       state: effectiveState_(t), assigned_to: assignee, flags: flags,
       occurrence_count: Number(t.occurrence_count || 1),
       acknowledged: !!t.acknowledged_at, dc_told: !!t.dc_notified_at,
@@ -161,7 +162,7 @@ function getQueue(opts) {
     archive: wantArchive ? opts.group : '',
     total: rows.length, capped: list.length >= CFG().queueLimit,
     channels: readTabObjects_(CFG().tabs.channels),
-    dispositions: knownDispositions_(),
+    dispositions: knownDispositions_().map(dispositionInfo),
     roster: Array.from(agents_().values())
       .filter(function (a) { return a.active; })
       .map(function (a) { return { email: a.email, name: a.name }; }),
@@ -189,6 +190,12 @@ function getTicket(key) {
       // separate — which is exactly the choice to put in front of a human.
       margin: t.intent_margin === '' ? null : Number(t.intent_margin),
       runner_up: String(t.intent_runner_up || ''),
+      // The two candidates, each with what it MEANS and which desk it lands on — that is what
+      // a human actually needs to choose between them, not the snake_case name.
+      choices: String(t.intent_candidates || t.intent_runner_up || '').split('|')
+        .filter(function (x, i, a) { return x && x !== 'NOVEL' && a.indexOf(x) === i; })
+        .slice(0, 2).map(dispositionInfo),
+      intent_info: t.intent && t.intent !== 'NOVEL' ? dispositionInfo(t.intent) : null,
       dc: dcContact_(String(t.dc_code || '')),
       flags: parse(t.flags_json, '[]'), tokens: parse(t.entity_tokens_json, '{}'),
       occurrences: parse(t.occurrences_json, '[]'),

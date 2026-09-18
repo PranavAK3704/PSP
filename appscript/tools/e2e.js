@@ -217,6 +217,18 @@ q.tickets.filter(t => t.group === 'NEEDS A CATEGORY').forEach(k => {
   console.log(`     centre      : ${d.dc ? (d.dc.known ? d.dc.name : d.dc.code+' — NO CONTACT ON FILE') : 'none identified'}`);
 });
 
+console.log('\n── what the decision screen now says (plain language, real routing) ──');
+q.tickets.filter(t => t.group === 'NEEDS A CATEGORY').forEach(k => {
+  const d = sandbox.getTicket(k.key);
+  console.log(`  "${d.title.slice(0,44)}"`);
+  (d.choices || []).forEach((c, i) => {
+    console.log(`     ${i+1}. ${c.label}`);
+    if (c.meaning) console.log(`        ${c.meaning}`);
+    if (c.team)    console.log(`        Goes to ${c.team}`);
+  });
+  if (!(d.choices||[]).length) console.log('     (no candidates — full list offered)');
+});
+
 console.log('\n── agent actions ──');
 sandbox.setTicketState(money.key, 'WORKING', 'Chased the payouts team, ETA tomorrow.');
 sandbox.setAssignee(money.key, 'ravi@meesho.com');

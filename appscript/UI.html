@@ -1,282 +1,334 @@
 <!--
   UI.html — the agent queue.
 
-  ── WHAT THE VISUAL DESIGN IS FOR ─────────────────────────────────────────────────────────────
-  Deep slate, muted semantic accents, monospace on every data-bearing value. Not decoration: the
-  people using this are on it for ten hours, and the palette is chosen to keep text razor-sharp
-  while staying low-glare. Amber means — and only means — "a human has to decide something".
-  Emerald means somebody was actually told. Crimson means nobody owns it.
+  ── THE DESIGN, AND WHAT IT PROMISES ──────────────────────────────────────────────────────────
+  Warm paper, not black glass: ten hours of this should not feel like a terminal. Each colour
+  makes exactly one promise and keeps it —
 
-  ── THREE BEHAVIOURS THAT LOOK LIKE STYLE AND ARE ACTUALLY BUG FIXES ──────────────────────────
-  Do not lose these in a redesign; each shipped as a defect first.
-  1. The refresh NEVER re-renders the detail pane while focus is inside it, and unsent note text
-     lives in a dirty buffer. A note typed over 60 seconds used to vanish mid-sentence.
-  2. Every action applies locally before the server confirms, and rolls back with a reason. A
-     button that waits on a Sheets round trip looks dead and gets clicked twice.
-  3. Group, search and "mine" filter in the browser. They were a 2-second round trip each.
+      clay   #C1552E   do this
+      amber  #E0A93C   you decide
+      green  #2F7A52   they were told
+      red    #B3332B   nobody owns it
+      blue   #2C5A77   chosen, and it stuck
 
-  ── THE IDEA WORTH MOST ───────────────────────────────────────────────────────────────────────
-  When the classifier refuses, it knows WHICH TWO categories it could not separate and by how
-  little. That was computed on every run and thrown away. Showing it turns "needs a category"
-  from an open-ended chore into one keystroke between two named candidates.
+  Fraunces for headings and counts (readable from a metre away), Public Sans for every sentence
+  in either script, IBM Plex Mono for reference numbers ONLY — so a digit is never misread.
+  Noto Sans Devanagari is loaded because partners write in Hindi and the fallback was ugly.
+
+  ── HOW IT TALKS ──────────────────────────────────────────────────────────────────────────────
+  Not "SEPARATION 4.2% · NEEDS 15%" but "the robot got it down to two and stopped". Agents are
+  not ML engineers; a number they cannot act on is noise wearing a lab coat. Every internal term
+  is translated at the edge, and DISPOSITIONS() in Config.gs is where the translation lives.
+
+  ── FOUR BEHAVIOURS THAT LOOK LIKE STYLE AND ARE BUG FIXES ────────────────────────────────────
+  Each shipped as a defect first. A redesign is exactly how they come back.
+  1. Never re-render the detail pane while focus is inside it; unsent note text lives in a dirty
+     buffer. A note typed over 60 seconds used to vanish mid-sentence.
+  2. Every action paints locally first and rolls back with a reason. A button that waits on a
+     Sheets round trip looks dead and gets clicked twice.
+  3. Group, search and "mine" filter in the browser. Each was a 2-second round trip.
+  4. Anything that reaches the server shows a loader — the bar at the top, and a spinner on the
+     control that was pressed. Optimistic paint tells you what WILL happen; the loader tells you
+     it has not finished yet. Both, or the screen lies in one direction or the other.
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500;600&family=Noto+Sans+Devanagari:wght@400;600&display=swap">
 <style>
   :root {
-    --bg:#0f172a; --panel:#1e293b; --panel2:#152031; --line:#334155; --line2:#263143;
-    --ink:#f8fafc; --dim:#94a3b8; --faint:#64748b;
-    --sky:#38bdf8; --indigo:#818cf8; --amber:#f59e0b; --emerald:#10b981; --crimson:#ef4444;
-    --amberbg:#2a1f07; --crimsonbg:#2b1315; --emeraldbg:#0d241c; --skybg:#0c2634;
-    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-    --sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --paper:#FAF6F0; --card:#FFFFFF; --ink:#221F1B; --muted:#6B6259; --faint:#8A8177;
+    --line:#E6DED3; --line2:#EFE7DC;
+    --clay:#C1552E; --clay-dark:#7F3115; --amber:#E0A93C; --green:#2F7A52; --green-dark:#1F5637;
+    --red:#B3332B; --blue:#2C5A77;
+    --amber-bg:#FDF3E0; --amber-line:#E0B266; --amber-ink:#7A4A06; --amber-ink2:#8A5606;
+    --green-bg:#F2F7F3; --green-line:#C3DFCE; --green-chip:#E8F3EC;
+    --red-bg:#FBF0EF; --red-line:#E8C4C0;
+    --serif:Fraunces,Georgia,serif;
+    --sans:'Public Sans','Noto Sans Devanagari',system-ui,-apple-system,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
   }
   * { box-sizing:border-box; }
   html,body { height:100%; }
-  body { margin:0; background:var(--bg); color:var(--ink); overflow:hidden;
-         font:13px/1.55 var(--sans); font-variant-numeric:tabular-nums; }
-  button,input,select,textarea { font:inherit; color:inherit; }
-  ::selection { background:var(--sky); color:#00354a; }
-  ::-webkit-scrollbar { width:10px; height:10px; }
-  ::-webkit-scrollbar-thumb { background:var(--line); border-radius:5px; }
-  ::-webkit-scrollbar-track { background:transparent; }
+  body { margin:0; background:var(--paper); color:var(--ink); overflow:hidden;
+         font:14px/1.6 var(--sans); }
+  button,input,select,textarea { font-family:var(--sans); color:inherit; }
+  ::selection { background:#F6DFC8; }
+  ::-webkit-scrollbar { width:11px; }
+  ::-webkit-scrollbar-thumb { background:#E0D6C8; border-radius:6px; border:3px solid var(--paper); }
+  .mono { font-family:var(--mono); }
 
-  header { background:var(--panel2); border-bottom:1px solid var(--line); padding:9px 16px;
-           display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-  .brand { font:700 12px var(--mono); letter-spacing:.12em; color:var(--sky); white-space:nowrap; }
-  .who { font:11px var(--mono); color:var(--faint); }
-  .grow { flex:1; }
-  .chip { font:11px var(--mono); padding:3px 9px; border-radius:3px; border:1px solid var(--line);
-          background:var(--panel); color:var(--dim); white-space:nowrap; }
-  .chip.ok  { background:var(--emeraldbg); color:var(--emerald); border-color:#14532d; }
-  .chip.bad { background:var(--amberbg);   color:var(--amber);   border-color:#713f12; }
-
-  .tabs { display:flex; padding:0 16px; background:var(--panel2);
-          border-bottom:1px solid var(--line); overflow-x:auto; }
-  .tab { padding:9px 14px; font:11px var(--mono); letter-spacing:.06em; border:0; background:none;
-         cursor:pointer; color:var(--faint); border-bottom:2px solid transparent;
-         white-space:nowrap; text-transform:uppercase; }
-  .tab:hover { color:var(--ink); }
-  .tab.on { color:var(--ink); border-bottom-color:var(--sky); }
-  .tab.urgent { color:var(--amber); }
-  .tab.urgent.on { border-bottom-color:var(--amber); }
-  .tab .n { margin-left:7px; padding:0 5px; border-radius:2px; background:var(--line2); color:var(--dim); }
-  .tab.on .n { background:var(--sky); color:#00354a; }
-  .tab.urgent.on .n { background:var(--amber); color:#472a00; }
-
-  .bar { display:flex; gap:8px; align-items:center; padding:7px 16px; background:var(--panel2);
-         border-bottom:1px solid var(--line); flex-wrap:wrap; }
-  .bar input[type=text] { flex:1; min-width:150px; padding:5px 10px; border:1px solid var(--line);
-    border-radius:3px; background:var(--bg); font-family:var(--mono); font-size:12px; }
-  .bar input:focus { outline:none; border-color:var(--sky); }
-  .toggle { font:11px var(--mono); padding:5px 10px; border:1px solid var(--line);
-            border-radius:3px; background:var(--panel); cursor:pointer; color:var(--dim); }
-  .toggle:hover { border-color:var(--sky); color:var(--ink); }
-  .toggle.on { background:var(--sky); color:#00354a; border-color:var(--sky); font-weight:700; }
-  .stat { font:11px var(--mono); color:var(--faint); }
-
-  .wrap { display:grid; grid-template-columns:minmax(300px,390px) 1fr; height:calc(100vh - 116px); }
-  .list { overflow-y:auto; border-right:1px solid var(--line); background:var(--panel2); }
-  .detail { overflow-y:auto; padding:18px 24px 70px; }
-
-  .item { padding:9px 13px 9px 11px; border-bottom:1px solid var(--line2); cursor:pointer;
-          display:flex; gap:9px; align-items:flex-start; border-left:2px solid transparent; }
-  .item:hover { background:var(--panel); }
-  .item.sel { background:var(--panel); border-left-color:var(--sky); }
-  .item.decide { border-left-color:var(--amber); }
-  .item.orphan { border-left-color:var(--crimson); }
-  .item .body { min-width:0; flex:1; }
-  .item .t { font-weight:600; margin-bottom:4px; overflow:hidden; text-overflow:ellipsis;
-             white-space:nowrap; font-size:13px; }
-  .item .m2 { font:10.5px var(--mono); color:var(--faint); display:flex; gap:7px;
-              flex-wrap:wrap; align-items:center; }
-  .tag { padding:1px 5px; border-radius:2px; background:var(--line2); color:var(--dim); }
-  .tag.dc   { background:var(--skybg); color:var(--sky); }
-  .tag.rep  { background:var(--amberbg); color:var(--amber); font-weight:700; }
-  .tag.mine { background:#1e1b4b; color:var(--indigo); font-weight:700; }
-  .tag.un   { background:transparent; border:1px dashed var(--line); color:var(--faint); }
-  .tag.flag { background:var(--crimsonbg); color:var(--crimson); }
-
-  .ref { font:700 11px var(--mono); letter-spacing:.12em; color:var(--faint); }
-  h2 { font-size:17px; margin:5px 0 12px; line-height:1.35; font-weight:600; }
-
-  .banner { border-radius:4px; padding:9px 13px; margin:0 0 14px; font:11.5px var(--mono);
-            letter-spacing:.02em; }
-  .banner.rep { background:var(--amberbg); color:var(--amber); border:1px solid #713f12; }
-  .banner.dup { background:var(--panel); color:var(--dim); border:1px solid var(--line); }
-
-  /* The partner's own words, treated as a quote and not as a data field — because that is what
-     it is. Everything else on this screen was inferred from it. */
-  .quote { background:var(--panel); border:1px solid var(--line); border-left:2px solid var(--indigo);
-           border-radius:4px; padding:13px 15px; margin:0 0 14px; }
-  .quote .src { font:10.5px var(--mono); color:var(--faint); display:flex; gap:10px;
-                flex-wrap:wrap; margin-bottom:8px; }
-  .quote .txt { white-space:pre-wrap; font-size:13.5px; line-height:1.6; color:var(--ink); }
-
-  .decide-box { background:var(--amberbg); border:1px solid #713f12; border-radius:4px;
-                padding:14px 16px; margin:0 0 16px; }
-  .decide-box h3 { margin:0 0 3px; font:700 11px var(--mono); letter-spacing:.1em;
-                   color:var(--amber); text-transform:uppercase; }
-  .decide-box .sub { font-size:12px; color:var(--dim); margin:0 0 12px; }
-  .conf { margin:0 0 6px; }
-  .conf .lab { font:10.5px var(--mono); color:var(--faint); display:flex;
-               justify-content:space-between; margin-bottom:5px; }
-  .conf .track { height:5px; background:var(--line2); border-radius:3px; position:relative; }
-  .conf .fill { height:100%; background:var(--amber); border-radius:3px; }
-  .conf .floor { position:absolute; top:-3px; bottom:-3px; width:1px; background:var(--dim); }
-  .cands { display:flex; gap:8px; flex-wrap:wrap; }
-  .cand { flex:1; min-width:150px; text-align:left; padding:9px 12px; border-radius:3px;
-          border:1px solid var(--line); background:var(--panel); cursor:pointer; }
-  .cand:hover { border-color:var(--amber); }
-  .cand b { display:block; font:600 12.5px var(--mono); color:var(--ink); }
-  .cand span { font:10px var(--mono); color:var(--faint); }
-
-  .parties { display:grid; gap:7px; margin:0 0 16px; }
-  .party { display:flex; gap:10px; align-items:center; padding:8px 12px; border-radius:3px;
-           background:var(--panel); border:1px solid var(--line); font-size:12px; }
-  .party .role { font:10px var(--mono); color:var(--faint); text-transform:uppercase;
-                 letter-spacing:.08em; width:52px; flex:none; }
-  .party .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .party .st { font:10.5px var(--mono); white-space:nowrap; }
-  .party.told .st { color:var(--emerald); }
-  .party.untold .st { color:var(--amber); }
-  .party.unknown { border-style:dashed; }
-  .party.unknown .st { color:var(--crimson); }
-
-  dl.meta { display:grid; grid-template-columns:auto 1fr; gap:5px 18px; margin:0 0 16px; font-size:12px; }
-  dl.meta dt { color:var(--faint); font:10.5px var(--mono); text-transform:uppercase;
-               letter-spacing:.06em; padding-top:2px; }
-  dl.meta dd { margin:0; font-family:var(--mono); font-size:12px; }
-
-  .actions { display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin:0 0 10px; }
-  button.b { font:12px var(--mono); padding:6px 12px; border-radius:3px; border:1px solid var(--line);
-             background:var(--panel); cursor:pointer; color:var(--dim); }
-  button.b:hover { border-color:var(--sky); color:var(--ink); }
-  button.b.on { background:var(--sky); color:#00354a; border-color:var(--sky); font-weight:700; }
-  button.b.claim { border-color:var(--indigo); color:var(--indigo); }
-  button.b:disabled { opacity:.4; cursor:default; }
-  select { padding:6px 9px; border:1px solid var(--line); border-radius:3px; background:var(--panel);
-           font:12px var(--mono); }
-  textarea { width:100%; min-height:76px; resize:vertical; padding:10px 12px; border-radius:3px;
-             border:1px solid var(--line); background:var(--panel); font:13px var(--sans); line-height:1.55; }
-  textarea:focus { outline:none; border-color:var(--sky); }
-  label.f { display:flex; justify-content:space-between; align-items:baseline;
-            font:10.5px var(--mono); color:var(--faint); margin:16px 0 6px;
-            text-transform:uppercase; letter-spacing:.06em; }
-  .kbd { font:10px var(--mono); background:var(--line2); border:1px solid var(--line);
-         border-radius:2px; padding:1px 5px; color:var(--faint); }
-  .flags { display:flex; gap:5px; flex-wrap:wrap; margin:0 0 14px; }
-  .flag { font:10px var(--mono); background:var(--crimsonbg); color:var(--crimson);
-          border-radius:2px; padding:2px 6px; }
-  .empty { color:var(--faint); padding:46px 16px; text-align:center; font:12px var(--mono); }
-  .bulk { position:sticky; bottom:0; background:var(--sky); color:#00354a; padding:9px 13px;
-          display:flex; gap:9px; align-items:center; font:12px var(--mono); font-weight:600; }
-  .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--panel);
-           border:1px solid var(--sky); color:var(--ink); padding:9px 18px; border-radius:3px;
-           font:12px var(--mono); opacity:0; transition:opacity .16s; pointer-events:none; z-index:9;
-           max-width:70vw; }
-  .toast.show { opacity:1; }
-  .toast.bad { border-color:var(--crimson); color:#fecaca; }
-
-  .spin { display:inline-block; width:12px; height:12px; border:2px solid var(--line2);
-          border-top-color:var(--sky); border-radius:50%; animation:sp .7s linear infinite;
-          vertical-align:-2px; margin-right:8px; }
+  /* ── the loader. Every server call raises it. ───────────────────────────────────────────── */
+  #bar { position:fixed; top:0; left:0; height:3px; width:0; background:var(--clay); z-index:99;
+         transition:width .25s ease, opacity .3s; opacity:0; border-radius:0 3px 3px 0; }
+  #bar.on { opacity:1; }
+  .spin { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,.35);
+          border-top-color:#fff; border-radius:50%; animation:sp .65s linear infinite;
+          vertical-align:-3px; }
+  .spin.dark { border-color:rgba(34,31,27,.2); border-top-color:var(--ink); }
   @keyframes sp { to { transform:rotate(360deg); } }
-  .skel { padding:10px 13px; border-bottom:1px solid var(--line2); }
-  .skel div { height:10px; background:linear-gradient(90deg,#1e293b,#263143,#1e293b);
-              background-size:200% 100%; animation:sh 1.1s linear infinite; border-radius:2px; }
-  .skel div:first-child { width:72%; margin-bottom:8px; }
-  .skel div:last-child { width:40%; height:8px; }
+  .skel { height:96px; border-radius:18px; background:linear-gradient(90deg,#F2ECE3,#F8F4EE,#F2ECE3);
+          background-size:200% 100%; animation:sh 1.2s linear infinite; margin-bottom:10px; }
   @keyframes sh { to { background-position:-200% 0; } }
-  button.refreshing { animation:sp .7s linear infinite; }
-  a { color:var(--sky); }
+
+  /* ── chrome ─────────────────────────────────────────────────────────────────────────────── */
+  .shell { display:flex; flex-direction:column; height:100vh; padding:20px 26px 0; gap:16px; }
+  header { display:flex; align-items:center; gap:14px; flex:none; }
+  .logo { width:42px; height:42px; border-radius:14px; background:var(--clay); color:#fff;
+          display:flex; align-items:center; justify-content:center; font:700 19px var(--serif); flex:none; }
+  .title { font:700 23px/1.2 var(--serif); letter-spacing:-.01em; }
+  .sub { font-size:13px; color:var(--muted); }
+  .grow { flex:1; }
+  .pill { display:flex; align-items:center; gap:9px; padding:8px 16px; border-radius:999px;
+          background:var(--card); border:1px solid var(--line); font-size:13.5px; white-space:nowrap; }
+  .pill.good { background:var(--green-chip); border-color:var(--green-line); color:var(--green-dark);
+               font-weight:600; }
+  .pill.warn { background:var(--amber-bg); border-color:var(--amber-line); color:var(--amber-ink2);
+               font-weight:600; }
+  .avatar { width:34px; height:34px; border-radius:999px; background:#EFE4D6; color:#7F5A33;
+            display:flex; align-items:center; justify-content:center;
+            font:600 13px var(--mono); flex:none; }
+
+  /* ── the four cards. They ARE the filter — no tab bar. ──────────────────────────────────── */
+  .stats { display:flex; align-items:stretch; gap:10px; flex:none; }
+  .stat { flex:1; padding:15px 19px; border-radius:18px; background:var(--card);
+          border:1px solid var(--line); cursor:pointer; text-align:left; display:flex;
+          flex-direction:column; gap:2px; transition:transform .08s, box-shadow .12s; }
+  .stat:hover { transform:translateY(-1px); box-shadow:0 3px 10px rgba(34,31,27,.06); }
+  .stat .top { display:flex; align-items:baseline; gap:10px; }
+  .stat .n { font:700 30px/1 var(--serif); }
+  .stat .lab { font-size:15px; font-weight:700; }
+  .stat .note { font-size:12.5px; color:var(--muted); }
+  .stat.need { background:var(--amber-bg); border:2px solid var(--amber-line); }
+  .stat.need .n, .stat.need .lab { color:var(--amber-ink); }
+  .stat.need .note { color:var(--amber-ink2); }
+  .stat.done { background:var(--green-bg); border-color:var(--green-line); }
+  .stat.done .n, .stat.done .lab { color:var(--green-dark); }
+  .stat.done .note { color:var(--green); }
+  .stat.on { box-shadow:0 0 0 2px var(--clay); }
+  .arrow { align-self:center; color:#C4B7A6; font-size:18px; flex:none; }
+
+  .panes { flex:1; display:flex; gap:26px; min-height:0; padding-bottom:20px; }
+  .left { width:560px; flex:none; display:flex; flex-direction:column; gap:13px; min-height:0; }
+  .lhead { display:flex; align-items:center; gap:12px; flex:none; }
+  .lhead h2 { margin:0; font:700 19px var(--serif); }
+  .search { width:250px; padding:9px 15px; border-radius:999px; border:1px solid var(--line);
+            background:var(--card); font-size:13px; }
+  .search:focus { outline:none; border-color:var(--clay); }
+  .list { overflow-y:auto; display:flex; flex-direction:column; gap:10px; padding-right:4px; }
+  .right { flex:1; overflow-y:auto; min-width:0; padding-right:4px; }
+
+  /* ── ticket cards ───────────────────────────────────────────────────────────────────────── */
+  .tk { display:flex; border-radius:18px; overflow:hidden; background:var(--card);
+        border:1px solid var(--line); cursor:pointer; text-align:left; width:100%; padding:0;
+        transition:transform .08s; }
+  .tk:hover { transform:translateY(-1px); }
+  .tk.sel { border:2px solid var(--clay); box-shadow:0 2px 0 rgba(193,85,46,.12); }
+  .tk .stripe { width:6px; flex:none; background:var(--line); }
+  .tk.need .stripe { background:var(--amber); }
+  .tk.unowned .stripe { background:var(--red); }
+  .tk.mine .stripe { background:var(--blue); }
+  .tk .in { flex:1; padding:15px 17px; display:flex; flex-direction:column; gap:8px; min-width:0; }
+  .tk .row1 { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .tk .t { font-size:15px; font-weight:600; line-height:1.4; }
+  .tk .meta { font-size:12.5px; color:var(--muted); display:flex; gap:9px; flex-wrap:wrap; }
+  .badge { padding:3px 9px; border-radius:7px; font-size:11.5px; font-weight:700; letter-spacing:.02em; }
+  .badge.need { background:var(--amber-bg); color:var(--amber-ink2); }
+  .badge.rep  { background:var(--red-bg); color:var(--red); }
+  .badge.mine { background:#E9F0F5; color:var(--blue); }
+  .badge.dc   { background:#F1ECE4; color:#6B5B44; font-family:var(--mono); font-weight:600; }
+  .ref { font:600 11.5px var(--mono); color:var(--faint); }
+
+  /* ── detail / decision ──────────────────────────────────────────────────────────────────── */
+  .card { background:var(--card); border:1px solid var(--line); border-radius:18px;
+          padding:20px 24px; margin-bottom:14px; }
+  .card.amber { background:var(--amber-bg); border:2px solid var(--amber-line); }
+  .card.red { background:var(--red-bg); border-color:var(--red-line); }
+  h3.sec { margin:0 0 4px; font:700 21px var(--serif); letter-spacing:-.01em; }
+  .lead { font-size:14px; color:var(--muted); margin:0 0 16px; }
+  .kicker { font-size:12.5px; font-weight:700; letter-spacing:.05em; color:var(--faint);
+            text-transform:uppercase; margin-bottom:12px; }
+  .quote { font-size:16.5px; line-height:1.65; }
+  .said { font-size:12.5px; color:var(--muted); margin-top:9px; }
+
+  .choice { display:flex; gap:13px; width:100%; text-align:left; padding:16px 18px; cursor:pointer;
+            border-radius:14px; border:1px solid var(--line); background:var(--card);
+            margin-bottom:10px; align-items:flex-start; }
+  .choice:hover { border-color:var(--clay); }
+  .choice .num { width:28px; height:28px; border-radius:9px; background:var(--clay); color:#fff;
+                 font:700 14px var(--mono); display:flex; align-items:center; justify-content:center;
+                 flex:none; }
+  .choice .nm { font-size:16px; font-weight:700; }
+  .choice .why { font-size:13px; color:var(--muted); margin-top:3px; }
+  .choice .to { font-size:12.5px; color:var(--blue); font-weight:600; margin-top:5px; }
+
+  /* ── the timeline: what happened, and which step is stuck ───────────────────────────────── */
+  .step { display:flex; gap:13px; padding:11px 0; border-bottom:1px solid var(--line2); }
+  .step:last-child { border-bottom:0; }
+  .step .dot { width:22px; height:22px; border-radius:999px; flex:none; margin-top:1px;
+               display:flex; align-items:center; justify-content:center; font-size:12px;
+               font-weight:700; color:#fff; }
+  .step.done .dot  { background:var(--green); }
+  .step.stuck .dot { background:var(--red); }
+  .step.wait .dot  { background:#DCD3C6; color:var(--muted); }
+  .step .h { font-size:14.5px; font-weight:600; }
+  .step.stuck .h { color:var(--red); }
+  .step .d { font-size:12.5px; color:var(--muted); margin-top:2px; }
+
+  .facts { display:grid; grid-template-columns:auto 1fr; gap:9px 20px; font-size:14px; }
+  .facts dt { color:var(--muted); font-size:13px; }
+  .facts dd { margin:0; font-weight:600; }
+
+  .btns { display:flex; gap:9px; flex-wrap:wrap; }
+  button.b { min-height:48px; padding:14px 20px; border-radius:13px; border:1px solid var(--line);
+             background:var(--card); font-size:15.5px; font-weight:600; cursor:pointer;
+             display:inline-flex; align-items:center; gap:9px; }
+  button.b:hover:not(:disabled) { border-color:var(--clay); }
+  button.b.primary { background:var(--clay); border-color:var(--clay); color:#fff; font-weight:700; }
+  button.b.on { background:var(--blue); border-color:var(--blue); color:#fff; font-weight:700; }
+  button.b:disabled { opacity:.55; cursor:default; }
+  button.link { background:none; border:0; color:var(--clay-dark); font-size:14px; cursor:pointer;
+                padding:6px 0; text-decoration:underline; text-underline-offset:3px; }
+  select { min-height:44px; padding:10px 13px; border-radius:12px; border:1px solid var(--line);
+           background:var(--card); font-size:14.5px; }
+  textarea { width:100%; min-height:110px; padding:14px 16px; border-radius:14px;
+             border:1px solid var(--line); background:var(--card); font-size:15px; line-height:1.6;
+             resize:vertical; }
+  textarea:focus, select:focus { outline:none; border-color:var(--clay); }
+  label.f { display:flex; justify-content:space-between; align-items:baseline; gap:10px;
+            font-size:14px; font-weight:600; margin:0 0 7px; }
+  .hint { font-size:12.5px; color:var(--muted); margin-top:8px; line-height:1.5; }
+  .kbd { font:600 11.5px var(--mono); background:#F1ECE4; border-radius:5px; padding:2px 6px;
+         color:var(--muted); }
+  .empty { color:var(--muted); text-align:center; padding:60px 20px; font-size:14px; }
+  .toast { position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(8px);
+           background:var(--ink); color:#fff; padding:13px 22px; border-radius:13px;
+           font-size:14.5px; font-weight:600; opacity:0; transition:all .2s; pointer-events:none;
+           z-index:100; max-width:72vw; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  .toast.bad { background:var(--red); }
+  .flags { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+  .flag { font-size:12px; background:var(--red-bg); color:var(--red); border-radius:7px;
+          padding:3px 9px; }
 </style>
 
-<header>
-  <span class="brand">PARTNER INTAKE</span>
-  <span class="who" id="who"></span>
-  <span class="grow"></span>
-  <span id="health"></span>
-  <button class="toggle" id="refreshBtn" onclick="refresh(true)" title="Refresh (r)">↻</button>
-</header>
+<div id="bar"></div>
+<div class="shell">
+  <header>
+    <div class="logo">☰</div>
+    <div>
+      <div class="title">Partner Intake</div>
+      <div class="sub" id="shift"></div>
+    </div>
+    <div class="grow"></div>
+    <span id="health"></span>
+    <div class="pill" id="mePill" style="padding-left:6px"></div>
+  </header>
 
-<div class="tabs" id="tabs"></div>
+  <div class="stats" id="stats"></div>
 
-<div class="bar">
-  <input type="text" id="q" placeholder="search title · dc · raiser · ref   ( / )" oninput="debouncedSearch()">
-  <button class="toggle" id="mineBtn" onclick="toggleMine()">MINE</button>
-  <span class="stat" id="meta"></span>
-</div>
-
-<div class="wrap">
-  <div class="list" id="list"></div>
-  <div class="detail" id="detail"><div class="empty">select a ticket</div></div>
+  <div class="panes">
+    <div class="left">
+      <div class="lhead">
+        <h2 id="listTitle">Needs you first</h2>
+        <span class="sub" id="listNote"></span>
+        <div class="grow"></div>
+        <input class="search" id="q" type="text" placeholder="Search a DC, a name, a number" oninput="onSearch()">
+      </div>
+      <div class="list" id="list"></div>
+    </div>
+    <div class="right" id="detail"><div class="empty">Pick a ticket on the left.</div></div>
+  </div>
 </div>
 <div class="toast" id="toast"></div>
 
 <script>
-  var DATA = null, TICKET = null, SEL = null;
-  var VIEW = { group:'NEEDS A CATEGORY', mine:false, q:'' };
-  var NOTES = {};             // key -> unsent note text. The dirty buffer.
-  var CHECKED = {}, BUSY = false, LOADING = false;
-  var GROUPS = ['NEEDS A CATEGORY','Open','Being worked on','Resolved','Withheld'];
-  var ARCHIVE = ['Resolved','Withheld'];
-  var STATES = [['OPEN','OPEN','1'],['WORKING','WORKING','2'],['RESOLVED','RESOLVED','3']];
-  var MARGIN_FLOOR = 0.15;    // CFG().classify.minMargin — shown so the bar means something
+  var DATA=null, TICKET=null, SEL=null;
+  var VIEW={ group:'NEEDS A CATEGORY', mine:false, q:'' };
+  var NOTES={};                 // key -> unsent note. The dirty buffer.
+  var LOADING=false, BUSY=false, INFLIGHT=0;
+  var ARCHIVE=['Resolved','Withheld'];
 
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,
     function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function toast(m,bad){ var t=document.getElementById('toast');
     t.textContent=m; t.className='toast show'+(bad?' bad':'');
-    clearTimeout(t._h); t._h=setTimeout(function(){ t.className='toast'+(bad?' bad':''); },bad?5000:2200); }
+    clearTimeout(t._h); t._h=setTimeout(function(){ t.className='toast'+(bad?' bad':''); },bad?5200:2400); }
   function shortName(e){ return String(e||'').split('@')[0]; }
+  function initials(e){ var n=shortName(e).replace(/[._-]+/g,' ').trim().split(' ');
+    return ((n[0]||'?')[0]+(n[1]||'')[0]||'').toUpperCase().slice(0,2); }
 
-  /** "22m", "3h", "2d". Unowned TIME is what actually goes wrong, so it belongs on screen
-   *  rather than in a timestamp nobody subtracts in their head. */
+  /**
+   * The loader. Raised on EVERY server call and lowered when the last one lands.
+   * Optimistic paint says what WILL happen; this says it has not finished yet. Without both,
+   * the screen lies in one direction or the other.
+   */
+  function loadStart(){
+    INFLIGHT++;
+    var b=document.getElementById('bar');
+    b.className='on'; b.style.width='72%';
+  }
+  function loadEnd(){
+    INFLIGHT=Math.max(0,INFLIGHT-1);
+    if (INFLIGHT) return;
+    var b=document.getElementById('bar');
+    b.style.width='100%';
+    setTimeout(function(){ b.className=''; setTimeout(function(){ b.style.width='0'; },300); },160);
+  }
+  /** Put a spinner INSIDE the control that was pressed, so it is obvious which one is working. */
+  function press(el,label){
+    if (!el) return function(){};
+    var html=el.innerHTML, dis=el.disabled;
+    el.disabled=true;
+    el.innerHTML='<span class="spin'+(el.classList.contains('primary')||el.classList.contains('on')?'':' dark')+
+                 '"></span>'+(label||'');
+    return function(){ el.innerHTML=html; el.disabled=dis; };
+  }
+  /** One wrapper so no call site can forget the loader. */
+  function call(fnName, args, onOk, onFail){
+    loadStart();
+    var r=google.script.run
+      .withSuccessHandler(function(v){ loadEnd(); if(onOk) onOk(v); })
+      .withFailureHandler(function(e){ loadEnd(); if(onFail) onFail(e); else toast(e.message,true); });
+    r[fnName].apply(r,args||[]);
+  }
+
   function ago(iso){
     if (!iso) return '';
     var t=Date.parse(String(iso)); if (isNaN(t)) return '';
     var m=Math.max(0,Math.round((Date.now()-t)/60000));
-    if (m<60) return m+'m';
-    if (m<1440) return Math.round(m/60)+'h';
-    return Math.round(m/1440)+'d';
+    if (m<60) return m+' min';
+    if (m<1440) return Math.round(m/60)+' hours';
+    var d=Math.round(m/1440); return d+(d===1?' day':' days');
   }
-  function monthsBetween(a,b){
-    var x=Date.parse(a), y=Date.parse(b);
-    if (isNaN(x)||isNaN(y)) return 0;
-    return Math.max(0,Math.round((y-x)/(30*86400000)));
-  }
+  function monthsBetween(a,b){ var x=Date.parse(a),y=Date.parse(b);
+    return (isNaN(x)||isNaN(y))?0:Math.max(0,Math.round((y-x)/(30*86400000))); }
+  function timeOf(iso){ var t=Date.parse(String(iso)); if(isNaN(t)) return '';
+    return new Date(t).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}); }
 
+  // ── loading ────────────────────────────────────────────────────────────────────────────────
   function refresh(loud){
-    var btn=document.getElementById('refreshBtn');
-    if (btn) btn.className='toggle refreshing';
-    google.script.run
-      .withSuccessHandler(function(d){ DATA=d; LOADING=false;
-        if(btn) btn.className='toggle'; renderAll(); if(loud) toast('refreshed'); })
-      .withFailureHandler(function(e){ LOADING=false; if(btn) btn.className='toggle';
-        document.getElementById('list').innerHTML='<div class="empty">'+esc(e.message)+'</div>'; })
-      .getQueue(VIEW);
+    call('getQueue',[VIEW],function(d){
+      DATA=d; LOADING=false; renderAll(); if(loud) toast('Up to date');
+    },function(e){
+      LOADING=false;
+      document.getElementById('list').innerHTML='<div class="empty">'+esc(e.message)+'</div>';
+    });
   }
-
   function openTicket(key){
     SEL=key; TICKET=null; renderList();
-    document.getElementById('detail').innerHTML='<div class="empty"><span class="spin"></span>loading…</div>';
-    google.script.run
-      .withSuccessHandler(function(t){ TICKET=t; renderDetail(); })
-      .withFailureHandler(function(e){
-        document.getElementById('detail').innerHTML='<div class="empty">'+esc(e.message)+'</div>';
-        toast(e.message,true); })
-      .getTicket(key);
+    document.getElementById('detail').innerHTML=
+      '<div class="empty"><span class="spin dark"></span><br><br>Opening…</div>';
+    call('getTicket',[key],function(t){ TICKET=t; renderDetail(); },
+      function(e){ document.getElementById('detail').innerHTML='<div class="empty">'+esc(e.message)+'</div>'; });
   }
 
-  /** Group, "mine" and search all filter HERE. Each was a 2-second server round trip. */
+  /** Group, "mine" and search all filter HERE — each was a 2-second round trip. */
   function visible(){
     var q=(VIEW.q||'').toLowerCase();
     return (DATA.tickets||[]).filter(function(t){
       if (t.group!==VIEW.group) return false;
       if (VIEW.mine && (!DATA.me||t.assigned_to!==DATA.me.email)) return false;
-      if (q){ var h=(t.title+' '+t.dc_code+' '+t.raiser+' '+t.ref+' '+t.intent).toLowerCase();
+      if (q){ var h=(t.title+' '+t.dc_code+' '+t.raiser+' '+t.ref+' '+(t.intent_label||'')).toLowerCase();
               if (h.indexOf(q)<0) return false; }
       return true;
     });
@@ -285,304 +337,346 @@
   function renderAll(){ renderChrome(); renderList(); if (SEL && !TICKET) openTicket(SEL); }
 
   function renderChrome(){
-    document.getElementById('who').textContent = DATA.me ? DATA.me.email : '';
-    document.getElementById('health').innerHTML = (DATA.health||[]).map(function(h){
-      return '<span class="chip '+(h.ok?'ok':'bad')+'">'+esc(h.label)+' '+esc(h.detail)+'</span>';
+    var me=DATA.me||{};
+    document.getElementById('shift').textContent =
+      new Date().toLocaleDateString([], {weekday:'long'})+' shift';
+    document.getElementById('mePill').innerHTML =
+      '<span class="avatar">'+esc(initials(me.email))+'</span>'+
+      '<span><span style="font-weight:600;display:block;font-size:13.5px">'+esc(me.name||shortName(me.email))+'</span>'+
+      '<span style="font-size:11.5px;color:var(--muted)">Partner Support</span></span>';
+
+    document.getElementById('health').innerHTML=(DATA.health||[]).map(function(h){
+      return '<span class="pill '+(h.ok?'good':'warn')+'" title="'+esc(h.detail)+'">'+
+             (h.ok?'✓':'!')+' '+esc(friendlyHealth(h))+'</span>';
     }).join(' ');
-    document.getElementById('tabs').innerHTML = GROUPS.map(function(g){
-      var n=(DATA.counts||{})[g]||0;
-      return '<button class="tab'+(VIEW.group===g?' on':'')+(g==='NEEDS A CATEGORY'?' urgent':'')+
-             '" onclick="setGroup(\''+g+'\')">'+esc(g==='NEEDS A CATEGORY'?'needs decision':g)+
-             '<span class="n">'+n+'</span></button>';
+
+    var c=DATA.counts||{};
+    var cards=[
+      { g:'NEEDS A CATEGORY', n:c['NEEDS A CATEGORY']||0, lab:'Needs you',
+        note:'One question each · आपका जवाब चाहिए', cls:'need' },
+      { g:'Open', n:c['Open']||0, lab:'Waiting',
+        note:(DATA.unassigned||0)+' nobody has picked up', cls:'' },
+      { g:'Being worked on', n:c['Being worked on']||0, lab:'You are on it',
+        note:(DATA.mine||0)+' of them are yours', cls:'' },
+      { g:'Resolved', n:c['Resolved']||0, lab:'Finished',
+        note:'Partner was told', cls:'done' }
+    ];
+    document.getElementById('stats').innerHTML = cards.map(function(k,i){
+      return (i?'<span class="arrow">›</span>':'')+
+        '<button class="stat '+k.cls+(VIEW.group===k.g?' on':'')+'" onclick="setGroup(\''+k.g+'\')">'+
+        '<span class="top"><span class="n">'+k.n+'</span><span class="lab">'+esc(k.lab)+'</span></span>'+
+        '<span class="note">'+esc(k.note)+'</span></button>';
     }).join('');
-    var mb=document.getElementById('mineBtn');
-    mb.className='toggle'+(VIEW.mine?' on':''); mb.textContent='MINE ('+(DATA.mine||0)+')';
-    document.getElementById('meta').textContent =
-      visible().length+' shown · '+(DATA.unassigned||0)+' unowned · '+(DATA.total||0)+' total'+
-      (DATA.capped?' · capped':'');
+
+    document.getElementById('listTitle').textContent =
+      VIEW.group==='NEEDS A CATEGORY' ? 'Needs you first' :
+      VIEW.group==='Open' ? 'Waiting for someone' :
+      VIEW.group==='Being worked on' ? 'Being worked on' :
+      VIEW.group==='Resolved' ? 'Finished' : 'Not raised';
+    document.getElementById('listNote').textContent =
+      visible().length + (VIEW.mine?' of yours':'') + (DATA.capped?' · showing the newest':'');
+  }
+
+  /** Health, said the way a person would say it. */
+  function friendlyHealth(h){
+    if (h.label==='INTENT')  return h.ok?'Sorting works':'Sorting is off';
+    if (h.label==='POLLING') return h.ok?'Listening':'Not listening';
+    if (h.label==='ACK')     return h.ok?'Partners told':'Nobody told yet';
+    return h.label;
   }
 
   function renderList(){
-    if (LOADING){
-      document.getElementById('list').innerHTML =
-        '<div class="skel"><div></div><div></div></div>'.repeat(6)+
-        '<div class="empty"><span class="spin"></span>loading '+esc(VIEW.group.toLowerCase())+'…</div>';
-      return;
-    }
+    var el=document.getElementById('list');
+    if (LOADING){ el.innerHTML='<div class="skel"></div>'.repeat(5); return; }
     var ts=visible();
     if (!ts.length){
-      document.getElementById('list').innerHTML='<div class="empty">'+
-        (VIEW.q||VIEW.mine ? 'nothing matches — clear the filters' : 'nothing here')+'</div>';
+      el.innerHTML='<div class="empty">'+
+        (VIEW.q ? 'Nothing matches that.' : VIEW.group==='NEEDS A CATEGORY'
+          ? 'Nothing needs you right now.' : 'Nothing here.')+'</div>';
       return;
     }
-    var nChecked=Object.keys(CHECKED).filter(function(k){return CHECKED[k];}).length;
-    var html=ts.map(function(t){
-      var cls='item'+(SEL===t.key?' sel':'')+
-              (t.group==='NEEDS A CATEGORY'?' decide':(!t.assigned_to&&t.group!=='Withheld'?' orphan':''));
-      return '<div class="'+cls+'" onclick="pick(event,\''+t.key+'\')">'+
-        '<input type="checkbox" '+(CHECKED[t.key]?'checked':'')+
-          ' onclick="event.stopPropagation();check(\''+t.key+'\',this.checked)">'+
-        '<div class="body"><div class="t">'+esc(t.title)+'</div><div class="m2">'+
-        '<span>'+esc(t.ref)+'</span>'+
-        (t.dc_code?'<span class="tag dc">'+esc(t.dc_code)+'</span>':'')+
-        (t.occurrence_count>1?'<span class="tag rep">'+t.occurrence_count+'× RAISED</span>':'')+
-        (t.flags?'<span class="tag flag">'+t.flags+'</span>':'')+
-        (t.assigned_to
-          ? '<span class="tag'+(DATA.me&&t.assigned_to===DATA.me.email?' mine':'')+'">'+
-            esc(shortName(t.assigned_to))+'</span>'
-          : '<span class="tag un">unowned '+ago(t.last_raised_at)+'</span>')+
-        (t.has_note?'<span class="tag">note</span>':'')+
-        '</div></div></div>';
+    el.innerHTML=ts.map(function(t){
+      var cls='tk'+(SEL===t.key?' sel':'')+
+        (t.group==='NEEDS A CATEGORY'?' need':
+          (DATA.me&&t.assigned_to===DATA.me.email?' mine':(!t.assigned_to?' unowned':'')));
+      return '<button class="'+cls+'" onclick="openTicket(\''+t.key+'\')"><span class="stripe"></span>'+
+        '<span class="in"><span class="row1">'+
+        (t.group==='NEEDS A CATEGORY'?'<span class="badge need">NEEDS YOUR ANSWER</span>':'')+
+        (t.occurrence_count>1?'<span class="badge rep">'+t.occurrence_count+' times</span>':'')+
+        (t.dc_code?'<span class="badge dc">'+esc(t.dc_code)+'</span>':'')+
+        (DATA.me&&t.assigned_to===DATA.me.email?'<span class="badge mine">Yours</span>':'')+
+        '<span class="ref">'+esc(t.ref)+'</span></span>'+
+        '<span class="t">'+esc(t.title)+'</span>'+
+        '<span class="meta"><span>'+esc(t.raiser)+'</span>'+
+        (t.intent_label?'<span>· '+esc(t.intent_label)+'</span>':'')+
+        (!t.assigned_to&&t.group!=='Withheld'
+          ? '<span style="color:var(--red);font-weight:600">· nobody has this, '+ago(t.last_raised_at)+'</span>'
+          : '')+
+        '</span></span></button>';
     }).join('');
-    if (nChecked){
-      html+='<div class="bulk">'+nChecked+' SELECTED'+
-        '<select id="bulkTo"><option value="">assign to…</option>'+
-        (DATA.roster||[]).map(function(a){return '<option value="'+esc(a.email)+'">'+esc(a.name)+'</option>';}).join('')+
-        '</select><button class="b" onclick="bulkAssign()">GO</button>'+
-        '<button class="b" onclick="CHECKED={};renderList()">CLEAR</button></div>';
-    }
-    document.getElementById('list').innerHTML=html;
   }
 
-  function party(role,name,status,cls){
-    return '<div class="party '+cls+'"><span class="role">'+role+'</span>'+
-           '<span class="nm">'+esc(name)+'</span><span class="st">'+esc(status)+'</span></div>';
-  }
+  // ── the decision screen ────────────────────────────────────────────────────────────────────
+  function renderDecision(t){
+    var idx=visible().findIndex(function(x){return x.key===t.key;});
+    var total=visible().length;
+    var ch=t.choices||[];
+    var h='<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'+
+      '<button class="link" onclick="SEL=null;TICKET=null;renderAll()">‹ Back to the queue</button>'+
+      '<span class="grow"></span><span class="sub">Question '+(idx+1)+' of '+total+'</span>'+
+      '<span class="ref">'+esc(t.ref)+'</span></div>';
 
-  /**
-   * The decision panel.
-   *
-   * The classifier knows exactly which two categories it could not separate, and by how little.
-   * Putting the REAL margin and the REAL runner-up on screen turns this from an open-ended
-   * chore into one keystroke. Every number here is computed, never illustrative.
-   */
-  function decidePanel(t){
-    var margin=(t.margin==null?0:t.margin);
-    var pct=Math.min(100,Math.round(margin*100));
-    var cands=[];
-    if (t.runner_up) cands.push(t.runner_up);
-    (DATA.dispositions||[]).forEach(function(d){ if (cands.indexOf(d)<0 && cands.length<2) cands.push(d); });
-
-    var reason = t.margin==null
-      ? 'no score recorded for this one yet'
-      : (margin===0
-          ? 'no lexical overlap with anything labelled before — Devanagari does this, and it is why it asks rather than guesses'
-          : 'the top two are '+(margin*100).toFixed(1)+'% apart, under the '+(MARGIN_FLOOR*100)+
-            '% it needs to call it');
-
-    var h='<div class="decide-box"><h3>◈ human decision required</h3>'+
-      '<p class="sub">It stopped rather than guess. Naming it writes a gold exemplar, which counts '+
-      '<b>3×</b> a machine-assigned one — so this decides the next similar message too.</p>';
-
-    if (t.margin!=null){
-      h+='<div class="conf"><div class="lab"><span>SEPARATION '+(margin*100).toFixed(1)+'%</span>'+
-         '<span>NEEDS '+(MARGIN_FLOOR*100)+'%</span></div>'+
-         '<div class="track"><div class="fill" style="width:'+pct+'%"></div>'+
-         '<div class="floor" style="left:'+(MARGIN_FLOOR*100)+'%"></div></div></div>';
+    if (t.occurrence_count>1){
+      var mo=monthsBetween(t.first_raised_at,t.last_raised_at);
+      h+='<div class="card red"><div style="font-weight:700;font-size:15px;color:var(--red)">'+
+         'Raised '+t.occurrence_count+' times'+(mo>0?' in '+mo+' month'+(mo>1?'s':''):'')+'</div>'+
+         '<div class="hint" style="margin-top:4px">It is one old problem, not a new one.</div></div>';
     }
-    h+='<p class="sub">'+esc(reason)+'</p>';
-    h+='<div class="cands">'+cands.map(function(c,i){
-      return '<button class="cand" onclick="nameIt(\''+esc(c)+'\')">'+
-             '<b>'+esc(c)+'</b><span>press '+(i+1)+'</span></button>'; }).join('')+'</div>';
-    h+='<div class="actions" style="margin-top:10px">'+
-       '<select id="disp"><option value="">other category…</option>'+
-       (DATA.dispositions||[]).map(function(x){return '<option value="'+esc(x)+'">'+esc(x)+'</option>';}).join('')+
-       '</select>'+
-       '<input type="text" id="dispNew" placeholder="or a new one" style="padding:6px 9px;'+
-       'border:1px solid var(--line);border-radius:3px;background:var(--panel);font:12px var(--mono)">'+
-       '<button class="b" onclick="nameIt()">SAVE</button></div></div>';
+
+    h+='<div class="card"><div class="quote">“'+esc(firstLine(t.description))+'”</div>'+
+       '<div class="said">'+esc(t.raiser)+(t.dc_code?' · DC '+esc(t.dc_code):'')+
+       ' · these are their own words, nothing added</div></div>';
+
+    h+='<div class="card amber"><h3 class="sec">Which of these two is it?</h3>'+
+       '<p class="lead">The robot got it down to two and stopped. Pick one — that is the whole job here.</p>';
+    if (ch.length){
+      h+=ch.map(function(c,i){
+        return '<button class="choice" id="ch'+i+'" onclick="pickChoice(this,\''+esc(c.key)+'\')">'+
+          '<span class="num">'+(i+1)+'</span><span><span class="nm">'+esc(c.label)+'</span>'+
+          (c.meaning?'<span class="why">'+esc(c.meaning)+'</span>':'')+
+          (c.team?'<span class="to">Goes to '+esc(c.team)+'</span>':'')+'</span></button>';
+      }).join('');
+    } else {
+      h+='<p class="lead">It could not get close to anything it knows. Pick from the full list.</p>';
+    }
+    h+='<div style="margin-top:6px"><button class="link" onclick="showAll()">Neither — show me the full list</button></div>'+
+       '<div id="allWrap" style="display:none;margin-top:10px">'+
+       '<div class="btns"><select id="disp"><option value="">Choose a category…</option>'+
+       (DATA.dispositions||[]).map(function(d){
+         return '<option value="'+esc(d.key)+'">'+esc(d.label)+'</option>'; }).join('')+
+       '</select><button class="b primary" id="saveDisp" onclick="pickChoice(this,null)">Save it</button></div></div>'+
+       '</div>';
+
+    h+='<div class="hint">Press <span class="kbd">1</span> or <span class="kbd">2</span> to pick · '+
+       '<span class="kbd">J</span> for the next one · Nothing here is scored against you.</div>';
     return h;
   }
 
+  function firstLine(d){ return String(d||'').split('\n')[0] || '(no text — see the attachment)'; }
+  function showAll(){ var w=document.getElementById('allWrap'); if(w) w.style.display='block'; }
+
+  function pickChoice(btn,key){
+    if (!TICKET||BUSY) return;
+    var d=key || (document.getElementById('disp')||{}).value;
+    if (!d){ toast('Pick a category first',true); return; }
+    BUSY=true;
+    var undo=press(btn,' Saving…');
+    call('nameDisposition',[TICKET.key,d],function(r){
+      BUSY=false;
+      toast('Saved. You taught it — the next one sorts itself.');
+      TICKET=null; SEL=null; refresh();
+    },function(e){ BUSY=false; undo(); toast(e.message,true); });
+  }
+
+  // ── the ticket screen ──────────────────────────────────────────────────────────────────────
   function renderDetail(){
     if (!TICKET) return;
     var d=document.getElementById('detail');
     // Never rebuild the pane somebody is typing in.
     if (d.contains(document.activeElement) && document.activeElement.tagName==='TEXTAREA') return;
-
     var t=TICKET;
-    var noteVal = NOTES.hasOwnProperty(t.key) ? NOTES[t.key] : (t.agent_note||'');
-    var dirty = NOTES.hasOwnProperty(t.key) && NOTES[t.key] !== (t.agent_note||'');
-    var h='<div class="ref">'+esc(t.ref)+'</div><h2>'+esc(t.title)+'</h2>';
+    if (t.group==='NEEDS A CATEGORY'){ d.innerHTML=renderDecision(t); return; }
 
-    // Recurrence is the signal, not a footnote. Seven raisings over five months is ONE problem
-    // everybody ignored, and it must be impossible to scroll past.
+    var noteVal = NOTES.hasOwnProperty(t.key) ? NOTES[t.key] : (t.agent_note||'');
+    var dirty = NOTES.hasOwnProperty(t.key) && NOTES[t.key]!==(t.agent_note||'');
+    var mine = DATA.me && t.assigned_to===DATA.me.email;
+
+    var h='<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'+
+      '<button class="link" onclick="SEL=null;TICKET=null;renderAll()">‹ Queue</button>'+
+      '<span class="grow"></span><span class="ref">'+esc(t.ref)+'</span>'+
+      (t.updated_by?'<span class="sub">last touched by '+esc(shortName(t.updated_by))+'</span>':'')+
+      '</div>';
+
     if (t.occurrence_count>1){
       var mo=monthsBetween(t.first_raised_at,t.last_raised_at);
-      h+='<div class="banner rep">⚠ RAISED '+t.occurrence_count+' TIMES'+
-         (mo>0?' OVER '+mo+' MONTH'+(mo>1?'S':''):' RECENTLY')+' — RECURRING, NOT NEW</div>';
+      h+='<div class="card red"><div style="font-weight:700;font-size:15.5px;color:var(--red)">'+
+        'This has come up '+t.occurrence_count+' times'+(mo>0?' over '+mo+' month'+(mo>1?'s':''):'')+'</div>'+
+        '<div class="hint" style="margin-top:4px">It is one old problem, not a new one. '+
+        'Fixing the centre fixes all of them.</div></div>';
     }
-    if (t.suppressed_reason) h+='<div class="banner dup">'+esc(t.suppressed_reason)+'</div>';
+    if (t.suppressed_reason)
+      h+='<div class="card"><div class="kicker">Not raised</div><div class="hint" style="margin:0">'+
+         esc(t.suppressed_reason)+'</div></div>';
 
-    h+='<div class="quote"><div class="src"><span>'+esc(t.raiser)+'</span>'+
-       (t.dc_code?'<span>DC '+esc(t.dc_code)+'</span>':'')+
-       '<span>'+esc(t.last_raised_at||'')+'</span></div>'+
-       '<div class="txt">'+esc(t.description)+'</div></div>';
+    h+='<h3 class="sec" style="font-size:24px;margin-bottom:6px">'+esc(t.title)+'</h3>'+
+       '<p class="lead">'+esc(t.raiser)+(t.dc_code?' · DC '+esc(t.dc_code):'')+
+       (t.last_raised_at?' · '+esc(timeOf(t.last_raised_at)):'')+'</p>'+
+       '<div class="card"><div class="quote">“'+esc(firstLine(t.description))+'”</div></div>';
 
-    if (t.group==='NEEDS A CATEGORY') h+=decidePanel(t);
+    // ── what has happened so far ────────────────────────────────────────────────────────────
+    var raiserName=shortName(t.raiser_email||t.raiser)||'the raiser';
+    var centre = t.dc && t.dc.known ? t.dc.name : (t.dc ? 'The '+t.dc.code+' centre' : '');
+    var steps=[];
+    steps.push(t.acknowledged_at
+      ? { s:'done', h:esc(t.raiser)+' was told we have it',
+          d:'Automatic reply, '+timeOf(t.acknowledged_at) }
+      : { s:'stuck', h:esc(t.raiser)+' has not been told yet',
+          d: t.acknowledge_error ? esc(t.acknowledge_error) : 'The reply has not gone out.' });
+    steps.push(t.assigned_to
+      ? { s:'done', h:(mine?'You picked it up':esc(shortName(t.assigned_to))+' picked it up'),
+          d:(t.assigned_at?timeOf(t.assigned_at)+' — ':'')+'nobody else can take it now' }
+      : { s:'stuck', h:'Nobody has picked this up',
+          d:'It has been waiting '+ago(t.last_raised_at)+'.' });
+    if (t.dc){
+      steps.push(t.dc_notified_at
+        ? { s:'done', h:centre+' was told', d:'Sent '+timeOf(t.dc_notified_at) }
+        : { s:'stuck', h:centre+' still has not been told',
+            d: t.dc.known ? 'They are the ones who can fix it at the centre. This is the step that is stuck.'
+                          : 'There is no contact on file for '+esc(t.dc.code)+', so nothing can reach them.' });
+    }
+    steps.push({ s: t.state==='RESOLVED'||t.state==='CLOSED' ? 'done':'wait',
+      h: esc(t.raiser)+' hears it is fixed',
+      d:'Happens on its own when you mark it done' });
 
-    // Two parties, because there are two — and only one of them raised it.
-    h+='<div class="parties">'+
-       party('RAISER', t.raiser+(t.raiser_email?' · '+t.raiser_email:''),
-             t.acknowledged_at ? 'told '+ago(t.acknowledged_at)+' ago'
-               : (t.acknowledge_error ? String(t.acknowledge_error).slice(0,44) : 'not told yet'),
-             t.acknowledged_at?'told':'untold')+
-       party('CENTRE',
-             t.dc ? (t.dc.known ? t.dc.name+' · '+t.dc.code
-                                : 'DC '+t.dc.code+' — no contact on file')
-                  : 'no DC identified on this ticket',
-             t.dc_notified_at ? 'told '+ago(t.dc_notified_at)+' ago'
-               : (t.dc && !t.dc.known ? 'HEARING NOTHING' : 'not told yet'),
-             t.dc_notified_at ? 'told' : (t.dc && !t.dc.known ? 'unknown' : 'untold'))+
-       '</div>';
+    h+='<div class="card"><div class="kicker">What has happened so far</div>'+
+      steps.map(function(s){
+        return '<div class="step '+s.s+'"><span class="dot">'+
+          (s.s==='done'?'✓':s.s==='stuck'?'!':'·')+'</span><span><span class="h">'+s.h+'</span>'+
+          '<span class="d" style="display:block">'+s.d+'</span></span></div>';
+      }).join('')+'</div>';
 
-    h+='<dl class="meta">'+
-      '<dt>category</dt><dd>'+esc(t.intent||'—')+
-        (t.runner_up&&t.intent&&t.intent!=='NOVEL'
-          ? ' <span style="color:var(--faint)">(over '+esc(t.runner_up)+')</span>':'')+'</dd>'+
-      '<dt>state</dt><dd>'+esc(t.state)+
-        (t.pipeline_state&&t.pipeline_state!==t.state
-          ? ' <span style="color:var(--faint)">pipeline: '+esc(t.pipeline_state)+'</span>':'')+'</dd>'+
-      '<dt>replies</dt><dd>'+t.reply_count+
-        (t.latency!=null?' · first response '+Math.round(t.latency/60)+'m':' · no reply yet')+'</dd>'+
-      (t.duplicate_of?'<dt>counted into</dt><dd>'+esc(t.duplicate_of)+'</dd>':'')+
-      (Object.keys(t.tokens||{}).length?'<dt>identifiers</dt><dd>'+
-        esc(Object.keys(t.tokens).map(function(k){
-          return k+'='+(t.tokens[k]||[]).map(function(r){return r.value;}).join(','); }).join('   '))+'</dd>':'')+
-      (t.permalink?'<dt>source</dt><dd><a href="'+esc(t.permalink)+'" target="_blank">open in slack</a></dd>':'')+
-      (t.updated_by?'<dt>last edit</dt><dd>'+esc(shortName(t.updated_by))+' · '+esc(t.updated_at)+'</dd>':'')+
-      '</dl>';
+    // ── facts ───────────────────────────────────────────────────────────────────────────────
+    h+='<div class="card"><dl class="facts">'+
+      '<dt>Sorted as</dt><dd>'+esc(t.intent_info?t.intent_info.label:(t.intent||'—'))+
+        (t.intent_info&&t.intent_info.team?' <span style="color:var(--muted);font-weight:400">· goes to '+esc(t.intent_info.team)+'</span>':'')+'</dd>'+
+      (t.dc&&t.dc.known?'<dt>Centre contact</dt><dd>'+esc(t.dc.name)+
+        (t.dc.mobile?' · <span class="mono">'+esc(t.dc.mobile)+'</span>':'')+'</dd>':'')+
+      (t.latency!=null?'<dt>First reply took</dt><dd>'+Math.round(t.latency/60)+' minutes</dd>':'')+
+      (t.reply_count?'<dt>Replies in Slack</dt><dd>'+t.reply_count+'</dd>':'')+
+      (t.permalink?'<dt>Where it came from</dt><dd><a href="'+esc(t.permalink)+'" target="_blank" style="color:var(--clay-dark)">Open in Slack</a></dd>':'')+
+      '</dl>'+
+      ((t.flags||[]).length?'<div class="flags">'+t.flags.map(function(f){
+        return '<span class="flag">'+esc(friendlyFlag(f))+'</span>'; }).join('')+'</div>':'')+
+      '</div>';
 
-    if ((t.flags||[]).length)
-      h+='<div class="flags">'+t.flags.map(function(f){return '<span class="flag">'+esc(f)+'</span>';}).join('')+'</div>';
+    // ── actions ─────────────────────────────────────────────────────────────────────────────
+    h+='<div class="card"><div class="kicker">Where is it now?</div><div class="btns">'+
+      [['OPEN','Not started'],['WORKING','I am working on it'],
+       ['RESOLVED','Sorted — tell '+esc(t.raiser).split(' ')[0]]].map(function(s){
+        return '<button class="b'+(t.state===s[0]?' on':'')+'" onclick="setState(this,\''+s[0]+'\')">'+s[1]+'</button>';
+      }).join('')+'</div>'+
+      '<div class="hint">Saved the moment you tap. If the sheet says no, it comes back and tells you why.</div>'+
+      (mine?'':'<div class="btns" style="margin-top:12px"><button class="b primary" onclick="claim(this)">Take this one</button></div>')+
+      '</div>';
 
-    h+='<div class="actions">'+STATES.map(function(s){
-      return '<button class="b'+(t.state===s[0]?' on':'')+'" onclick="setState(\''+s[0]+'\')">'+
-             esc(s[1])+' <span class="kbd">'+s[2]+'</span></button>'; }).join('')+
-      '<span style="flex:1"></span>'+
-      (DATA.me&&t.assigned_to===DATA.me.email ? ''
-        : '<button class="b claim" onclick="claim()">CLAIM <span class="kbd">c</span></button>')+
-      '<select id="assignee" onchange="assign(this.value)"><option value="">unowned</option>'+
+    h+='<div class="card"><label class="f"><span>Note for '+esc(t.raiser).split(' ')[0]+'</span>'+
+      '<span id="noteState" style="font-weight:400;font-size:12.5px;color:'+
+      (dirty?'var(--amber-ink2)':'var(--muted)')+'">'+(dirty?'not sent yet':'saved')+'</span></label>'+
+      '<textarea id="note" oninput="noteChanged()" placeholder="Write in Hindi or English, whichever is easier">'+
+      esc(noteVal)+'</textarea>'+
+      '<div class="hint">They see this on their status page. Nothing is lost if you walk away mid-sentence.</div>'+
+      '<div class="btns" style="margin-top:12px"><button class="b primary" onclick="saveNote(this)">Send this to '+
+      esc(t.raiser).split(' ')[0]+'</button></div></div>';
+
+    h+='<div class="card"><div class="kicker">Not yours to solve?</div>'+
+      '<div class="btns"><select id="assignee" onchange="assign(this)">'+
+      '<option value="">Hand it to someone else…</option>'+
       (DATA.roster||[]).map(function(a){
         return '<option value="'+esc(a.email)+'"'+(t.assigned_to===a.email?' selected':'')+'>'+
-               esc(a.name)+'</option>'; }).join('')+'</select></div>';
-
-    h+='<label class="f"><span>note — the partner sees this on their status page</span>'+
-       '<span id="noteState" style="color:'+(dirty?'var(--amber)':'var(--faint)')+'">'+
-       (dirty?'held locally · unsaved':'saved')+'</span></label>'+
-       '<textarea id="note" oninput="noteChanged()">'+esc(noteVal)+'</textarea>'+
-       '<div class="actions"><button class="b" onclick="saveNote()">SAVE NOTE</button>'+
-       '<span class="kbd">j/k move · 1/2/3 state · c claim · a assign · m mine · / search</span></div>';
+               esc(a.name)+'</option>'; }).join('')+'</select></div>'+
+      '<div class="hint">Passing a ticket on is not a mark against you. An unowned ticket is.</div></div>';
 
     d.innerHTML=h;
   }
 
-  // ── actions: local first, rollback with a reason ───────────────────────────────────────────
-  function setState(s){
-    if (!TICKET||BUSY) return;
-    var was=TICKET.state; BUSY=true; TICKET.state=s; renderDetail();
-    google.script.run
-      .withSuccessHandler(function(){ BUSY=false; toast('→ '+s); refresh(); })
-      .withFailureHandler(function(e){ BUSY=false; TICKET.state=was; renderDetail(); toast(e.message,true); })
-      .setTicketState(TICKET.key,s,null);
+  /** Internal flag names, said plainly. */
+  function friendlyFlag(f){
+    var s=String(f);
+    if (s.indexOf('no_actionable_identifier')===0) return 'No ID to act on — no DC, phone or waybill';
+    if (s.indexOf('missing_required_')===0) return 'Missing '+s.replace('missing_required_','').split('_for_')[0];
+    if (s.indexOf('dc_code_not_in_registry')===0) return 'That DC code is not in the list: '+s.split(':')[1];
+    if (s.indexOf('dc_code_denylisted')===0) return 'Not really a DC code: '+s.split(':')[1];
+    if (s.indexOf('malformed_')===0) return 'Looks wrong: '+s.replace('malformed_','');
+    if (s==='disposition_novel_needs_human') return 'Waiting for someone to categorise it';
+    if (s==='replies_exist_but_no_qualifying_first_response') return 'Replies exist, but nobody has really answered';
+    return s.replace(/_/g,' ');
   }
-  function assign(email){
+
+  // ── actions: paint locally, loader while it saves, roll back with a reason ─────────────────
+  function setState(btn,s){
     if (!TICKET||BUSY) return;
-    var was=TICKET.assigned_to; BUSY=true; TICKET.assigned_to=email; renderDetail();
-    google.script.run
-      .withSuccessHandler(function(){ BUSY=false; toast(email?'→ '+shortName(email):'unowned'); refresh(); })
-      .withFailureHandler(function(e){ BUSY=false; TICKET.assigned_to=was; renderDetail(); toast(e.message,true); })
-      .setAssignee(TICKET.key,email);
+    var was=TICKET.state; BUSY=true; TICKET.state=s;
+    var undo=press(btn,' Saving…');
+    call('setTicketState',[TICKET.key,s,null],function(){
+      BUSY=false; toast(s==='RESOLVED'?'Done — they will be told':'Saved'); refresh(); renderDetail();
+    },function(e){ BUSY=false; TICKET.state=was; undo(); toast(e.message,true); });
   }
-  function claim(){
+  function claim(btn){
     if (!TICKET||BUSY||!DATA.me) return;
-    var was=TICKET.assigned_to; BUSY=true; TICKET.assigned_to=DATA.me.email; renderDetail();
-    google.script.run
-      .withSuccessHandler(function(){ BUSY=false; toast('claimed'); refresh(); })
-      .withFailureHandler(function(e){ BUSY=false; TICKET.assigned_to=was; renderDetail(); toast(e.message,true); })
-      .claimTicket(TICKET.key);
+    var was=TICKET.assigned_to; BUSY=true; TICKET.assigned_to=DATA.me.email;
+    var undo=press(btn,' Taking…');
+    call('claimTicket',[TICKET.key],function(){
+      BUSY=false; toast('It is yours'); refresh(); renderDetail();
+    },function(e){ BUSY=false; TICKET.assigned_to=was; undo(); toast(e.message,true); });
+  }
+  function assign(sel){
+    if (!TICKET||BUSY) return;
+    var email=sel.value, was=TICKET.assigned_to;
+    BUSY=true; TICKET.assigned_to=email; sel.disabled=true;
+    call('setAssignee',[TICKET.key,email],function(){
+      BUSY=false; sel.disabled=false;
+      toast(email?'Handed to '+shortName(email):'Left unowned'); refresh();
+    },function(e){ BUSY=false; sel.disabled=false; TICKET.assigned_to=was; renderDetail(); toast(e.message,true); });
   }
   function noteChanged(){
     if (!TICKET) return;
     NOTES[TICKET.key]=document.getElementById('note').value;
     var s=document.getElementById('noteState');
-    if (s){ s.textContent='held locally · unsaved'; s.style.color='var(--amber)'; }
+    if (s){ s.textContent='not sent yet'; s.style.color='var(--amber-ink2)'; }
   }
-  function saveNote(){
+  function saveNote(btn){
     if (!TICKET) return;
-    var v=document.getElementById('note').value; BUSY=true;
-    google.script.run
-      .withSuccessHandler(function(){ BUSY=false; TICKET.agent_note=v; delete NOTES[TICKET.key];
-        var s=document.getElementById('noteState');
-        if(s){ s.textContent='saved'; s.style.color='var(--emerald)'; }
-        toast('note saved'); refresh(); })
-      .withFailureHandler(function(e){ BUSY=false; toast(e.message,true); })
-      .saveNote(TICKET.key,v);
-  }
-  function nameIt(preset){
-    if (!TICKET) return;
-    var el1=document.getElementById('dispNew'), el2=document.getElementById('disp');
-    var d = preset || (el1?el1.value.trim():'') || (el2?el2.value:'');
-    if (!d){ toast('pick or type a category',true); return; }
-    BUSY=true;
-    google.script.run
-      .withSuccessHandler(function(r){ BUSY=false; toast('taught: '+r.disposition); TICKET=null; refresh(); })
-      .withFailureHandler(function(e){ BUSY=false; toast(e.message,true); })
-      .nameDisposition(TICKET.key,d);
-  }
-  function bulkAssign(){
-    var to=document.getElementById('bulkTo').value;
-    var keys=Object.keys(CHECKED).filter(function(k){return CHECKED[k];});
-    if (!keys.length) return;
-    BUSY=true;
-    google.script.run
-      .withSuccessHandler(function(r){ BUSY=false; CHECKED={}; toast('assigned '+r.assigned); refresh(); })
-      .withFailureHandler(function(e){ BUSY=false; toast(e.message,true); })
-      .setAssigneeBulk(keys,to);
+    var v=document.getElementById('note').value;
+    var undo=press(btn,' Sending…');
+    call('saveNote',[TICKET.key,v],function(){
+      TICKET.agent_note=v; delete NOTES[TICKET.key];
+      var s=document.getElementById('noteState');
+      if (s){ s.textContent='sent'; s.style.color='var(--green)'; }
+      undo(); toast('Sent'); refresh();
+    },function(e){ undo(); toast(e.message,true); });
   }
 
   // ── view state ─────────────────────────────────────────────────────────────────────────────
   function setGroup(g){
     var wasA=ARCHIVE.indexOf(VIEW.group)>=0, isA=ARCHIVE.indexOf(g)>=0;
-    VIEW.group=g; SEL=null; TICKET=null; CHECKED={};
-    document.getElementById('detail').innerHTML='<div class="empty">select a ticket</div>';
+    VIEW.group=g; SEL=null; TICKET=null;
+    document.getElementById('detail').innerHTML='<div class="empty">Pick a ticket on the left.</div>';
     renderChrome(); renderList(); persist();
     if (isA||wasA){ LOADING=true; renderList(); refresh(); }
   }
-  function toggleMine(){ VIEW.mine=!VIEW.mine; persist(); renderChrome(); renderList(); }
-  function check(k,on){ CHECKED[k]=on; renderList(); }
-  function pick(ev,k){ if (ev.target.tagName==='INPUT') return; openTicket(k); }
-  var searchTimer=null;
-  function debouncedSearch(){
+  var st=null;
+  function onSearch(){
     VIEW.q=document.getElementById('q').value; renderChrome(); renderList();
-    clearTimeout(searchTimer); searchTimer=setTimeout(persist,800);
+    clearTimeout(st); st=setTimeout(persist,900);
   }
   function persist(){
     google.script.run.withFailureHandler(function(){}).saveAgentFilter(JSON.stringify(VIEW));
   }
 
-  // ── keyboard ───────────────────────────────────────────────────────────────────────────────
   document.addEventListener('keydown', function(e){
-    var typing=/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-    if (e.key==='Escape'){ document.activeElement.blur(); return; }
-    if (typing) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){
+      if (e.key==='Escape') document.activeElement.blur();
+      return;
+    }
     var ts=DATA?visible():[], i=ts.findIndex(function(t){return t.key===SEL;});
     var deciding = TICKET && TICKET.group==='NEEDS A CATEGORY';
-    if (e.key==='j'&&ts.length){ openTicket(ts[Math.min(ts.length-1,i+1)].key); e.preventDefault(); }
-    else if (e.key==='k'&&ts.length){ openTicket(ts[Math.max(0,i-1)].key); e.preventDefault(); }
-    // In the decision panel 1/2 pick a candidate; elsewhere they set state. Same keys, because
-    // in that panel choosing a category IS the action that matters.
-    else if ((e.key==='1'||e.key==='2')&&deciding){
-      var b=document.querySelectorAll('.cand')[e.key==='1'?0:1]; if(b) b.click();
+    if ((e.key==='1'||e.key==='2') && deciding){
+      var b=document.getElementById('ch'+(e.key==='1'?0:1)); if(b) b.click(); return;
     }
-    else if (e.key==='1'&&TICKET) setState('OPEN');
-    else if (e.key==='2'&&TICKET) setState('WORKING');
-    else if (e.key==='3'&&TICKET) setState('RESOLVED');
-    else if (e.key==='c'&&TICKET) claim();
-    else if (e.key==='a'&&TICKET){ var s=document.getElementById('assignee'); if(s) s.focus(); }
-    else if (e.key==='m') toggleMine();
-    else if (e.key==='r') refresh(true);
+    if (e.key==='j'||e.key==='J'){ if(ts.length) openTicket(ts[Math.min(ts.length-1,i+1)].key); e.preventDefault(); }
+    else if (e.key==='k'||e.key==='K'){ if(ts.length) openTicket(ts[Math.max(0,i-1)].key); e.preventDefault(); }
     else if (e.key==='/'){ document.getElementById('q').focus(); e.preventDefault(); }
+    else if (e.key==='r') refresh(true);
   });
 
   window.addEventListener('beforeunload', function(e){
@@ -590,14 +684,14 @@
   });
 
   LOADING=true; renderList();
-  google.script.run.withSuccessHandler(function(d){
+  call('getQueue',[VIEW],function(d){
     DATA=d; LOADING=false;
     if (d.me&&d.me.filter){ try{ VIEW=JSON.parse(d.me.filter)||VIEW; }catch(err){} }
     document.getElementById('q').value=VIEW.q||'';
     renderAll();
-    setInterval(function(){ if(!BUSY) refresh(); },45000);
-  }).withFailureHandler(function(e){
+    setInterval(function(){ if(!BUSY&&!INFLIGHT) refresh(); },45000);
+  },function(e){
     LOADING=false;
     document.getElementById('list').innerHTML='<div class="empty">'+esc(e.message)+'</div>';
-  }).getQueue(VIEW);
+  });
 </script>

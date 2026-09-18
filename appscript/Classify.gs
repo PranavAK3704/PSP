@@ -143,7 +143,7 @@ function classifyText(text) {
   }
   var q = clTok_(text);
   if (!q.length) {
-    return { disposition: 'NOVEL', score: 0.0, runner_up: null, margin: 0.0,
+    return { disposition: 'NOVEL', score: 0.0, runner_up: null, margin: 0.0, candidates: [],
              why: 'no scoreable tokens' };
   }
 
@@ -171,15 +171,18 @@ function classifyText(text) {
     // runner_up is deliberately `best`, not `runner` — it surfaces what the answer WOULD have
     // been if the floor had not stopped it, which is the useful thing to show a human here.
     return { disposition: 'NOVEL', score: round_(bestScore, 2), runner_up: best,
-             margin: round_(margin, 3),
+             margin: round_(margin, 3), candidates: [best, runner].filter(Boolean),
              why: 'best score ' + bestScore.toFixed(2) + ' below floor ' + pyFloat_(M.minScore) };
   }
   if (margin < M.minMargin) {
+    // BOTH names, not just the loser. A human being asked to decide needs the two things it was
+    // torn between; returning only the runner-up left the decision screen with one button.
     return { disposition: 'NOVEL', score: round_(bestScore, 2), runner_up: runner,
-             margin: round_(margin, 3),
+             margin: round_(margin, 3), candidates: [best, runner].filter(Boolean),
              why: best + ' and ' + runner + ' within ' + (margin * 100).toFixed(1) +
                   '% — too close to separate' };
   }
   return { disposition: best, score: round_(bestScore, 2), runner_up: runner,
-           margin: round_(margin, 3), why: 'nearest exemplars agree on ' + best };
+           margin: round_(margin, 3), candidates: [best, runner].filter(Boolean),
+           why: 'nearest exemplars agree on ' + best };
 }

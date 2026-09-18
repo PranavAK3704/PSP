@@ -155,6 +155,48 @@ function CFG() {
   return _cache.cfg;
 }
 
+/**
+ * Plain language for each category, and where it actually goes.
+ *
+ * ── WHY THIS EXISTS ─────────────────────────────────────────────────────────────────────────
+ * `cod_pendency` means nothing to a support agent on their first week. Worse, the machine-facing
+ * name hides the only thing they need to decide between two candidates: what each one MEANS and
+ * which desk it lands on. The team names are taken from the ops-authored SOPs' own escalation
+ * field, not invented here.
+ *
+ * Anything not in this table falls back to a prettified version of its own name, so a category
+ * a human invents in the UI still reads sensibly without a code change.
+ */
+function DISPOSITIONS() {
+  if (_cache.disp) return _cache.disp;
+  _cache.disp = {
+    payment_not_received:   ['Payment has not arrived',      'Money was due and has not landed.',                      'Cost Ops'],
+    payment_reconciliation: ['Payment amount is wrong',      'The payout came, but the figure does not match.',        'Cost Ops'],
+    cod_shortfall:          ['Cash handed in is short',      'Less COD reached us than was collected.',                'COD desk'],
+    cod_pendency:           ['COD not handed over yet',      'Cash collected is still sitting with the partner.',      'Cash handover'],
+    hardstop_loss:          ['Parcel written off as lost',   'A parcel was marked lost and charged to the partner.',   'Losses team'],
+    shortage_loss:          ['Items missing from a bag',     'A bag arrived short and somebody is being charged.',     'Losses team'],
+    qc_failure:             ['Failed a quality check',       'A parcel was rejected at a QC gate.',                    'SX claims'],
+    load_planning:          ['Load or route problem',        'Vehicles, trips or capacity do not match the plan.',     'Planning team'],
+    capacity_panel_issue:   ['Capacity panel is wrong',      'The panel shows wrong numbers or blocks a change.',      'Area Managers'],
+    technical_issue:        ['Something in the app broke',   'A screen, a login or a scan is not working.',            'Tech'],
+    consumables_order:      ['Supplies have not arrived',    'Bags, tape or labels were ordered and never came.',      'Vendors'],
+    consumables_damaged:    ['Supplies arrived damaged',     'What was delivered cannot be used.',                     'Suppliers'],
+    consumables_payment:    ['Charged wrongly for supplies', 'A deduction for consumables looks wrong.',               'Cost Ops'],
+    invoice_request:        ['Needs an invoice or bill',     'A document is needed for GST or for records.',           'Area Managers']
+  };
+  return _cache.disp;
+}
+
+/** {label, meaning, team} for any category, invented ones included. */
+function dispositionInfo(key) {
+  var k = String(key || '');
+  var d = DISPOSITIONS()[k];
+  if (d) return { key: k, label: d[0], meaning: d[1], team: d[2] };
+  var pretty = k.replace(/_/g, ' ').replace(/^./, function (c) { return c.toUpperCase(); });
+  return { key: k, label: pretty || 'Uncategorised', meaning: '', team: '' };
+}
+
 function props_() { return PropertiesService.getScriptProperties(); }
 
 /** A Script Property, or `dflt`. Empty string counts as absent — a cleared property is not a value. */

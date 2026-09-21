@@ -43,7 +43,8 @@ function CFG() {
       dcDeny:    '_dc_denylist',
       exemplars: '_exemplars',
       agents:    '_agents',
-      contacts:  '_dc_contacts'
+      contacts:  '_dc_contacts',
+      questions: '_questions'
     },
 
     // A UI write waits this long for the script lock before giving up. The pipeline can hold it
@@ -117,6 +118,26 @@ function CFG() {
     // Trailing rows of the issues tab read to find open issues. Must exceed the number of
     // issues created inside the longest grouping window (180 days as shipped).
     issueTailRows: 30000,
+
+    // ── filing into Kapture ──────────────────────────────────────────────────────────────
+    // Kapture is the CRM the support agents are already onboarded to: an email to its intake
+    // address becomes a ticket assigned to a real person. So this stops being a ticketing
+    // system and becomes a triage layer that feeds one — which is also the right shape given
+    // that Kapture is going to be replaced. The Sheet stays the system of record; Kapture is
+    // a sink. When it goes, one function goes with it.
+    kapture: {
+      // OFF by default and it should stay off until you have watched a week of what this would
+      // have filed. Every false positive becomes a real ticket a real agent has to work and
+      // close. You can loosen this later; you cannot un-spam a shared queue, and you get about
+      // one chance at the desk's goodwill.
+      autoFile: false,
+
+      // Even with autoFile on, never file something the classifier would not commit to. A
+      // ticket with no category lands in Kapture as "miscellaneous" and rots.
+      autoFileNeedsCategory: true,
+      // ...nor one with nothing anybody could act on.
+      autoFileNeedsIdentifier: true
+    },
 
     // ── telling the delivery centre ──────────────────────────────────────────────────────
     // Meesho AMs raise tickets on behalf of DCs, who are not Meesho employees and today hear

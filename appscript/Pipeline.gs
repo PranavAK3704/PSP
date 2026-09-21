@@ -58,7 +58,14 @@ var TICKET_HEADER = [
   'intent_margin', 'intent_runner_up', 'intent_candidates',
   // ── desk-owned: THE PIPELINE NEVER WRITES PAST THIS LINE ──
   'desk_state', 'assigned_to', 'assigned_at', 'agent_note', 'updated_by', 'updated_at',
-  'acknowledged_at', 'acknowledge_error', 'dc_notified_at', 'dc_notify_error'
+  'acknowledged_at', 'acknowledge_error', 'dc_notified_at', 'dc_notify_error',
+  // Filing into Kapture is a desk action, not a pipeline one — an agent decides, or a
+  // conservative auto-rule does. Either way the pipeline must never overwrite the record of
+  // it, which is why these live past the boundary.
+  'filed_at', 'filed_ref', 'file_error',
+  // What we asked the raiser for, and what they said back. Attached to the ticket verbatim —
+  // a Kapture agent reads prose fine, so there is nothing to parse.
+  'asked_at', 'asked_for', 'answered_at', 'answer', 'answer_identifiers'
 ];
 
 //: Everything before this index is the pipeline's. Everything from it on belongs to the desk

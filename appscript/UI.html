@@ -567,6 +567,11 @@
             d: t.dc.known ? 'They are the ones who can fix it at the centre. This is the step that is stuck.'
                           : 'There is no contact on file for '+esc(t.dc.code)+', so nothing can reach them.' });
     }
+    steps.push(t.filed_at
+      ? { s:'done', h:'Filed into Kapture', d:'Sent '+timeOf(t.filed_at)+' — an agent has it there now' }
+      : { s:'wait', h:'Not filed into Kapture yet',
+          d: (t.kapture_blockers||[]).length ? esc(t.kapture_blockers.join('; '))
+             : 'Send it when you are happy with the detail below.' });
     steps.push({ s: t.state==='RESOLVED'||t.state==='CLOSED' ? 'done':'wait',
       h: esc(t.raiser)+' hears it is fixed',
       d:'Happens on its own when you mark it done' });
@@ -602,6 +607,8 @@
       (mine?'':'<div class="btns" style="margin-top:12px"><button class="b primary" onclick="claim(this)">Take this one</button></div>')+
       '</div>';
 
+    h+=askPanel(t)+kapturePanel(t);
+
     h+='<div class="card"><label class="f"><span>Note for '+esc(t.raiser).split(' ')[0]+'</span>'+
       '<span id="noteState" style="font-weight:400;font-size:12.5px;color:'+
       (dirty?'var(--amber-ink2)':'var(--muted)')+'">'+(dirty?'not sent yet':'saved')+'</span></label>'+
@@ -620,6 +627,69 @@
       '<div class="hint">Passing a ticket on is not a mark against you. An unowned ticket is.</div></div>';
 
     d.innerHTML=h;
+  }
+
+  /**
+   * Ask the raiser for what is missing.
+   *
+   * The Slack app has no chat:write yet, so the agent copies this and sends it themselves.
+   * Clumsy, works today, and exercises the whole loop — when the scope lands the only thing
+   * that changes is who presses send.
+   */
+  function askPanel(t){
+    if (!t.ask || t.answered_at) {
+      if (!t.answer) return '';
+      return '<div class="card"><div class="kicker">What they added when asked</div>'+
+        '<div class="quote" style="font-size:14.5px">'+esc(t.answer)+'</div>'+
+        (t.answer_identifiers?'<div class="hint" style="color:var(--green)">Picked out of that reply: '+esc(t.answer_identifiers)+'</div>':'')+
+        '<div class="hint">Attached to the ticket and included when it is filed.</div></div>';
+    }
+    return '<div class="card amber"><h3 class="sec" style="font-size:18px">'+
+      'They did not give us enough to act on</h3>'+
+      '<p class="lead">'+t.ask.questions.length+' thing'+(t.ask.questions.length>1?'s':'')+
+      ' missing. Send this to '+esc(String(t.raiser).split(' ')[0])+' and paste whatever comes back.</p>'+
+      '<textarea id="askText" style="min-height:150px;font-size:14px">'+esc(t.ask.text)+'</textarea>'+
+      '<div class="btns" style="margin-top:10px">'+
+      '<button class="b primary" onclick="copyAsk(this)">Copy the message</button>'+
+      '<button class="b" onclick="markAsked(this)">I sent it</button></div>'+
+      '<div class="hint">Slack cannot send this for us yet \u2014 the app needs chat:write, which '+
+      'is waiting on approval. Until then it is copy, paste, and paste the reply back.</div>'+
+      (t.asked_at
+        ? '<label class="f" style="margin-top:16px"><span>Their reply</span>'+
+          '<span style="font-weight:400;color:var(--muted)">asked '+ago(t.asked_at)+' ago</span></label>'+
+          '<textarea id="answerText" placeholder="Paste what they said"></textarea>'+
+          '<div class="btns" style="margin-top:10px">'+
+          '<button class="b primary" onclick="saveAnswer(this)">Attach it</button></div>'
+        : '')+
+      '</div>';
+  }
+
+  /** File it into the CRM the agents already work in. */
+  function kapturePanel(t){
+    if (t.filed_at){
+      return '<div class="card"><div class="kicker">Filed</div>'+
+        '<div style="font-size:14.5px">Sent to <span class="mono">'+esc(t.kapture_to)+'</span> at '+
+        esc(timeOf(t.filed_at))+'</div>'+
+        '<div class="hint">An agent has it in Kapture now. This record stays here \u2014 it is what '+
+        'knows this problem has come up before.</div></div>';
+    }
+    var blockers=(t.kapture_blockers||[]);
+    return '<div class="card"><div class="kicker">Send it to an agent</div>'+
+      '<div style="font-size:14px;margin-bottom:10px">Files a formatted ticket to '+
+      '<span class="mono">'+esc(t.kapture_to)+'</span>, where it lands with somebody in Kapture.</div>'+
+      (blockers.length
+        ? '<div class="hint" style="color:var(--red);margin-bottom:10px">Held back: '+
+          esc(blockers.join('; '))+'</div>' : '')+
+      (t.ask && !t.answer
+        ? '<div class="hint" style="margin-bottom:10px">It will go with the missing details listed '+
+          'as unanswered. Better to ask first if you can.</div>' : '')+
+      '<div class="btns"><button class="b primary" onclick="fileIt(this,false)">Send to Kapture</button>'+
+      '<button class="b" onclick="previewIt(this)">Show me the email first</button>'+
+      (blockers.length?'<button class="b" onclick="fileIt(this,true)">Send anyway</button>':'')+
+      '</div>'+
+      '<pre id="kPreview" style="display:none;white-space:pre-wrap;background:var(--paper);'+
+      'border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:12px;'+
+      'font:12.5px/1.6 var(--mono);max-height:340px;overflow:auto"></pre></div>';
   }
 
   /** Internal flag names, said plainly. */
@@ -676,6 +746,45 @@
       var s=document.getElementById('noteState');
       if (s){ s.textContent='sent'; s.style.color='var(--green)'; }
       undo(); toast('Sent'); refresh();
+    },function(e){ undo(); toast(e.message,true); });
+  }
+
+  function copyAsk(btn){
+    var el=document.getElementById('askText');
+    el.select(); el.setSelectionRange(0, 99999);
+    var ok=false;
+    try { ok=document.execCommand('copy'); } catch(e) { ok=false; }
+    toast(ok?'Copied — paste it into Slack':'Select the text and copy it', !ok);
+  }
+  function markAsked(btn){
+    if (!TICKET) return;
+    var undo=press(btn,' Saving…');
+    call('recordAsk',[TICKET.key],function(){ undo(); toast('Noted'); openTicket(TICKET.key); },
+      function(e){ undo(); toast(e.message,true); });
+  }
+  function saveAnswer(btn){
+    if (!TICKET) return;
+    var v=document.getElementById('answerText').value;
+    if (!v.trim()){ toast('Paste their reply first',true); return; }
+    var undo=press(btn,' Attaching…');
+    call('recordAnswer',[TICKET.key,v],function(){ undo(); toast('Attached'); openTicket(TICKET.key); },
+      function(e){ undo(); toast(e.message,true); });
+  }
+  function fileIt(btn,force){
+    if (!TICKET||BUSY) return;
+    BUSY=true;
+    var undo=press(btn,' Filing…');
+    call('fileToKapture',[TICKET.key,!!force],function(r){
+      BUSY=false; toast(r.dry?'Dry run — nothing sent':'Filed to '+r.to); openTicket(TICKET.key); refresh();
+    },function(e){ BUSY=false; undo(); toast(e.message,true); });
+  }
+  function previewIt(btn){
+    if (!TICKET) return;
+    var undo=press(btn,' Building…');
+    call('previewKapture',[TICKET.key],function(txt){
+      undo();
+      var el=document.getElementById('kPreview');
+      el.textContent=txt; el.style.display='block';
     },function(e){ undo(); toast(e.message,true); });
   }
 

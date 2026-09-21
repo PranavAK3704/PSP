@@ -35,6 +35,12 @@ function setup() {
   sheet_(C.tabs.exemplars, ['id', 'disposition', 'label_provenance', 'text']);
   sheet_(C.tabs.agents, AGENT_HEADER);
   sheet_(C.tabs.contacts, CONTACT_HEADER);
+  sheet_(C.tabs.questions, QUESTION_HEADER);
+  // Seed the questions once. They are a starting point written by somebody who does not run a
+  // line-haul desk — the whole reason they live in a Sheet is so the people who do can fix them.
+  if (!readTabObjects_(C.tabs.questions).length) {
+    appendRows_(C.tabs.questions, QUESTION_HEADER, SEED_QUESTIONS());
+  }
 
   // Seed the deployer as the first agent, so the roster is never empty and nobody can lock
   // themselves out of the tool they just installed. Everyone else is added by typing a row.
@@ -83,7 +89,8 @@ function migrateSchema() {
     var out = [];
     [[CFG().tabs.raw, RAW_HEADER], [CFG().tabs.issues, ISSUE_HEADER],
      [CFG().tabs.tickets, TICKET_HEADER], [CFG().tabs.channels, CHANNEL_HEADER],
-     [CFG().tabs.agents, AGENT_HEADER], [CFG().tabs.contacts, CONTACT_HEADER]].forEach(function (p) {
+     [CFG().tabs.agents, AGENT_HEADER], [CFG().tabs.contacts, CONTACT_HEADER],
+     [CFG().tabs.questions, QUESTION_HEADER]].forEach(function (p) {
       var name = p[0], want = p[1];
       var sh = ss_().getSheetByName(name);
       if (!sh) { sheet_(name, want); out.push(name + ': created'); return; }
@@ -129,6 +136,9 @@ function installTriggers() {
   ScriptApp.newTrigger('sendAcknowledgements').timeBased().everyMinutes(10).create();
   // Late replies to older threads — see the note in SlackParser.gs for why this is separate.
   ScriptApp.newTrigger('sweepThreadReplies').timeBased().everyMinutes(30).create();
+  // Only fires if CFG().kapture.autoFile is on; installed either way so turning the switch on
+  // does not also require remembering to add a trigger.
+  ScriptApp.newTrigger('autoFileToKapture').timeBased().everyMinutes(15).create();
   ScriptApp.newTrigger('dailyMaintenance').timeBased().everyDays(1).atHour(3).create();
 
   return ScriptApp.getProjectTriggers().length + ' triggers installed';

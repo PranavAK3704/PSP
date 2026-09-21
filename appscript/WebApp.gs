@@ -150,6 +150,7 @@ function getQueue(opts) {
       state: effectiveState_(t), assigned_to: assignee, flags: flags,
       occurrence_count: Number(t.occurrence_count || 1),
       acknowledged: !!t.acknowledged_at, dc_told: !!t.dc_notified_at,
+      filed: !!t.filed_at, asked: !!t.asked_at, answered: !!t.answered_at,
       last_raised_at: String(t.last_raised_at || ''),
       first_raised_at: String(t.first_raised_at || ''),
       margin: t.intent_margin === '' ? null : Number(t.intent_margin),
@@ -209,6 +210,13 @@ function getTicket(key) {
       dc_notified_at: String(t.dc_notified_at || ''),
       dc_notify_error: String(t.dc_notify_error || ''),
       agent_note: String(t.agent_note || ''), assigned_to: String(t.assigned_to || ''),
+      filed_at: String(t.filed_at || ''), file_error: String(t.file_error || ''),
+      asked_at: String(t.asked_at || ''), asked_for: String(t.asked_for || ''),
+      answered_at: String(t.answered_at || ''), answer: String(t.answer || ''),
+      answer_identifiers: String(t.answer_identifiers || ''),
+      ask: askDraft(t),                       // the message to send, and what it asks for
+      kapture_to: kaptureAddress_(),
+      kapture_blockers: kaptureBlockers_(t, { auto: false }),
       updated_by: String(t.updated_by || ''), updated_at: String(t.updated_at || ''),
       last_raised_at: String(t.last_raised_at || '')
     };

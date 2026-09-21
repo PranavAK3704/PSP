@@ -99,7 +99,10 @@ const MSGS = [
   { ts: `${T0 + 90}.000900`, user: 'U7', text: 'any update ??' },
   // A real message from the live channel. The classifier gets it to within 10.8% of a second
   // category and refuses — the exact case the decision panel exists for.
-  { ts: `${T0 + 100}.001000`, user: 'U8', text: 'DC NQS payment nahi aaya, please help' }
+  { ts: `${T0 + 100}.001000`, user: 'U8', text: 'DC NQS payment nahi aaya, please help' },
+  // The case the whole enrichment idea exists for: a real problem, zero specifics.
+  { ts: `${T0 + 110}.001100`, user: 'U9',
+    text: 'south zone line haul is compromised, the DCs are having high pendency' }
 ];
 const REPLIES = {
   [`${T0 + 50}.000500`]: [
@@ -168,7 +171,8 @@ const sandbox = {
 vm.createContext(sandbox);
 const FILES = ['Config.gs', 'Lexicons.gs', 'SlackParser.gs', 'Noise.gs', 'Entities.gs',
                'Evidence.gs', 'Group.gs', 'Dedupe.gs', 'Classify.gs', 'Emit.gs', 'Pipeline.gs',
-               'Notify.gs', 'WebApp.gs', 'Health.gs', 'Setup.gs', 'Tests.gs'];
+               'Notify.gs', 'WebApp.gs', 'Health.gs', 'Questions.gs', 'Kapture.gs',
+               'Setup.gs', 'Tests.gs'];
 for (const f of FILES) vm.runInContext(fs.readFileSync(path.join(DIR, f), 'utf8'), sandbox, { filename: f });
 const ok = (label, cond, extra) => {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${extra ? '   ' + extra : ''}`);
@@ -194,8 +198,12 @@ for (const [file, tab] of [['_dc_codes', '_dc_codes'], ['_dc_denylist', '_dc_den
 // ── run it ───────────────────────────────────────────────────────────────────────────────────
 console.log('setup + seed');
 sandbox.setup();
+// `r.length > 1` silently emptied every SINGLE-COLUMN tab — _dc_codes and _dc_denylist — so
+// the registry was empty in every run and tier-B DC extraction was never actually exercised.
+// Tier A is label-anchored and needs no registry, which is exactly why it went unnoticed.
 for (const [file, tab] of [['_dc_codes','_dc_codes'],['_dc_denylist','_dc_denylist'],['_exemplars','_exemplars']])
-  SHEETS[tab].data = parseCsv(fs.readFileSync(`${DIR}/seed/${file}.csv`, 'utf8')).filter(r => r.length > 1);
+  SHEETS[tab].data = parseCsv(fs.readFileSync(`${DIR}/seed/${file}.csv`, 'utf8'))
+    .filter(r => r.length && String(r[0]).trim() !== '');
 
 // a delivery centre the AM raises tickets for
 SHEETS._dc_contacts.data = [sandbox.CONTACT_HEADER,
@@ -273,6 +281,47 @@ ok('reply_count advanced', t.reply_count >= 2, String(t.reply_count));
 const nt = sandbox.getTicket(novel.key);
 ok('category did NOT revert to NOVEL', nt.intent === 'devanagari_payment_issue', nt.intent);
 ok('and it left the NEEDS A CATEGORY group', nt.group !== 'NEEDS A CATEGORY', nt.group);
+
+console.log('\n── the unformatted message: what do we ask for, and what gets filed? ──');
+{
+  const vague = sandbox.getQueue({}).tickets
+    .find(t => /line haul/.test(t.title));
+  if (!vague) { console.log('  (line-haul ticket not raised)'); }
+  else {
+    const d = sandbox.getTicket(vague.key);
+    ok('an unformatted issue still becomes a ticket', !!d, d.ref);
+    ok('and it knows nothing actionable is in it',
+       (d.flags||[]).indexOf('no_actionable_identifier') >= 0);
+    ok('so it has questions to ask', d.ask && d.ask.questions.length > 0,
+       (d.ask ? d.ask.questions.length : 0) + ' questions');
+    console.log('\n  --- the message an agent would send ---');
+    (d.ask ? d.ask.text : '').split('\n').forEach(l => console.log('      ' + l));
+
+    // the agent asks, the raiser replies, the reply is attached verbatim
+    sandbox.recordAsk(vague.key);
+    const ra = sandbox.recordAnswer(vague.key,
+      'Trucking partner is BlueDart Surface. DCs affected: NQS, IQU and PJ2. ' +
+      'Sort centre is Bhiwandi. Started yesterday evening.');
+    ok('the reply is scanned for identifiers it can recognise',
+       /NQS/.test(ra.found || ''), JSON.stringify(ra.found));
+    const after = sandbox.getTicket(vague.key);
+    ok('their reply is attached', /BlueDart/.test(after.answer));
+
+    console.log('\n  --- what Kapture receives ---');
+    sandbox.previewKapture(vague.key).split('\n').forEach(l => console.log('      ' + l));
+
+    PROPS.INTAKE_NOTIFY = 'email'; sandbox._cache = {};
+    const before = MAILED.length;
+    sandbox.fileToKapture(vague.key, false);
+    const filed = MAILED.filter(m => m.to === 'valmo.partnersupport@meesho.com');
+    ok('it files to the Kapture address', filed.length === 1, filed.length + ' mail(s)');
+    const f2 = sandbox.getTicket(vague.key);
+    ok('and records that it was filed', !!f2.filed_at);
+    let twice = false;
+    try { sandbox.fileToKapture(vague.key, false); } catch (e) { twice = /already filed/.test(e.message); }
+    ok('filing twice is refused', twice);
+  }
+}
 
 console.log('\n── notifications ──');
 PROPS.INTAKE_NOTIFY = 'email'; sandbox._cache = {};

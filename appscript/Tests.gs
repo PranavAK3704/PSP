@@ -249,7 +249,10 @@ function testGroupingWindows() {
 function testColumnOwnership() {
   var desk = ['desk_state', 'assigned_to', 'assigned_at', 'agent_note', 'updated_by',
               'updated_at', 'acknowledged_at', 'acknowledge_error', 'dc_notified_at',
-              'dc_notify_error'];
+              'dc_notify_error',
+              // filing into the CRM is a desk action, and so is asking the raiser for detail
+              'filed_at', 'filed_ref', 'file_error',
+              'asked_at', 'asked_for', 'answered_at', 'answer', 'answer_identifiers'];
   for (var i = 0; i < desk.length; i++) {
     var idx = TICKET_HEADER.indexOf(desk[i]);
     _eq('desk field present: ' + desk[i], idx >= 0, true);
@@ -293,9 +296,16 @@ function testPhoneNormalise() {
  *  possible — this is what took a 2,000-update run from 2,012 Sheets calls to 13. */
 function testBatchedWriteGrouping() {
   var written = [];
-  var fake = { getRange: function (r, c, nr, nc) {
-    return { setValues: function (v) { written.push([r, c, nr, nc, v.length]); } };
-  } };
+  // Fake sheets need every method the writer touches — writeRowsBatched_ now widens the grid
+  // before writing, because a header wider than the sheet throws rather than clipping.
+  var fake = {
+    cols: 26,
+    getMaxColumns: function () { return this.cols; },
+    insertColumnsAfter: function (after, n) { this.cols = Math.max(this.cols, after + n); },
+    getRange: function (r, c, nr, nc) {
+      return { setValues: function (v) { written.push([r, c, nr, nc, v.length]); } };
+    }
+  };
   var realSs = ss_;
   // eslint-disable-next-line no-global-assign
   ss_ = function () { return { getSheetByName: function () { return fake; } }; };

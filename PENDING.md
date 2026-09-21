@@ -8,6 +8,48 @@ Last reviewed: 2026-09-18.
 
 ---
 
+## 0. The plan changed on 2026-09-21 — Kapture is the sink
+
+Management wants this live. The support agents are already onboarded to **Kapture**, and an
+email to `valmo.partnersupport@meesho.com` becomes a ticket assigned to a real person there.
+
+So this stops being a ticketing system and becomes a **triage layer that feeds one**. The Sheet
+stays the system of record — which matters, because Kapture is going to be replaced and when it
+is, `Kapture.gs` goes with it and nothing else moves.
+
+### 0a · Point Kapture at a test inbox first
+- [ ] Set `KAPTURE_EMAIL` to your own address
+- [ ] File one ticket, check the format against what Kapture's parser actually wants
+- [ ] Edit `kaptureBody_()` if it needs a different shape — that is the only function to change
+- [ ] Then set `KAPTURE_EMAIL` to `valmo.partnersupport@meesho.com`
+
+**Nobody here knows Kapture's parser.** The format is a sensible guess: labelled plain text,
+one field per line, section markers. Verify before it matters.
+
+### 0b · Auto-filing stays OFF until you have watched a week
+- [ ] Watch what it *would* have filed, then decide
+
+`CFG().kapture.autoFile` is `false`. Every false positive becomes a real ticket a real agent
+works and closes, against measured 82% coverage and 65% category precision. You can loosen it
+later; you cannot un-spam a desk.
+
+### 0c · Chase the Slack reinstall — it is the only real blocker
+- [ ] Find out where `chat:write` + `im:write` approval is
+
+The enrichment loop — see a vague message, ask the raiser for specifics, attach the reply — is
+built and works **except that the script cannot send the DM**. Today an agent copies the drafted
+message into Slack and pastes the reply back. That is clumsy and it proves the loop; when the
+scope lands, the only thing that changes is who presses send.
+
+### 0d · The week-one measurement that decides whether this is worth keeping
+- [ ] For every ticket this raises, did the existing Slack workflow already produce one?
+
+The workflow is opt-in and catches motivated people. This catches the rest. **The value of this
+system is exactly that delta.** Run both in parallel, do not auto-file, count the overlap. 90%
+overlap means keep only the recurrence view; 40% means you found what was falling through.
+
+---
+
 ## A. Blocked on you — nobody else can do these
 
 ### A1 · Invite the bot to the two real channels

@@ -48,6 +48,27 @@ function healthSummary_() {
     out.push({ label: 'INTENT', ok: true, warn: false, detail: exRows + ' exemplars · ' + classified });
   }
 
+  // ── 1b. the model tier, if it is in play ─────────────────────────────────────────────────
+  // Only reported when a key exists. A tier that fails silently is one you find out about
+  // months later, in a bill or in a backlog of things nobody placed.
+  if (prop_('ANTHROPIC_KEY', '')) {
+    var last = String(stateGet_('llm:last', ''));
+    var calls = Number(stateGet_('llm:calls', 0)) || 0;
+    var cached = 0;
+    var lc = ss_().getSheetByName(CFG().tabs.llmCache);
+    if (lc) cached = Math.max(0, lc.getLastRow() - 1);
+    if (!last) {
+      out.push({ label: 'MODEL', ok: false, warn: true,
+                 detail: 'key set, never called yet — run checkLlm()' });
+    } else if (last.indexOf('ok') !== 0) {
+      out.push({ label: 'MODEL', ok: false, warn: false,
+                 detail: 'last call failed: ' + last });
+    } else {
+      out.push({ label: 'MODEL', ok: true, warn: false,
+                 detail: calls + ' call(s) today · ' + cached + ' cached · ' + CFG().llm.model });
+    }
+  }
+
   // ── 2. polling ────────────────────────────────────────────────────────────────────────────
   var lastPoll = String(stateGet_('poll:last_at', ''));
   var chans = readTabObjects_(CFG().tabs.channels);

@@ -36,6 +36,7 @@ function setup() {
   sheet_(C.tabs.agents, AGENT_HEADER);
   sheet_(C.tabs.contacts, CONTACT_HEADER);
   sheet_(C.tabs.questions, QUESTION_HEADER);
+  sheet_(C.tabs.llmCache, LLM_CACHE_HEADER);
   // Seed the questions once. They are a starting point written by somebody who does not run a
   // line-haul desk — the whole reason they live in a Sheet is so the people who do can fix them.
   if (!readTabObjects_(C.tabs.questions).length) {
@@ -54,7 +55,8 @@ function setup() {
 
   // _agents and _dc_contacts stay VISIBLE — they are meant to be edited by hand, and hiding
   // the tab you add teammates to is how it gets forgotten.
-  [C.tabs.state, C.tabs.dcCodes, C.tabs.dcDeny, C.tabs.exemplars].forEach(function (n) {
+  [C.tabs.state, C.tabs.dcCodes, C.tabs.dcDeny, C.tabs.exemplars,
+   C.tabs.llmCache].forEach(function (n) {
     var sh = ss_().getSheetByName(n);
     if (sh) sh.hideSheet();
   });
@@ -90,7 +92,7 @@ function migrateSchema() {
     [[CFG().tabs.raw, RAW_HEADER], [CFG().tabs.issues, ISSUE_HEADER],
      [CFG().tabs.tickets, TICKET_HEADER], [CFG().tabs.channels, CHANNEL_HEADER],
      [CFG().tabs.agents, AGENT_HEADER], [CFG().tabs.contacts, CONTACT_HEADER],
-     [CFG().tabs.questions, QUESTION_HEADER]].forEach(function (p) {
+     [CFG().tabs.questions, QUESTION_HEADER], [CFG().tabs.llmCache, LLM_CACHE_HEADER]].forEach(function (p) {
       var name = p[0], want = p[1];
       var sh = ss_().getSheetByName(name);
       if (!sh) { sheet_(name, want); out.push(name + ': created'); return; }

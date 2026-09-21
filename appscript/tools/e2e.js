@@ -171,7 +171,7 @@ const sandbox = {
 vm.createContext(sandbox);
 const FILES = ['Config.gs', 'Lexicons.gs', 'SlackParser.gs', 'Noise.gs', 'Entities.gs',
                'Evidence.gs', 'Group.gs', 'Dedupe.gs', 'Classify.gs', 'Emit.gs', 'Pipeline.gs',
-               'Notify.gs', 'WebApp.gs', 'Health.gs', 'Questions.gs', 'Kapture.gs',
+               'Notify.gs', 'WebApp.gs', 'Health.gs', 'Questions.gs', 'Llm.gs', 'Kapture.gs',
                'Setup.gs', 'Tests.gs'];
 for (const f of FILES) vm.runInContext(fs.readFileSync(path.join(DIR, f), 'utf8'), sandbox, { filename: f });
 const ok = (label, cond, extra) => {

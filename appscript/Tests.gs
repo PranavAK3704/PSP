@@ -388,13 +388,46 @@ function testIdentificationBand() {
       d.text.toLowerCase().indexOf('no need to chase') >= 0, true);
 }
 
+/**
+ * 17. The model tier must be unable to break anything.
+ *
+ * Verified against a real 401 from the live API: the request was built and sent, the failure
+ * was recorded, null came back, and the deterministic band was unchanged. Every other failure
+ * path — no key, quota, bad JSON, a 500, a timeout — returns null the same way. An enrichment
+ * tier that can take the pipeline down with it is not worth having.
+ */
+function testModelTierDegrades() {
+  var t = { idempotency_key: 'T', raiser: 'X', description: 'south zone line haul is broken',
+            intent: 'capacity_panel_issue', intent_margin: 0.12,
+            entity_tokens_json: '{}', flags_json: '["no_actionable_identifier"]' };
+
+  // With no key configured nothing is called and the rules alone decide.
+  var band = identificationBand(t);
+  _eq('with no key the band still resolves', band.band, 'blank');
+  _eq('and it says the answer came from the rules', band.source, 'rules');
+  _eq('questions still come from the bank', questionsFor(t).length > 0, true);
+
+  // The model may only ever RAISE confidence. A ticket that already has a waybill must not
+  // become less identified because a model hedged about it.
+  var solid = { idempotency_key: 'T', raiser: 'X', description: 'x',
+                intent: 'hardstop_loss', intent_margin: 0.80,
+                entity_tokens_json: '{"waybill":[{"value":"VL0084870753799"}]}',
+                flags_json: '[]' };
+  _eq('a well-identified ticket is clear on the rules alone',
+      identificationBand(solid).band, 'clear');
+  _eq('and clear asks nothing', questionsFor(solid).length, 0);
+
+  _eq('the tier is off without a key', llmEnabled_(), false);
+}
+
 /** Run everything. This is the function to run from the editor. */
 function runAllTests() {
   _T = { pass: 0, fail: 0, skip: 0, notes: [] };
   var suites = [testIdempotency, testIstStamp, testSeqRatio, testNormalise, testNoiseGate,
                 testEvidence, testDcExtraction, testEntityPatterns, testTitles, testChecks,
                 testClassifierIndex, testGroupingWindows, testColumnOwnership,
-                testPhoneNormalise, testBatchedWriteGrouping, testIdentificationBand];
+                testPhoneNormalise, testBatchedWriteGrouping, testIdentificationBand,
+                testModelTierDegrades];
   for (var i = 0; i < suites.length; i++) {
     try { suites[i](); }
     catch (e) {

@@ -33,6 +33,16 @@ one field per line, section markers. Verify before it matters.
 works and closes, against measured 82% coverage and 65% category precision. You can loosen it
 later; you cannot un-spam a desk.
 
+### 0b-2 · The Anthropic key in `backend/.env` is dead
+- [ ] Get a working key and put it in the `ANTHROPIC_KEY` script property
+- [ ] Run `checkLlm()` — it costs one call and prints what came back
+
+Tested against the live API: `HTTP 401 — API key is invalid`. The model tier is built and
+wired; it has never successfully answered. Without a key it returns null on every call and the
+deterministic answer stands, so nothing is broken — it is just not helping yet.
+
+Note `backend/data/llm_key.txt` holds an `sk-bf-…` key, which is not an Anthropic key at all.
+
 ### 0c · Chase the Slack reinstall — it is the only real blocker
 - [ ] Find out where `chat:write` + `im:write` approval is
 

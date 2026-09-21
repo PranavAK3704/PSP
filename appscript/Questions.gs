@@ -93,6 +93,13 @@ function questionBank_() {
  *   band 'blank'   neither landed         -> ask the short generic set
  */
 function identificationBand(t) {
+  // The model tier, if it has an opinion. Cached answers come back free, so this is safe to
+  // call on every render — and when it is off or has no key it returns null and everything
+  // below is exactly what it was before.
+  var llm = null;
+  try { llm = llmIdentify(String(t.description || t.anchor_text || '').split('\n')[0],
+                          knownDispositions_()); } catch (e) { llm = null; }
+
   var toks = {};
   try { toks = JSON.parse(t.entity_tokens_json || '{}'); } catch (e) { toks = {}; }
   var flags = [];
@@ -109,13 +116,26 @@ function identificationBand(t) {
   var what = !!intent && intent !== 'NOVEL' &&
              (margin === null || margin >= CFG().identify.trustCategoryMargin);
 
+  // ── what the model adds ─────────────────────────────────────────────────────────────────
+  // It can place a WHERE the regexes never could — "south zone", "the Bhiwandi sort centre",
+  // a hub named rather than coded — and it can commit to a category BM25 could not separate.
+  // It only ever raises confidence, never lowers it: if the deterministic tier already found
+  // a waybill, no model opinion should make that stop counting.
+  var source = 'rules';
+  if (llm) {
+    var sure = Number(llm.confidence || 0) >= CFG().llm.trustConfidence;
+    if (!who && llm.where) { who = true; source = 'model'; }
+    if (!what && sure && llm.category && llm.category !== 'NOVEL') { what = true; source = 'model'; }
+  }
+
   var band = who && what ? 'clear' : (who || what ? 'partial' : 'blank');
   var why = who
     ? (what ? 'we know where and what'
             : 'we know where, but not what kind of problem it is')
     : (what ? 'we know what kind of problem, but not where or who'
             : 'nothing in it we can look up, and no category we trust');
-  return { band: band, who: who, what: what, margin: margin, why: why };
+  return { band: band, who: who, what: what, margin: margin, why: why,
+           source: source, llm: llm };
 }
 
 /**
@@ -129,6 +149,13 @@ function questionsFor(t, limit) {
   limit = limit || CFG().identify.maxQuestions;
   var id = identificationBand(t);
   if (id.band === 'clear') return [];      // actionable as it stands — do not bother anybody
+
+  // A question written against THIS message beats one picked from a table. "Which trucking
+  // partner on the south zone lane?" is worth answering; "which centre, person or shipment"
+  // is what you ask when you have not read it.
+  if (id.llm && (id.llm.missing || []).length) {
+    return id.llm.missing.slice(0, limit);
+  }
 
   var toks = {};
   try { toks = JSON.parse(t.entity_tokens_json || '{}'); } catch (e) { toks = {}; }

@@ -44,7 +44,8 @@ function CFG() {
       exemplars: '_exemplars',
       agents:    '_agents',
       contacts:  '_dc_contacts',
-      questions: '_questions'
+      questions: '_questions',
+      llmCache:  '_llm_cache'
     },
 
     // A UI write waits this long for the script lock before giving up. The pipeline can hold it
@@ -118,6 +119,26 @@ function CFG() {
     // Trailing rows of the issues tab read to find open issues. Must exceed the number of
     // issues created inside the longest grouping window (180 days as shipped).
     issueTailRows: 30000,
+
+    // ── the model tier ───────────────────────────────────────────────────────────────────
+    // Asked ONLY about messages BM25 could not place, so cost scales with uncertainty rather
+    // than with volume, and every answer is cached on the message hash forever.
+    //
+    // claude-opus-5 because that is the right default and downgrading for cost is your call,
+    // not mine: `claude-haiku-4-5` is roughly a fifth the price and this is a short
+    // classification, so it is a reasonable switch to make deliberately after you have seen
+    // both on real traffic. One line either way.
+    llm: {
+      enabled: true,                 // no ANTHROPIC_KEY means no calls regardless
+      model: 'claude-opus-5',
+      // 20 x ~2s keeps a pipeline run far inside the 6-minute cap even in the worst case.
+      maxCallsPerRun: 20,
+      // A ceiling a runaway loop cannot climb over. Raise it once you know the real rate.
+      maxCallsPerDay: 500,
+      // Below this the model's own answer is treated as a hedge, not a category — which is
+      // the whole point of asking it for a confidence at all.
+      trustConfidence: 0.70
+    },
 
     // ── how well did we understand the message? ──────────────────────────────────────────
     // Two independent things have to land for a ticket to be actionable: WHO/WHERE (an

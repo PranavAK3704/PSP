@@ -215,6 +215,7 @@ function getTicket(key) {
       answered_at: String(t.answered_at || ''), answer: String(t.answer || ''),
       answer_identifiers: String(t.answer_identifiers || ''),
       ask: askDraft(t),                       // the message to send, and what it asks for
+      identification: identificationBand(t),  // how much we actually understood
       kapture_to: kaptureAddress_(),
       kapture_blockers: kaptureBlockers_(t, { auto: false }),
       updated_by: String(t.updated_by || ''), updated_at: String(t.updated_at || ''),

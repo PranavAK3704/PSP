@@ -119,6 +119,23 @@ function CFG() {
     // issues created inside the longest grouping window (180 days as shipped).
     issueTailRows: 30000,
 
+    // ── how well did we understand the message? ──────────────────────────────────────────
+    // Two independent things have to land for a ticket to be actionable: WHO/WHERE (an
+    // identifier somebody can look up) and WHAT (a category the desk routes on). Either can
+    // fail on its own, so they are scored separately and the weaker one decides.
+    //
+    // This is the seam a better model slots into later. Replace identificationBand() and
+    // nothing else in the project has to change — the asking, the copy and the UI all read
+    // the band, never the internals.
+    identify: {
+      // A category is only trusted when the classifier separated the top two by at least this
+      // much. Below it, do not ask category-specific questions — a wrong category asks the
+      // wrong thing of the one person who was trying to help.
+      trustCategoryMargin: 0.30,
+      // Ask at most this many. A message with six questions in it does not get answered.
+      maxQuestions: 3
+    },
+
     // ── filing into Kapture ──────────────────────────────────────────────────────────────
     // Kapture is the CRM the support agents are already onboarded to: an email to its intake
     // address becomes a ticket assigned to a real person. So this stops being a ticketing

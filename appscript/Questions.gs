@@ -30,7 +30,8 @@ var QUESTION_HEADER = ['applies_to', 'question', 'active'];
  * `applies_to` is one of:
  *   *                  ask on everything
  *   missing:<kind>     ask when that identifier is absent (dc_code, waybill, mobile, pilot_id)
- *   missing:any        ask when there is nothing actionable at all
+ *   missing:any        ask when there is nothing actionable at all — no WHERE
+ *   missing:category   ask when no category is trusted — no WHAT
  *   <category key>     ask when the classifier chose that category
  */
 function SEED_QUESTIONS() {
@@ -39,6 +40,13 @@ function SEED_QUESTIONS() {
     ['missing:waybill', 'Is there an AWB or waybill number involved?', true],
     ['missing:mobile', 'Which registered mobile number is this for?', true],
     ['missing:any', 'Which centre, person or shipment is this about?', true],
+    ['missing:any', 'Who is affected — which DCs, or which people?', true],
+    ['missing:any', 'Anything more on what is actually going wrong?', true],
+
+    // Fires when we placed WHERE but could not place WHAT. Without it, a message that named a
+    // DC perfectly and confused the classifier got asked nothing but "anything else?", which
+    // is not a question anybody answers.
+    ['missing:category', 'What is going wrong exactly — payment, load, an app, something lost?', true],
 
     ['load_planning', 'Which route or lane, and which trucking partner?', true],
     ['load_planning', 'Which sort centre is it feeding from?', true],
@@ -67,6 +75,50 @@ function questionBank_() {
 }
 
 /**
+ * How well did we actually identify this message? Returns {band, who, what, why}.
+ *
+ * ── THE SEAM ────────────────────────────────────────────────────────────────────────────────
+ * This is the one function a better model replaces. Everything downstream — whether to ask,
+ * what to ask, how the UI labels it — reads `band` and never the internals. Swap the scoring
+ * and nothing else moves.
+ *
+ * ── TWO AXES, NOT ONE ───────────────────────────────────────────────────────────────────────
+ * WHO/WHERE and WHAT fail independently. "DC NQS payment nahi aaya" identifies the place
+ * perfectly and cannot decide between two categories. "south zone line haul is compromised"
+ * names a real problem with nothing to look it up by. Scoring them together would average
+ * those into the same middling number and ask both the same questions, which is wrong twice.
+ *
+ *   band 'clear'   both landed            -> ask nothing, it is actionable as it stands
+ *   band 'partial' one landed             -> ask about the half that did not
+ *   band 'blank'   neither landed         -> ask the short generic set
+ */
+function identificationBand(t) {
+  var toks = {};
+  try { toks = JSON.parse(t.entity_tokens_json || '{}'); } catch (e) { toks = {}; }
+  var flags = [];
+  try { flags = JSON.parse(t.flags_json || '[]'); } catch (e) { flags = []; }
+
+  // WHO/WHERE: is there anything a human could actually look up?
+  var who = flags.indexOf('no_actionable_identifier') < 0;
+
+  // WHAT: did the classifier commit, and commit with room to spare? A category scraped in just
+  // over the floor is not a category anybody should ask questions based on.
+  var intent = String(t.intent || '');
+  var margin = t.intent_margin === '' || t.intent_margin === undefined
+    ? null : Number(t.intent_margin);
+  var what = !!intent && intent !== 'NOVEL' &&
+             (margin === null || margin >= CFG().identify.trustCategoryMargin);
+
+  var band = who && what ? 'clear' : (who || what ? 'partial' : 'blank');
+  var why = who
+    ? (what ? 'we know where and what'
+            : 'we know where, but not what kind of problem it is')
+    : (what ? 'we know what kind of problem, but not where or who'
+            : 'nothing in it we can look up, and no category we trust');
+  return { band: band, who: who, what: what, margin: margin, why: why };
+}
+
+/**
  * What to ask about this ticket, most specific first, capped.
  *
  * Capped at five because a DM with nine questions in it does not get answered. If everything
@@ -74,33 +126,47 @@ function questionBank_() {
  * narrower ones.
  */
 function questionsFor(t, limit) {
-  limit = limit || 5;
+  limit = limit || CFG().identify.maxQuestions;
+  var id = identificationBand(t);
+  if (id.band === 'clear') return [];      // actionable as it stands — do not bother anybody
+
   var toks = {};
   try { toks = JSON.parse(t.entity_tokens_json || '{}'); } catch (e) { toks = {}; }
   var has = function (k) { return !!(toks[k] && toks[k].length); };
-  var flags = [];
-  try { flags = JSON.parse(t.flags_json || '[]'); } catch (e) { flags = []; }
-  var nothing = flags.indexOf('no_actionable_identifier') >= 0;
   var intent = String(t.intent || '');
 
-  var out = [];
+  // Rank by how much the answer would actually narrow things, because the cap decides what
+  // gets dropped. Bank order alone put three generic questions ahead of the one targeted
+  // question and the cap then threw the targeted one away — the opposite of the intent.
+  var RANK = { category: 0, missingCategory: 1, missingAny: 2, missingKind: 3, always: 4 };
+  var picked = [];
   questionBank_().forEach(function (q) {
     var a = String(q.applies_to || '').trim();
-    var take = false;
-    if (a === '*') take = true;
-    else if (a === 'missing:any') take = nothing;
-    else if (a.indexOf('missing:') === 0) take = !has(a.slice(8));
-    else take = (a === intent);
-    if (take && out.indexOf(q.question) < 0) out.push(q.question);
+    var take = false, rank = RANK.always;
+    if (a === '*') { take = true; rank = RANK.always; }
+    else if (a === 'missing:category') { take = !id.what; rank = RANK.missingCategory; }
+    else if (a === 'missing:any') { take = !id.who; rank = RANK.missingAny; }
+    else if (a.indexOf('missing:') === 0) {
+      take = !id.who && !has(a.slice(8)); rank = RANK.missingKind;
+    } else {
+      // A category question is only worth asking when the category is TRUSTED. Asking
+      // "which AWBs, and was evidence submitted?" off a coin-flip guess is how you burn the
+      // goodwill of the one person who bothered to say something.
+      take = id.what && a === intent; rank = RANK.category;
+    }
+    if (take) picked.push({ q: q.question, rank: rank });
   });
+  picked.sort(function (x, y) { return x.rank - y.rank; });
+  var out = [];
+  picked.forEach(function (x) { if (out.indexOf(x.q) < 0) out.push(x.q); });
 
-  // "Which centre, person or shipment is this about?" makes the narrower identifier questions
-  // redundant — asking both reads as a form, and a form is the thing we are trying not to send.
+  // The broad "which centre, person or shipment" subsumes the narrow identifier questions.
+  // Asking both reads as a form, and a form is precisely what we are trying not to send.
   var generic = 'Which centre, person or shipment is this about?';
   if (out.indexOf(generic) >= 0) {
     out = out.filter(function (q) {
-      return q === generic || q.indexOf('DC or hub') < 0 && q.indexOf('waybill number') < 0 &&
-             q.indexOf('registered mobile') < 0;
+      return q === generic || (q.indexOf('DC or hub') < 0 && q.indexOf('waybill number') < 0 &&
+                               q.indexOf('registered mobile') < 0);
     });
   }
   return out.slice(0, limit);
@@ -115,21 +181,29 @@ function questionsFor(t, limit) {
  * the alternative to a partial answer is usually no answer.
  */
 function askDraft(t) {
+  var id = identificationBand(t);
   var qs = questionsFor(t);
   if (!qs.length) return null;
-  var info = t.intent && t.intent !== 'NOVEL' ? dispositionInfo(t.intent) : null;
+  var info = id.what ? dispositionInfo(t.intent) : null;
   var ref = String(t.idempotency_key || '').slice(0, 8).toUpperCase();
-  var what = info ? info.label.toLowerCase() : 'this';
+
+  // What we say we understood has to match what we actually did. Claiming a category we do not
+  // trust, and then asking about it, is the fastest way to teach people to ignore this.
+  var opener = info
+    ? 'Picked this up from the channel and logged it as ' + info.label.toLowerCase() +
+      ' (ref ' + ref + ').'
+    : 'Picked this up from the channel and logged it (ref ' + ref + ').';
 
   var lines = [];
-  lines.push('Picked this up from the channel and logged it as ' + what +
-             ' (ref ' + ref + ') — nothing needed from you to keep it moving.');
+  lines.push(opener + ' It is in the queue either way — nothing needed from you to keep it there.');
   lines.push('');
-  lines.push('To get it to the right desk first time, could you add:');
+  // Deliberately an invitation. The alternative to a partial answer is almost always no
+  // answer, and somebody who felt obliged once will scroll past the next one.
+  lines.push('If you have any of this handy it gets to the right desk faster:');
   qs.forEach(function (q) { lines.push('  • ' + q); });
   lines.push('');
-  lines.push('Whatever you have is fine — reply here and it gets attached.');
-  return { ref: ref, questions: qs, text: lines.join('\n') };
+  lines.push('No need to chase it up — whatever you already know is plenty.');
+  return { ref: ref, questions: qs, band: id.band, why: id.why, text: lines.join('\n') };
 }
 
 /**

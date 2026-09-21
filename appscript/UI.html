@@ -644,10 +644,15 @@
         (t.answer_identifiers?'<div class="hint" style="color:var(--green)">Picked out of that reply: '+esc(t.answer_identifiers)+'</div>':'')+
         '<div class="hint">Attached to the ticket and included when it is filed.</div></div>';
     }
-    return '<div class="card amber"><h3 class="sec" style="font-size:18px">'+
-      'They did not give us enough to act on</h3>'+
-      '<p class="lead">'+t.ask.questions.length+' thing'+(t.ask.questions.length>1?'s':'')+
-      ' missing. Send this to '+esc(String(t.raiser).split(' ')[0])+' and paste whatever comes back.</p>'+
+    // Say WHICH half we are short on. "We did not understand it" is not useful; "we know where
+    // but not what kind of problem" tells the agent whether to just fix the category themselves.
+    var id=t.identification||{band:'blank',why:''};
+    var head = id.band==='blank' ? 'We could not place this one'
+             : id.who ? 'We know where, but not what kind of problem'
+                      : 'We know the kind of problem, but not where';
+    return '<div class="card amber"><h3 class="sec" style="font-size:18px">'+esc(head)+'</h3>'+
+      '<p class="lead">'+esc(id.why)+'. Send this to '+esc(String(t.raiser).split(' ')[0])+
+      ' and paste whatever comes back — or just fix it yourself above if you already know.</p>'+
       '<textarea id="askText" style="min-height:150px;font-size:14px">'+esc(t.ask.text)+'</textarea>'+
       '<div class="btns" style="margin-top:10px">'+
       '<button class="b primary" onclick="copyAsk(this)">Copy the message</button>'+

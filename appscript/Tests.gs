@@ -337,13 +337,64 @@ function testBatchedWriteGrouping() {
   }
 }
 
+/**
+ * 16. The identification gate — whether we understood a message well enough to leave the
+ * raiser alone. WHO/WHERE and WHAT fail independently, so they are scored separately; a wrong
+ * category must never be the basis for a category-specific question.
+ */
+function testIdentificationBand() {
+  var mk = function (intent, margin, toks, flags) {
+    return { idempotency_key: 'T', raiser: 'X', intent: intent, intent_margin: margin,
+             entity_tokens_json: JSON.stringify(toks || {}),
+             flags_json: JSON.stringify(flags || []) };
+  };
+  var ID = { mobile: [{ value: '9900000001' }] };
+  var NOTHING = ['no_actionable_identifier'];
+
+  _eq('both landed -> clear',
+      identificationBand(mk('payment_not_received', 0.62, ID, [])).band, 'clear');
+  _eq('clear asks nothing at all',
+      questionsFor(mk('payment_not_received', 0.62, ID, [])).length, 0);
+
+  _eq('identifier but untrusted category -> partial',
+      identificationBand(mk('NOVEL', 0.11, ID, [])).band, 'partial');
+  _eq('category but no identifier -> partial',
+      identificationBand(mk('load_planning', 0.55, {}, NOTHING)).band, 'partial');
+  _eq('neither -> blank',
+      identificationBand(mk('capacity_panel_issue', 0.12, {}, NOTHING)).band, 'blank');
+
+  // A category scraped in just over the NOVEL floor is not one to ask questions from.
+  _eq('a barely-separated category is not trusted',
+      identificationBand(mk('hardstop_loss', 0.16, ID, [])).what, false);
+  _eq('a well-separated one is',
+      identificationBand(mk('hardstop_loss', 0.55, ID, [])).what, true);
+
+  // The failure this gate exists to prevent: asking hardstop-specific questions off a guess.
+  var shaky = questionsFor(mk('hardstop_loss', 0.16, {}, NOTHING));
+  var leaked = shaky.filter(function (q) { return q.indexOf('AWBs') >= 0; }).length;
+  _eq('an untrusted category leaks no category-specific question', leaked, 0);
+  var solid = questionsFor(mk('hardstop_loss', 0.55, {}, NOTHING));
+  _eq('a trusted one does contribute its own question',
+      solid.filter(function (q) { return q.indexOf('AWBs') >= 0; }).length, 1);
+
+  // And the draft must not claim a category it does not trust.
+  var d = askDraft(mk('capacity_panel_issue', 0.12, {}, NOTHING));
+  _eq('the draft does not name an untrusted category',
+      d.text.indexOf('capacity panel') < 0, true);
+  // An invitation, not a demand: somebody who felt obliged once scrolls past the next one.
+  _eq('the draft is phrased as optional',
+      d.text.toLowerCase().indexOf('if you have any of this handy') >= 0, true);
+  _eq('and closes without an obligation',
+      d.text.toLowerCase().indexOf('no need to chase') >= 0, true);
+}
+
 /** Run everything. This is the function to run from the editor. */
 function runAllTests() {
   _T = { pass: 0, fail: 0, skip: 0, notes: [] };
   var suites = [testIdempotency, testIstStamp, testSeqRatio, testNormalise, testNoiseGate,
                 testEvidence, testDcExtraction, testEntityPatterns, testTitles, testChecks,
                 testClassifierIndex, testGroupingWindows, testColumnOwnership,
-                testPhoneNormalise, testBatchedWriteGrouping];
+                testPhoneNormalise, testBatchedWriteGrouping, testIdentificationBand];
   for (var i = 0; i < suites.length; i++) {
     try { suites[i](); }
     catch (e) {
